@@ -8,20 +8,16 @@
 
 use bt_hci::controller::ExternalController;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
 use esp_hal::clock::CpuClock;
 use esp_hal::timer::timg::TimerGroup;
 use esp_radio::ble::controller::BleConnector;
+use esp32s3::protocol::Message;
 use static_cell::StaticCell;
 use trouble_host::prelude::*;
-
-use core::sync::atomic::AtomicU8;
-
-use embassy_futures::join::join;
-
-use esp32s3::protocol::Message;
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
