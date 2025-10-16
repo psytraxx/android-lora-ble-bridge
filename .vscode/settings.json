@@ -10,4 +10,5 @@
   "rust-analyzer.cargo.extraEnv": {
     "RUSTUP_TOOLCHAIN": "esp"
   },
+  "java.configuration.updateBuildConfiguration": "automatic",
 }

@@ -34,13 +34,14 @@ public class Protocol {
         }
     }
 
-    public static class DataMessage {
+    public static class DataMessage extends Message {
         public final byte seq;
         public final String text;
         public final int lat; // latitude * 1_000_000
         public final int lon; // longitude * 1_000_000
 
         public DataMessage(byte seq, String text, int lat, int lon) {
+            super(MessageType.DATA);
             if (text.length() > 255) {
                 throw new IllegalArgumentException("Text too long");
             }
@@ -51,9 +52,25 @@ public class Protocol {
         }
 
         @Override
+        public byte[] serialize() {
+            byte textBytes[] = text.getBytes(StandardCharsets.UTF_8);
+            byte data[] = new byte[1 + 1 + 1 + textBytes.length + 8];
+            data[0] = MessageType.DATA.getValue();
+            data[1] = seq;
+            data[2] = (byte) textBytes.length;
+            System.arraycopy(textBytes, 0, data, 3, textBytes.length);
+            ByteBuffer buf = ByteBuffer.wrap(data, 3 + textBytes.length, 8).order(ByteOrder.LITTLE_ENDIAN);
+            buf.putInt(lat);
+            buf.putInt(lon);
+            return data;
+        }
+
+        @Override
         public boolean equals(Object obj) {
-            if (this == obj) return true;
-            if (obj == null || getClass() != obj.getClass()) return false;
+            if (this == obj)
+                return true;
+            if (obj == null || getClass() != obj.getClass())
+                return false;
             DataMessage that = (DataMessage) obj;
             return seq == that.seq && lat == that.lat && lon == that.lon && text.equals(that.text);
         }
@@ -69,17 +86,28 @@ public class Protocol {
         }
     }
 
-    public static class AckMessage {
+    public static class AckMessage extends Message {
         public final byte seq;
 
         public AckMessage(byte seq) {
+            super(MessageType.ACK);
             this.seq = seq;
         }
 
         @Override
+        public byte[] serialize() {
+            byte data[] = new byte[2];
+            data[0] = MessageType.ACK.getValue();
+            data[1] = seq;
+            return data;
+        }
+
+        @Override
         public boolean equals(Object obj) {
-            if (this == obj) return true;
-            if (obj == null || getClass() != obj.getClass()) return false;
+            if (this == obj)
+                return true;
+            if (obj == null || getClass() != obj.getClass())
+                return false;
             AckMessage that = (AckMessage) obj;
             return seq == that.seq;
         }
@@ -141,78 +169,6 @@ public class Protocol {
             }
             byte seq = data[1];
             return new AckMessage(seq);
-        }
-
-        public static class Data extends Message {
-            public final DataMessage dataMessage;
-
-            public Data(DataMessage dataMessage) {
-                super(MessageType.DATA);
-                this.dataMessage = dataMessage;
-            }
-
-            @Override
-            public byte[] serialize() {
-                byte[] textBytes = dataMessage.text.getBytes(StandardCharsets.UTF_8);
-                ByteBuffer buf = ByteBuffer.allocate(11 + textBytes.length).order(ByteOrder.LITTLE_ENDIAN);
-                buf.put(type.getValue());
-                buf.put(dataMessage.seq);
-                buf.put((byte) textBytes.length);
-                buf.put(textBytes);
-                buf.putInt(dataMessage.lat);
-                buf.putInt(dataMessage.lon);
-                return buf.array();
-            }
-
-            @Override
-            public boolean equals(Object obj) {
-                if (this == obj) return true;
-                if (obj == null || getClass() != obj.getClass()) return false;
-                Data that = (Data) obj;
-                return dataMessage.equals(that.dataMessage);
-            }
-
-            @Override
-            public int hashCode() {
-                return dataMessage.hashCode();
-            }
-
-            @Override
-            public String toString() {
-                return "Message.Data{" + dataMessage + "}";
-            }
-        }
-
-        public static class Ack extends Message {
-            public final AckMessage ackMessage;
-
-            public Ack(AckMessage ackMessage) {
-                super(MessageType.ACK);
-                this.ackMessage = ackMessage;
-            }
-
-            @Override
-            public byte[] serialize() {
-                return new byte[]{type.getValue(), ackMessage.seq};
-            }
-
-            @Override
-            public boolean equals(Object obj) {
-                if (this == obj) return true;
-                if (obj == null || getClass() != obj.getClass()) return false;
-                Ack that = (Ack) obj;
-                return ackMessage.equals(that.ackMessage);
-            }
-
-            @Override
-            public int hashCode() {
-                return ackMessage.hashCode();
-            }
-
-            @Override
-            public String toString() {
-                return "Message.Ack{" + ackMessage + "}";
-            }
         }
     }
 }

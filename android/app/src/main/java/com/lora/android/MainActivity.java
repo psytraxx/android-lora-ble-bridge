@@ -1,6 +1,7 @@
 package com.lora.android;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
@@ -76,9 +77,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void checkPermissions() {
         String[] permissions = {
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT,
-            Manifest.permission.ACCESS_FINE_LOCATION
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.ACCESS_FINE_LOCATION
         };
 
         boolean allGranted = true;
@@ -97,7 +98,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_PERMISSIONS) {
             boolean allGranted = true;
@@ -115,7 +117,16 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private void startBleScan() {
+        if (ActivityCompat.checkSelfPermission(this,
+                Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED ||
+                ActivityCompat.checkSelfPermission(this,
+                        Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, "Bluetooth permissions required", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
             Toast.makeText(this, "Bluetooth not enabled", Toast.LENGTH_SHORT).show();
             return;
@@ -133,6 +144,7 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    @SuppressLint("MissingPermission")
     private void connectToDevice(BluetoothDevice device) {
         bluetoothGatt = device.connectGatt(this, false, new BluetoothGattCallback() {
             @Override
@@ -160,11 +172,13 @@ public class MainActivity extends AppCompatActivity {
                     byte[] data = characteristic.getValue();
                     try {
                         Protocol.Message msg = Protocol.Message.deserialize(data);
-                        if (msg instanceof Protocol.Message.Data) {
-                            Protocol.DataMessage dataMsg = ((Protocol.Message.Data) msg).dataMessage;
-                            runOnUiThread(() -> receivedTextView.setText("Received: " + dataMsg.text + " Lat: " + dataMsg.lat + " Lon: " + dataMsg.lon));
-                        } else if (msg instanceof Protocol.Message.Ack) {
-                            runOnUiThread(() -> Toast.makeText(MainActivity.this, "ACK received", Toast.LENGTH_SHORT).show());
+                        if (msg instanceof Protocol.DataMessage) {
+                            Protocol.DataMessage dataMsg = (Protocol.DataMessage) msg;
+                            runOnUiThread(() -> receivedTextView.setText(
+                                    "Received: " + dataMsg.text + " Lat: " + dataMsg.lat + " Lon: " + dataMsg.lon));
+                        } else if (msg instanceof Protocol.AckMessage) {
+                            runOnUiThread(
+                                    () -> Toast.makeText(MainActivity.this, "ACK received", Toast.LENGTH_SHORT).show());
                         }
                     } catch (Exception e) {
                         // Invalid data
@@ -174,6 +188,7 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    @SuppressLint("MissingPermission")
     private void sendMessage() {
         if (bluetoothGatt == null || txCharacteristic == null) {
             Toast.makeText(this, "Not connected", Toast.LENGTH_SHORT).show();
@@ -191,15 +206,15 @@ public class MainActivity extends AppCompatActivity {
         int lon = (int) (location.getLongitude() * 1_000_000);
 
         Protocol.DataMessage dataMsg = new Protocol.DataMessage(seqCounter++, text, lat, lon);
-        Protocol.Message msg = new Protocol.Message.Data(dataMsg);
-        byte[] data = msg.serialize();
+        byte[] data = dataMsg.serialize();
 
         txCharacteristic.setValue(data);
         bluetoothGatt.writeCharacteristic(txCharacteristic);
     }
 
     private Location getLastKnownLocation() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        if (ActivityCompat.checkSelfPermission(this,
+                Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             return null;
         }
         return locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
