@@ -1,7 +1,7 @@
 //! ESP32-S3 Firmware for LoRa-BLE Bridge
 //!
 //! This firmware implements a BLE peripheral that communicates with Android devices
-//! and is designed to bridge BLE messages to LoRa transmission (LoRa implementation pending).
+//! and bridges BLE messages to LoRa transmission and reception.
 //!
 //! Features:
 //! - BLE GATT server with TX/RX characteristics for message exchange
@@ -16,23 +16,38 @@
     holding buffers for the duration of a data transfer."
 )]
 
-use bt_hci::controller::ExternalController;
-use embassy_executor::Spawner;
-use embassy_futures::join::join;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
-use embassy_time::{Duration, Timer};
-use esp_hal::clock::CpuClock;
-use esp_hal::timer::timg::TimerGroup;
-use esp_radio::ble::controller::BleConnector;
-use esp32s3::protocol::Message;
-use static_cell::StaticCell;
-use trouble_host::prelude::*;
-
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
+
+use bt_hci::controller::ExternalController;
+use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
+use embassy_executor::Spawner;
+use embassy_futures::join::join;
+use embassy_futures::select::{Either, select};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::{Channel, Receiver, Sender};
+use embassy_sync::mutex::Mutex;
+use embassy_time::Delay;
+use embassy_time::{Duration, Timer};
+use esp_hal::Async;
+use esp_hal::clock::CpuClock;
+use esp_hal::gpio::Input;
+use esp_hal::gpio::InputConfig;
+use esp_hal::gpio::Output;
+use esp_hal::gpio::OutputConfig;
+use esp_hal::time::Rate;
+use esp_hal::timer::timg::TimerGroup;
+use esp_radio::Controller;
+use esp_radio::ble::controller::BleConnector;
+use esp32s3::protocol::{AckMessage, Message};
+use lora_phy::iv::GenericSx127xInterfaceVariant;
+use lora_phy::mod_params::*;
+use static_cell::StaticCell;
+use trouble_host::prelude::*;
+
+use lora_phy::{LoRa, sx127x::*};
 
 extern crate alloc;
 
@@ -80,7 +95,6 @@ async fn main(spawner: Spawner) -> ! {
 
     // Initialize Wi-Fi/BLE radio
     let radio_init = esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller");
-    static RADIO: StaticCell<esp_radio::Controller<'static>> = StaticCell::new();
     let radio = RADIO.init(radio_init);
     // Create BLE connector and controller
     let transport = BleConnector::new(radio, peripherals.BT, Default::default()).unwrap();
@@ -99,21 +113,66 @@ async fn main(spawner: Spawner) -> ! {
         ))
         .unwrap();
 
-    // TODO: Spawn LoRa task for radio communication
+    // LoRa setup
+    let spi = esp_hal::spi::master::Spi::new(
+        peripherals.SPI2,
+        esp_hal::spi::master::Config::default().with_frequency(Rate::from_mhz(1)),
+    )
+    .unwrap()
+    .with_sck(peripherals.GPIO18)
+    .with_mosi(peripherals.GPIO21)
+    .with_miso(peripherals.GPIO19)
+    .into_async();
+
+    let spi_bus = SPI_BUS.init(Mutex::new(spi));
+
+    let cs = Output::new(
+        peripherals.GPIO5,
+        esp_hal::gpio::Level::High,
+        OutputConfig::default(),
+    );
+    let spi_device = SpiDevice::new(spi_bus, cs);
+    let config = Config {
+        chip: Sx1276,
+        tcxo_used: false,
+        tx_boost: false,
+        rx_boost: false,
+    };
+
+    let reset = Output::new(
+        peripherals.GPIO12,
+        esp_hal::gpio::Level::High,
+        OutputConfig::default(),
+    );
+    let dio0 = Input::new(peripherals.GPIO15, InputConfig::default());
+
+    let iv = GenericSx127xInterfaceVariant::new(reset, dio0, None, None).unwrap();
+
+    let radio = Sx127x::new(spi_device, iv, config);
+    let lora: LoraRadio = LoRa::new(radio, true, Delay).await.unwrap();
+
+    // Spawn LoRa task
+    spawner
+        .spawn(lora_task(
+            lora,
+            ble_to_lora.receiver(),
+            lora_to_ble.sender(),
+        ))
+        .unwrap();
 
     // Main loop: keep the system running
     loop {
         Timer::after(Duration::from_secs(1)).await;
     }
-
-    // for inspiration have a look at the examples at https://github.com/esp-rs/esp-hal/tree/esp-hal-v1.0.0-rc.1/examples/src/bin
 }
 
 #[embassy_executor::task]
+/// BLE task that handles BLE stack initialization, advertising, and GATT event processing.
+/// Forwards messages between BLE and LoRa channels.
 async fn ble_task(
     controller: ExternalController<BleConnector<'static>, 20>,
-    mut ble_to_lora: embassy_sync::channel::Sender<'static, CriticalSectionRawMutex, Message, 1>,
-    mut lora_to_ble: embassy_sync::channel::Receiver<'static, CriticalSectionRawMutex, Message, 1>,
+    mut ble_to_lora: Sender<'static, CriticalSectionRawMutex, Message, 1>,
+    mut lora_to_ble: Receiver<'static, CriticalSectionRawMutex, Message, 1>,
 ) {
     // Set a random address for the BLE device
     let address: Address = Address::random([0xff, 0x8f, 0x1a, 0x05, 0xe4, 0xff]);
@@ -196,8 +255,8 @@ async fn ble_runner(
 async fn gatt_events_task(
     server: &Server<'_>,
     conn: &GattConnection<'_, '_, DefaultPacketPool>,
-    ble_to_lora: &mut embassy_sync::channel::Sender<'static, CriticalSectionRawMutex, Message, 1>,
-    lora_to_ble: &mut embassy_sync::channel::Receiver<'static, CriticalSectionRawMutex, Message, 1>,
+    ble_to_lora: &mut Sender<'static, CriticalSectionRawMutex, Message, 1>,
+    lora_to_ble: &mut Receiver<'static, CriticalSectionRawMutex, Message, 1>,
 ) {
     loop {
         match conn.next().await {
@@ -230,5 +289,112 @@ async fn gatt_events_task(
     }
 }
 
+#[embassy_executor::task]
+/// LoRa task that manages LoRa radio operations, including transmission and reception.
+/// Handles message forwarding between LoRa and BLE channels, and sends acknowledgments.
+async fn lora_task(
+    mut lora: LoraRadio,
+    ble_to_lora: Receiver<'static, CriticalSectionRawMutex, Message, 1>,
+    lora_to_ble: Sender<'static, CriticalSectionRawMutex, Message, 1>,
+) {
+    // Initialize LoRa
+    lora.init().await.unwrap();
+
+    // Create modulation parameters (adjust frequency as needed, e.g., 868MHz for EU)
+    let modulation_params = lora
+        .create_modulation_params(
+            SpreadingFactor::_7,
+            Bandwidth::_250KHz,
+            CodingRate::_4_5,
+            868_000_000,
+        )
+        .unwrap();
+
+    // Create TX packet parameters
+    let mut tx_packet_params = lora
+        .create_tx_packet_params(8, false, true, false, &modulation_params)
+        .unwrap();
+
+    // Create RX packet parameters
+    let rx_packet_params = lora
+        .create_rx_packet_params(8, false, 255, true, false, &modulation_params)
+        .unwrap();
+
+    // Prepare for continuous receive
+    lora.prepare_for_rx(RxMode::Continuous, &modulation_params, &rx_packet_params)
+        .await
+        .unwrap();
+
+    let mut rx_buffer = [0u8; 256];
+
+    loop {
+        let ble_recv = ble_to_lora.receive();
+        let lora_recv = lora.rx(&rx_packet_params, &mut rx_buffer);
+
+        match select(ble_recv, lora_recv).await {
+            Either::First(msg) => {
+                // Transmit message over LoRa
+                let mut buf = [0u8; 512];
+                if let Ok(len) = msg.serialize(&mut buf) {
+                    lora.prepare_for_tx(&modulation_params, &mut tx_packet_params, 14, &buf[..len])
+                        .await
+                        .unwrap();
+                    lora.tx().await.unwrap();
+                }
+            }
+            Either::Second(result) => {
+                // Handle received LoRa packet
+                if let Ok((len, _status)) = result {
+                    let data = &rx_buffer[..len as usize];
+                    if let Ok(msg) = Message::deserialize(data) {
+                        match msg {
+                            Message::Data(ref data) => {
+                                // Send ACK
+                                let ack = Message::Ack(AckMessage { seq: data.seq });
+                                let mut buf = [0u8; 512];
+                                if let Ok(ack_len) = ack.serialize(&mut buf) {
+                                    lora.prepare_for_tx(
+                                        &modulation_params,
+                                        &mut tx_packet_params,
+                                        14,
+                                        &buf[..ack_len],
+                                    )
+                                    .await
+                                    .unwrap();
+                                    lora.tx().await.unwrap();
+                                }
+                                // Forward data to BLE
+                                let _ = lora_to_ble.send(msg).await;
+                            }
+                            Message::Ack(_) => {
+                                // Forward ACK to BLE
+                                let _ = lora_to_ble.send(msg).await;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 static BLE_TO_LORA: StaticCell<Channel<CriticalSectionRawMutex, Message, 1>> = StaticCell::new();
 static LORA_TO_BLE: StaticCell<Channel<CriticalSectionRawMutex, Message, 1>> = StaticCell::new();
+static SPI_BUS: StaticCell<
+    Mutex<CriticalSectionRawMutex, esp_hal::spi::master::Spi<'static, Async>>,
+> = StaticCell::new();
+static RADIO: StaticCell<Controller<'static>> = StaticCell::new();
+
+type LoraRadio = LoRa<
+    Sx127x<
+        SpiDevice<
+            'static,
+            CriticalSectionRawMutex,
+            esp_hal::spi::master::Spi<'static, Async>,
+            Output<'static>,
+        >,
+        GenericSx127xInterfaceVariant<Output<'static>, Input<'static>>,
+        Sx1276,
+    >,
+    Delay,
+>;

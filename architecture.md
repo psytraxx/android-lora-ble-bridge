@@ -1,7 +1,7 @@
 ```mermaid
 graph TD
     A[Android Phone 1<br/>- Internal GPS<br/>- Text Input<br/>- Display<br/>- Java App] -->|Text + GPS Data| B[BLE]
-    B --> C[ESP32-S3<br/>LoRa Transmitter<br/>- Sx1276 Module<br/>- Pins: SCK18, MISO19, MOSI23, SS5, RST12, DIO032<br/>- Firmware: Rust/Arduino]
+    B --> C[ESP32-S3<br/>LoRa Transmitter<br/>- Sx1276 Module<br/>- Pins: SCK18, MISO19, MOSI21, SS5, RST12, DIO015<br/>- Firmware: Rust/Arduino]
     C -->|LoRa Transmission| D[LoRa Radio Waves]
     D --> E[ESP32-S3<br/>LoRa Receiver<br/>- Same hardware/firmware]
     E -->|Forwarded Data| F[BLE]
