@@ -27,7 +27,7 @@ cargo build
 ### ESP32 Firmware
 Requires ESP32 Rust toolchain.
 ```bash
-cd esp32
+cd esp32s3
 cargo build --release --target xtensa-esp32-espidf
 ```
 
