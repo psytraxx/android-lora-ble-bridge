@@ -801,6 +801,8 @@ dependencies = [
  "bt-hci",
  "critical-section",
  "embassy-executor",
+ "embassy-futures",
+ "embassy-sync 0.7.2",
  "embassy-time",
  "embedded-io 0.7.1",
  "embedded-io-async 0.7.0",
@@ -809,6 +811,7 @@ dependencies = [
  "esp-hal",
  "esp-radio",
  "esp-rtos",
+ "heapless 0.8.0",
  "static_cell",
  "trouble-host",
 ]
