@@ -151,7 +151,8 @@ async fn ble_task(
             // Handle connection
             gatt_events_task(&server, &conn, &mut ble_to_lora, &mut lora_to_ble).await;
         }
-    });
+    })
+    .await;
 }
 
 async fn ble_runner(
