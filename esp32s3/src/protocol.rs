@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use heapless::String;
 
 /// Message types
@@ -26,7 +27,7 @@ pub struct AckMessage {
 /// Union of all message types
 #[derive(Debug, Clone, PartialEq)]
 pub enum Message {
-    Data(DataMessage),
+    Data(Box<DataMessage>),
     Ack(AckMessage),
 }
 
@@ -86,12 +87,12 @@ impl Message {
                 let lat = i32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap());
                 offset += 4;
                 let lon = i32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap());
-                Ok(Message::Data(DataMessage {
+                Ok(Message::Data(Box::new(DataMessage {
                     seq,
                     text,
                     lat,
                     lon,
-                }))
+                })))
             }
             0x02 => {
                 if buf.len() < 2 {
