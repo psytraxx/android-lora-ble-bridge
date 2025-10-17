@@ -34,6 +34,7 @@ use esp32s3::protocol::Message;
 
 use esp_hal::Config;
 use esp_println::logger::init_logger_from_env;
+use log::{error, info};
 use static_cell::StaticCell;
 
 extern crate alloc;
@@ -53,19 +54,34 @@ async fn main(spawner: Spawner) -> ! {
     // Initialize logging
     init_logger_from_env();
 
+    info!("ESP32-S3 LoRa-BLE Bridge starting...");
+
     // Initialize the RTOS timer
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0);
+    info!("RTOS timer initialized");
 
     // Initialize Wi-Fi/BLE radio
-    let radio_init = esp_radio::init().expect("Failed to initialize Wi-Fi/BLE controller");
+    info!("Initializing Wi-Fi/BLE radio controller...");
+    let radio_init = match esp_radio::init() {
+        Ok(r) => {
+            info!("Radio controller initialized successfully");
+            r
+        }
+        Err(e) => {
+            error!("Failed to initialize radio controller: {:?}", e);
+            panic!("Radio init failed");
+        }
+    };
     let radio = RADIO.init(radio_init);
 
     // Initialize communication channels between BLE and LoRa tasks
+    info!("Setting up BLE<->LoRa communication channels");
     let ble_to_lora = BLE_TO_LORA.init(Channel::new());
     let lora_to_ble = LORA_TO_BLE.init(Channel::new());
 
     // Spawn the BLE task with radio and BT peripheral
+    info!("Spawning BLE task...");
     spawner
         .spawn(ble_task(
             radio,
@@ -76,6 +92,7 @@ async fn main(spawner: Spawner) -> ! {
         .unwrap();
 
     // Spawn LoRa task with SPI peripheral and GPIO pins
+    info!("Spawning LoRa task...");
     spawner
         .spawn(lora_task(
             peripherals.SPI2,
@@ -91,6 +108,8 @@ async fn main(spawner: Spawner) -> ! {
             lora_to_ble.sender(),
         ))
         .unwrap();
+
+    info!("All tasks spawned successfully - system running");
 
     // Main loop: keep the system running
     loop {

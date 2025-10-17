@@ -11,6 +11,7 @@ use esp_hal::{
     gpio::{Input, InputConfig, Output, OutputConfig},
     time::Rate,
 };
+use log::{error, info, warn};
 use lora_phy::mod_params::*;
 use lora_phy::{
     LoRa, RxMode,
@@ -40,6 +41,8 @@ pub async fn lora_task(
     ble_to_lora: Receiver<'static, CriticalSectionRawMutex, Message, 1>,
     lora_to_ble: Sender<'static, CriticalSectionRawMutex, Message, 1>,
 ) {
+    info!("LoRa task starting...");
+
     // Initialize SPI
     let spi = esp_hal::spi::master::Spi::new(
         spi_peripheral,
@@ -79,6 +82,7 @@ pub async fn lora_task(
     let radio = Sx127x::new(spi_device, iv, config);
     let mut lora: LoraRadio = LoRa::new(radio, true, Delay).await.unwrap();
     // Initialize LoRa
+    info!("Initializing LoRa radio");
     lora.init().await.unwrap();
 
     // Create modulation parameters (adjust frequency as needed, e.g., 868MHz for EU)
@@ -105,6 +109,7 @@ pub async fn lora_task(
     lora.prepare_for_rx(RxMode::Continuous, &modulation_params, &rx_packet_params)
         .await
         .unwrap();
+    info!("LoRa radio ready for RX/TX operations");
 
     let mut rx_buffer = [0u8; 256];
 
@@ -114,45 +119,78 @@ pub async fn lora_task(
 
         match select(ble_recv, lora_recv).await {
             Either::First(msg) => {
+                info!("Received message from BLE to transmit via LoRa: {:?}", msg);
                 // Transmit message over LoRa
                 let mut buf = [0u8; 512];
-                if let Ok(len) = msg.serialize(&mut buf) {
-                    lora.prepare_for_tx(&modulation_params, &mut tx_packet_params, 14, &buf[..len])
-                        .await
-                        .unwrap();
-                    lora.tx().await.unwrap();
+                match msg.serialize(&mut buf) {
+                    Ok(len) => {
+                        match lora
+                            .prepare_for_tx(
+                                &modulation_params,
+                                &mut tx_packet_params,
+                                14,
+                                &buf[..len],
+                            )
+                            .await
+                        {
+                            Ok(_) => match lora.tx().await {
+                                Ok(_) => info!("LoRa TX successful"),
+                                Err(e) => error!("LoRa TX failed: {:?}", e),
+                            },
+                            Err(e) => error!("LoRa prepare_for_tx failed: {:?}", e),
+                        }
+                    }
+                    Err(e) => error!("Failed to serialize message for LoRa TX: {:?}", e),
                 }
             }
             Either::Second(result) => {
                 // Handle received LoRa packet
-                if let Ok((len, _status)) = result {
-                    let data = &rx_buffer[..len as usize];
-                    if let Ok(msg) = Message::deserialize(data) {
-                        match msg {
-                            Message::Data(ref data) => {
-                                // Send ACK
-                                let ack = Message::Ack(AckMessage { seq: data.seq });
-                                let mut buf = [0u8; 512];
-                                if let Ok(ack_len) = ack.serialize(&mut buf) {
-                                    lora.prepare_for_tx(
-                                        &modulation_params,
-                                        &mut tx_packet_params,
-                                        14,
-                                        &buf[..ack_len],
-                                    )
-                                    .await
-                                    .unwrap();
-                                    lora.tx().await.unwrap();
+                match result {
+                    Ok((len, status)) => {
+                        info!("LoRa RX: received {} bytes, RSSI: {:?}", len, status.rssi);
+                        let data = &rx_buffer[..len as usize];
+                        match Message::deserialize(data) {
+                            Ok(msg) => {
+                                info!("LoRa message deserialized: {:?}", msg);
+                                match msg {
+                                    Message::Data(ref data) => {
+                                        // Send ACK
+                                        let ack = Message::Ack(AckMessage { seq: data.seq });
+                                        info!("Sending ACK for seq: {}", data.seq);
+                                        let mut buf = [0u8; 512];
+                                        if let Ok(ack_len) = ack.serialize(&mut buf) {
+                                            if let Err(e) = lora
+                                                .prepare_for_tx(
+                                                    &modulation_params,
+                                                    &mut tx_packet_params,
+                                                    14,
+                                                    &buf[..ack_len],
+                                                )
+                                                .await
+                                            {
+                                                error!("Failed to prepare ACK TX: {:?}", e);
+                                            } else if let Err(e) = lora.tx().await {
+                                                error!("Failed to send ACK: {:?}", e);
+                                            } else {
+                                                info!("ACK sent successfully");
+                                            }
+                                        }
+                                        // Forward data to BLE
+                                        lora_to_ble.send(msg).await;
+                                        info!("Message forwarded from LoRa to BLE");
+                                    }
+                                    Message::Ack(ref ack) => {
+                                        info!("Received ACK for seq: {}", ack.seq);
+                                        // Forward ACK to BLE
+                                        lora_to_ble.send(msg).await;
+                                        info!("ACK forwarded to BLE");
+                                    }
                                 }
-                                // Forward data to BLE
-                                let _ = lora_to_ble.send(msg).await;
                             }
-                            Message::Ack(_) => {
-                                // Forward ACK to BLE
-                                let _ = lora_to_ble.send(msg).await;
-                            }
+                            Err(e) => warn!("Failed to deserialize LoRa message: {:?}", e),
                         }
                     }
+                    Err(e) => warn!("LoRa RX error: {:?}", e),
                 }
             }
         }

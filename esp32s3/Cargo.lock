@@ -912,6 +912,7 @@ dependencies = [
  "esp-radio",
  "esp-rtos",
  "heapless 0.8.0",
+ "log",
  "lora-phy",
  "static_cell",
  "trouble-host",

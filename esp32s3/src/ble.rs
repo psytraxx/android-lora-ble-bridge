@@ -6,6 +6,7 @@ use embassy_sync::{
     channel::{Receiver, Sender},
 };
 use esp_radio::{Controller, ble::controller::BleConnector};
+use log::{error, info, warn};
 use trouble_host::prelude::*;
 use trouble_host::{
     Address,
@@ -25,6 +26,8 @@ pub async fn ble_task(
     mut ble_to_lora: Sender<'static, CriticalSectionRawMutex, Message, 1>,
     mut lora_to_ble: Receiver<'static, CriticalSectionRawMutex, Message, 1>,
 ) {
+    info!("BLE task starting...");
+
     // Initialize BLE controller
     let transport = BleConnector::new(radio, bt_peripheral, Default::default()).unwrap();
     let controller = ExternalController::<_, 20>::new(transport);
@@ -46,6 +49,7 @@ pub async fn ble_task(
         appearance: &appearance::power_device::GENERIC_POWER_DEVICE,
     }))
     .unwrap();
+    info!("GATT server created with LoRa service");
 
     // Prepare advertising data
     let mut adv_data = [0; 31];
@@ -69,6 +73,7 @@ pub async fn ble_task(
     // Run the BLE runner and advertising loop concurrently
     join(ble_runner(runner), async {
         loop {
+            info!("Starting BLE advertising...");
             // Advertise and wait for connection
             let acceptor = peripheral
                 .advertise(
@@ -80,6 +85,7 @@ pub async fn ble_task(
                 )
                 .await
                 .unwrap();
+            info!("BLE connection accepted");
             let conn = acceptor
                 .accept()
                 .await
@@ -89,6 +95,7 @@ pub async fn ble_task(
 
             // Handle the GATT connection
             gatt_events_task(&server, &conn, &mut ble_to_lora, &mut lora_to_ble).await;
+            warn!("BLE connection closed, restarting advertising");
         }
     })
     .await;
@@ -112,32 +119,51 @@ async fn gatt_events_task(
     ble_to_lora: &mut Sender<'static, CriticalSectionRawMutex, Message, 1>,
     lora_to_ble: &mut Receiver<'static, CriticalSectionRawMutex, Message, 1>,
 ) {
+    info!("GATT event handler started");
     loop {
         match conn.next().await {
-            GattConnectionEvent::Disconnected { .. } => break,
-            GattConnectionEvent::Gatt { event } => {
-                match &event {
-                    GattEvent::Write(event) if event.handle() == server.lora_service.rx.handle => {
-                        if let Ok(msg) = Message::deserialize(event.data()) {
-                            let _ = ble_to_lora.try_send(msg);
-                        }
-                    }
-                    GattEvent::Read(event) if event.handle() == server.lora_service.tx.handle => {
-                        // Handle read requests (currently no-op for TX)
-                    }
-                    _ => {}
-                }
+            GattConnectionEvent::Disconnected { .. } => {
+                info!("BLE client disconnected");
+                break;
             }
+            GattConnectionEvent::Gatt { event } => match &event {
+                GattEvent::Write(event) if event.handle() == server.lora_service.rx.handle => {
+                    info!(
+                        "Received BLE write on RX characteristic, {} bytes",
+                        event.data().len()
+                    );
+                    match Message::deserialize(event.data()) {
+                        Ok(msg) => match ble_to_lora.try_send(msg) {
+                            Ok(_) => info!("Message forwarded from BLE to LoRa"),
+                            Err(_) => {
+                                error!("Failed to send message to LoRa channel (channel full)")
+                            }
+                        },
+                        Err(e) => error!("Failed to deserialize message from BLE: {:?}", e),
+                    }
+                }
+                GattEvent::Read(event) if event.handle() == server.lora_service.tx.handle => {
+                    // Handle read requests (currently no-op for TX)
+                }
+                _ => {}
+            },
             _ => {}
         }
 
         // Check for messages from LoRa to send to BLE central
         if let Ok(msg) = lora_to_ble.try_receive() {
+            info!("Received message from LoRa to forward to BLE");
             let mut buf = [0u8; 512];
-            if let Ok(len) = msg.serialize(&mut buf) {
-                let mut data = [0u8; 512];
-                data[..len].copy_from_slice(&buf[..len]);
-                let _ = server.lora_service.tx.notify(conn, &data).await;
+            match msg.serialize(&mut buf) {
+                Ok(len) => {
+                    let mut data = [0u8; 512];
+                    data[..len].copy_from_slice(&buf[..len]);
+                    match server.lora_service.tx.notify(conn, &data).await {
+                        Ok(_) => info!("Message forwarded from LoRa to BLE via notification"),
+                        Err(e) => error!("Failed to send BLE notification: {:?}", e),
+                    }
+                }
+                Err(e) => error!("Failed to serialize message for BLE: {:?}", e),
             }
         }
     }

@@ -43,6 +43,7 @@ lora-phy = "3.0.1"
 embassy-embedded-hal = "0.5.0"
 embassy-sync = "0.7.2"
 esp-println = { version = "0.15.0", features = ["esp32s3", "log-04"] }
+log = "0.4"
 [profile.dev]
 # Rust debug is too slow.
 # For debug builds always builds with some optimization
