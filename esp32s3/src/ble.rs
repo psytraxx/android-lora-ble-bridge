@@ -21,11 +21,12 @@ const L2CAP_CHANNELS_MAX: usize = 1;
 #[embassy_executor::task]
 /// BLE task that handles BLE stack initialization, advertising, and GATT event processing.
 /// Forwards messages between BLE and LoRa channels.
+/// The lora_to_ble channel has capacity of 10 to buffer messages while BLE is disconnected.
 pub async fn ble_task(
     radio: &'static Controller<'static>,
     bt_peripheral: esp_hal::peripherals::BT<'static>,
     mut ble_to_lora: Sender<'static, CriticalSectionRawMutex, Message, 1>,
-    mut lora_to_ble: Receiver<'static, CriticalSectionRawMutex, Message, 1>,
+    mut lora_to_ble: Receiver<'static, CriticalSectionRawMutex, Message, 10>,
 ) {
     info!("BLE task starting...");
 
@@ -150,11 +151,12 @@ async fn ble_runner(
 /// Handles GATT events for a connected BLE central.
 /// Processes read/write requests and notifications for the TX/RX characteristics.
 /// Forwards messages between BLE and LoRa via channels.
+/// On reconnection, delivers all buffered messages (up to 10) that were received while disconnected.
 async fn gatt_events_task(
     server: &Server<'_>,
     conn: &GattConnection<'_, '_, DefaultPacketPool>,
     ble_to_lora: &mut Sender<'static, CriticalSectionRawMutex, Message, 1>,
-    lora_to_ble: &mut Receiver<'static, CriticalSectionRawMutex, Message, 1>,
+    lora_to_ble: &mut Receiver<'static, CriticalSectionRawMutex, Message, 10>,
 ) {
     info!("GATT event handler started");
     loop {

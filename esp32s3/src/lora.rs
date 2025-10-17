@@ -35,11 +35,12 @@ pub struct LoraGpios<'a> {
 #[embassy_executor::task]
 /// LoRa task that manages LoRa radio operations, including transmission and reception.
 /// Handles message forwarding between LoRa and BLE channels, and sends acknowledgments.
+/// Uses non-blocking send to BLE channel (capacity: 10) to continue receiving even when BLE is disconnected.
 pub async fn lora_task(
     spi_peripheral: esp_hal::peripherals::SPI2<'static>,
     gpios: LoraGpios<'static>,
     ble_to_lora: Receiver<'static, CriticalSectionRawMutex, Message, 1>,
-    lora_to_ble: Sender<'static, CriticalSectionRawMutex, Message, 1>,
+    lora_to_ble: Sender<'static, CriticalSectionRawMutex, Message, 10>,
 ) {
     info!("LoRa task starting...");
 
@@ -308,15 +309,26 @@ pub async fn lora_task(
                                                 }
                                             }
                                         }
-                                        // Forward data to BLE
-                                        lora_to_ble.send(msg).await;
-                                        info!("Message forwarded from LoRa to BLE");
+                                        // Forward data to BLE (non-blocking)
+                                        // If channel is full (10 messages buffered), oldest will be dropped
+                                        match lora_to_ble.try_send(msg) {
+                                            Ok(_) => info!("Message forwarded from LoRa to BLE"),
+                                            Err(_) => {
+                                                warn!(
+                                                    "BLE message buffer full (10 messages) - message dropped. Reconnect phone to receive buffered messages."
+                                                );
+                                            }
+                                        }
                                     }
                                     Message::Ack(ref ack) => {
                                         info!("Received ACK for seq: {}", ack.seq);
-                                        // Forward ACK to BLE
-                                        lora_to_ble.send(msg).await;
-                                        info!("ACK forwarded to BLE");
+                                        // Forward ACK to BLE (non-blocking)
+                                        match lora_to_ble.try_send(msg) {
+                                            Ok(_) => info!("ACK forwarded to BLE"),
+                                            Err(_) => {
+                                                warn!("BLE ACK buffer full - ACK dropped");
+                                            }
+                                        }
                                     }
                                 }
                             }

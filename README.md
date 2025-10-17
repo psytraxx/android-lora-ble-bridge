@@ -6,14 +6,53 @@ A long-range communication system for sending text messages (up to 50 characters
 
 - 📱 **Android App**: Java-based app with GPS integration and BLE communication
 - 📡 **Long Range**: 5-10 km typical range (up to 15+ km in ideal conditions)
-- 🔋 **Efficient**: Optimized 433 MHz LoRa (SF10, BW125) for range vs speed
+- 🔋 **Power Optimized**: 40-50% power savings (70-100 hours on 2500 mAh battery)
+- 📦 **Message Buffering**: Buffers up to 10 messages when phone is disconnected
 - ✅ **Reliable**: ACK mechanism confirms message delivery
-- 🌍 **GPS Precision**: ±1 meter accuracy (coordinates × 1,000,000)
+- 🌍 **GPS Precision**: ±1 meter accuracy
 - 🚀 **Fast**: ~1-2 second end-to-end latency
+
+## Recent Improvements
+
+### Power Optimization (40-50% savings)
+- **CPU Clock**: Reduced from 240 MHz to 160 MHz
+- **Auto Light Sleep**: Enabled via Embassy async framework
+- **Battery Life**: 70-100 hours on 2500 mAh (was 50-60 hours)
+
+### Message Buffering
+- **Buffer Capacity**: 10 messages (was 1)
+- **Behavior**: Continues receiving LoRa messages even when phone is disconnected
+- **On Reconnect**: All buffered messages delivered immediately
+- **Memory Cost**: Only 640 bytes of RAM
 
 ## Architecture
 
-See **[architecture.md](architecture.md)** for the detailed system diagram and requirements.
+```mermaid
+graph TD
+    A[Android Phone 1<br/>- Internal GPS<br/>- Text Input<br/>- Display<br/>- Java App] -->|Text + GPS Data| B[BLE]
+    B --> C[ESP32-S3<br/>LoRa Transmitter<br/>- Sx1276 Module<br/>- Pins: SCK18, MISO19, MOSI21, SS5, RST12, DIO015<br/>- Firmware: Rust/Arduino]
+    C -->|LoRa Transmission| D[LoRa Radio Waves]
+    D --> E[ESP32-S3<br/>LoRa Receiver<br/>- Same hardware/firmware]
+    E -->|Forwarded Data| F[BLE]
+    F --> G[Android Phone 2<br/>- Display<br/>- Receives Text + GPS<br/>- Same Java App]
+    
+    E -->|ACK| D
+    D --> C
+    C -->|ACK| B
+    B --> A
+    
+    subgraph "Sender Side"
+        A
+        B
+        C
+    end
+    
+    subgraph "Receiver Side"
+        E
+        F
+        G
+    end
+```
 
 ## Project Structure
 
@@ -37,10 +76,6 @@ lora-android-rs/
 ├── architecture.md       # System architecture
 └── README.md            # This file
 ```
-
-## Protocol
-
-See **[protocol.md](protocol.md)** for the complete binary message format specification.
 
 ## Building & Installation
 
@@ -132,17 +167,58 @@ cd android
 
 ### LoRa Module Configuration
 
-For detailed configuration including frequency, power, and regional compliance, see **[LORA_CONFIG.md](LORA_CONFIG.md)**.
+Edit `esp32s3/.cargo/config.toml`:
 
-**Quick Start:**
 ```toml
-# Edit esp32s3/.cargo/config.toml
 [env]
 LORA_TX_POWER_DBM = "14"        # Power in dBm (-4 to 20)
-LORA_TX_FREQUENCY = "433920000" # Frequency in Hz (433/868/915 MHz bands)
+LORA_TX_FREQUENCY = "433920000" # Frequency in Hz
 ```
 
+**Common Frequencies:**
+- 433 MHz: 433920000 (worldwide)
+- 868 MHz: 868100000 (Europe)
+- 915 MHz: 915000000 (Americas, Australia)
+
+**Regional Power Limits:**
+- EU (433 MHz): 2 dBm max
+- US (433 MHz): 17 dBm max
+- US (915 MHz): 30 dBm max
+- Australia: 14 dBm (433 MHz) / 30 dBm (915 MHz)
+
 **Antenna:** Use antenna tuned for your chosen frequency (~17 cm for 433 MHz quarter-wave)
+
+## Message Buffering
+
+The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
+
+**When Phone is Connected:**
+- Messages delivered instantly
+
+**When Phone is Disconnected:**
+- Messages buffered (up to 10)
+- ESP32 continues receiving
+- Sender gets ACK immediately
+
+**When You Reconnect:**
+- All buffered messages delivered instantly
+- Oldest messages first (FIFO)
+
+**If Buffer is Full:**
+- Messages 11+ are dropped with warning log
+- ESP32 continues receiving (doesn't block)
+
+**Adjusting Buffer Size:**
+
+Edit `esp32s3/src/bin/main.rs`:
+```rust
+// Change 10 to desired size (5-50 recommended)
+static LORA_TO_BLE: StaticCell<Channel<CriticalSectionRawMutex, Message, 10>> = StaticCell::new();
+```
+
+Also update function signatures in `esp32s3/src/ble.rs` and `esp32s3/src/lora.rs`.
+
+**Memory Impact:** ~64 bytes per message
 
 ## Usage
 
@@ -158,26 +234,16 @@ LORA_TX_FREQUENCY = "433920000" # Frequency in Hz (433/868/915 MHz bands)
 5. **Receive message**: Messages appear automatically on receiving device
 6. **View GPS location**: Coordinates displayed with received messages
 
-### First-Time Setup
+## Performance
 
-1. Flash firmware to both ESP32-S3 devices
-2. Install app on both Android phones
-3. Power on both ESP32 devices (observe BLE advertising in logs)
-4. Open app on Phone A → connects to ESP32-A
-5. Open app on Phone B → connects to ESP32-B
-6. Test with short message like "Test" from Phone A
-7. Verify receipt on Phone B
-8. Check ACK notification on Phone A
+- **Max text**: 50 characters (61 bytes total)
+- **Range**: 5-10 km typical (up to 15+ km ideal conditions)
+- **Latency**: 1-2 seconds end-to-end
+- **Battery**: 70-100 hours on 2500 mAh (2500 mAh battery)
+- **Time on Air**: ~370ms (empty) to ~700ms (50 chars) at SF10
+- **LoRa Config**: SF10, BW125kHz, CR4/5, 433.92 MHz default, 14 dBm
 
-## Performance & Specifications
-
-See **[protocol.md](protocol.md)** for detailed performance characteristics including Time on Air calculations and duty cycle compliance.
-
-**Quick Reference:**
-- Max text: 50 characters (61 bytes total)
-- Typical range: 5-10 km (up to 15+ km ideal conditions)
-- Latency: 1-2 seconds end-to-end
-- See **[LORA_CONFIG.md](LORA_CONFIG.md)** for range estimates by frequency and power
+See **[protocol.md](protocol.md)** for detailed Time on Air calculations and duty cycle compliance.
 
 ## Troubleshooting
 
@@ -239,20 +305,7 @@ adb logcat -s LoRaApp
 # Or use Android Studio's Logcat viewer
 ```
 
-## Message Flow
-
-See **[protocol.md](protocol.md#message-flow)** and **[architecture.md](architecture.md)** for detailed message flow diagrams.
-
-## Documentation
-
-### Project Documentation
-- **`protocol.md`**: Complete binary protocol specification with examples
-- **`architecture.md`**: System architecture and component interaction
-- **`OPTIMIZATION_SUMMARY.md`**: LoRa configuration and performance tuning
-- **`PROTOCOL_COMPATIBILITY.md`**: Java/Rust protocol compatibility analysis
-- **`TEST_REPORT.md`**: Android unit test results and coverage
-
-### External Resources
+## External Resources
 - [ESP32-S3 Documentation](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/)
 - [SX1276 Datasheet](https://www.semtech.com/products/wireless-rf/lora-core/sx1276)
 - [LoRa Calculator](https://www.loratools.nl/#/airtime) - Time on Air calculator

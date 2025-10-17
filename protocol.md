@@ -139,10 +139,8 @@ Total: 2 bytes
 - **Spreading Factor**: SF10
 - **Bandwidth**: 125 kHz
 - **Coding Rate**: 4/5
-- **Frequency**: 433.92 MHz (default)
-- **TX Power**: 14 dBm / ~25 mW (default)
-
-*Configuration: See [LORA_CONFIG.md](LORA_CONFIG.md) for frequency/power settings and regional compliance.*
+- **Frequency**: 433.92 MHz (default, configurable)
+- **TX Power**: 14 dBm / ~25 mW (default, configurable -4 to 20 dBm)
 
 ### Time on Air (ToA)
 
@@ -199,8 +197,4 @@ Total: 2 bytes
 - **v1.1** (Oct 2025): Reduced to 50-char limit for optimal range
 
 ## See Also
-- **[LORA_CONFIG.md](LORA_CONFIG.md)** - Frequency/power configuration and regional compliance
-- **[architecture.md](architecture.md)** - System architecture and data flow diagram
-- **[PROTOCOL_COMPATIBILITY.md](PROTOCOL_COMPATIBILITY.md)** - Java/Rust compatibility analysis
-- **[OPTIMIZATION_SUMMARY.md](OPTIMIZATION_SUMMARY.md)** - LoRa performance tuning
-- **[README.md](README.md)** - Project overview and build instructions
+- **[README.md](README.md)** - Project overview, architecture, configuration, and build instructions

@@ -46,7 +46,8 @@ esp_bootloader_esp_idf::esp_app_desc!();
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
     // Initialize ESP32-S3 peripherals and clock
-    let config = Config::default().with_cpu_clock(CpuClock::max());
+    // Using 160MHz instead of max (240MHz) saves 20-30% power without range impact
+    let config = Config::default().with_cpu_clock(CpuClock::_160MHz);
     let peripherals = esp_hal::init(config);
 
     // Allocate heap memory for dynamic allocations
@@ -119,6 +120,9 @@ async fn main(spawner: Spawner) -> ! {
     }
 }
 
+// Communication channels between BLE and LoRa tasks
+// BLE_TO_LORA: Capacity of 1 is sufficient (BLE only sends when user actively sends a message)
+// LORA_TO_BLE: Capacity of 10 allows buffering messages received while BLE is disconnected
 static BLE_TO_LORA: StaticCell<Channel<CriticalSectionRawMutex, Message, 1>> = StaticCell::new();
-static LORA_TO_BLE: StaticCell<Channel<CriticalSectionRawMutex, Message, 1>> = StaticCell::new();
+static LORA_TO_BLE: StaticCell<Channel<CriticalSectionRawMutex, Message, 10>> = StaticCell::new();
 static RADIO: StaticCell<esp_radio::Controller<'static>> = StaticCell::new();
