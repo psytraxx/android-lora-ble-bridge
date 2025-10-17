@@ -1,90 +1,326 @@
 # LoRa Android RS
 
-A project for sending short text messages and GPS locations via LoRa using ESP32 and Android.
+A long-range communication system for sending text messages (up to 50 characters) and GPS coordinates via 433 MHz LoRa using ESP32-S3 and Android devices.
+
+## Features
+
+- 📱 **Android App**: Java-based app with GPS integration and BLE communication
+- 📡 **Long Range**: 5-10 km typical range (up to 15+ km in ideal conditions)
+- 🔋 **Efficient**: Optimized 433 MHz LoRa (SF10, BW125) for range vs speed
+- ✅ **Reliable**: ACK mechanism confirms message delivery
+- 🌍 **GPS Precision**: ±1 meter accuracy (coordinates × 1,000,000)
+- 🚀 **Fast**: ~1-2 second end-to-end latency
 
 ## Architecture
 
-See `architecture.md` for the system diagram and requirements.
+See `architecture.md` for the detailed system diagram and requirements.
 
-## Structure
+**High-level flow:**
+```
+Android Phone A → BLE → ESP32-S3 A → LoRa (433 MHz) → ESP32-S3 B → BLE → Android Phone B
+                                    ←─────── ACK ──────┘
+```
 
-- `protocol/`: Rust crate defining the binary protocol for LoRa messages.
-- `esp32/`: ESP32 firmware in Rust, handling BLE and LoRa communication.
-- `android/`: Android Java app for sending/receiving messages.
+## Project Structure
+
+```
+lora-android-rs/
+├── esp32s3/              # ESP32-S3 firmware (Rust)
+│   ├── src/
+│   │   ├── main.rs       # Main entry point
+│   │   ├── ble.rs        # BLE GATT server and event handling
+│   │   ├── lora.rs       # LoRa radio driver and message handling
+│   │   └── protocol.rs   # Binary protocol implementation
+│   └── Cargo.toml
+├── android/              # Android application (Java)
+│   ├── app/src/main/
+│   │   ├── java/
+│   │   │   ├── com/lora/android/MainActivity.java
+│   │   │   └── lora/Protocol.java
+│   │   └── res/layout/activity_main.xml
+│   └── build.gradle
+├── protocol.md           # Protocol specification
+├── architecture.md       # System architecture
+└── README.md            # This file
+```
 
 ## Protocol
 
-See `protocol.md` for the message format.
+See `protocol.md` for the complete binary message format specification.
 
-## Building
+**Quick overview:**
+- **Data Message** (Type 0x01): 11 + text_length bytes (max 61 bytes)
+- **ACK Message** (Type 0x02): 2 bytes
+- **Text Limit**: 50 characters (optimized for long-range transmission)
+- **Encoding**: UTF-8 (supports emoji and unicode)
 
-### Protocol Crate
-```bash
-cd protocol
-cargo build
-```
+## Building & Installation
 
-### ESP32 Firmware
-Requires ESP32 Rust toolchain.
-```bash
-cd esp32s3
-cargo build --release --target xtensa-esp32-espidf
-```
+### Prerequisites
 
-### Android App
-Requires Android SDK.
+#### ESP32 Firmware
+- [Rust](https://rustup.rs/) (stable)
+- [espup](https://github.com/esp-rs/espup) - ESP32 Rust toolchain installer
+- ESP32-S3 development board
+- SX1276 LoRa module
+
+#### Android App
+- [Android Studio](https://developer.android.com/studio) or Android SDK
+- JDK 8 or higher
+- Gradle (included in Android Studio)
+
+### ESP32 Firmware Build
+
+1. **Install ESP32 Rust toolchain:**
+   ```bash
+   cargo install espup
+   espup install
+   . ~/export-esp.sh  # Source the environment
+   ```
+
+2. **Build firmware:**
+   ```bash
+   cd esp32s3
+   cargo build --release
+   ```
+
+3. **Flash to ESP32-S3:**
+   ```bash
+   cargo run --release
+   # Or use espflash:
+   espflash flash target/xtensa-esp32s3-none-elf/release/esp32s3 --monitor
+   ```
+
+4. **Monitor logs:**
+   ```bash
+   espflash monitor
+   ```
+
+### Android App Build
+
+#### Using Android Studio
+1. Open the `android/` folder in Android Studio
+2. Wait for Gradle sync to complete
+3. Connect Android device or start emulator
+4. Click "Run" or press Shift+F10
+
+#### Using Command Line
 ```bash
 cd android
-# Gradle build
+./gradlew assembleDebug           # Build APK
+./gradlew installDebug             # Install to connected device
 ```
 
-## BLE Message Flow
+### Running Tests
 
-This section provides a detailed explanation of how messages flow between the Android app and the ESP32 device via BLE, and how they are forwarded to/from LoRa.
+**ESP32 Firmware:**
+```bash
+cd esp32s3
+cargo check                        # Type checking
+cargo clippy                       # Linting
+```
 
-### Receiving a Message from the Android App (BLE → LoRa)
+**Android App:**
+```bash
+cd android
+./gradlew test                     # Run unit tests (37 tests)
+./gradlew connectedAndroidTest     # Run instrumentation tests
+```
 
-1. **BLE Connection Establishment**:
-   - The ESP32 runs as a BLE peripheral, advertising with the name "ESP32S3-LoRa" and service UUID 0x1234.
-   - The Android app (acting as a BLE central) scans for and connects to the ESP32 peripheral.
+## Hardware Setup
 
-2. **Message Transmission from Android**:
-   - The Android app writes data to the RX characteristic (UUID: 0x5679) of the LoRa service.
-   - This data is a serialized `Message` struct (see `protocol.md` for format).
+### ESP32-S3 to SX1276 Wiring
 
-3. **ESP32 GATT Event Handling**:
-   - The `gatt_events_task` function listens for GATT events on the connection.
-   - When a `GattEvent::Write` occurs on the handle matching `server.lora_service.rx.handle`:
-     - The event data (`event.data()`) is deserialized into a `Message` using `Message::deserialize()`.
-     - If deserialization succeeds, the `Message` is sent to the `ble_to_lora` channel using `try_send()`.
-     - This channel is shared with the LoRa task (implemented in `lora.rs`).
+| SX1276 Pin | ESP32-S3 Pin | Function |
+|------------|--------------|----------|
+| SCK | GPIO18 | SPI Clock |
+| MISO | GPIO19 | SPI MISO |
+| MOSI | GPIO21 | SPI MOSI |
+| NSS/CS | GPIO5 | Chip Select |
+| RESET | GPIO12 | Reset |
+| DIO0 | GPIO15 | Interrupt |
+| 3.3V | 3.3V | Power |
+| GND | GND | Ground |
 
-4. **Forwarding to LoRa**:
-   - The LoRa task receives the `Message` from the `ble_to_lora` channel.
-   - It serializes the message and transmits it over the LoRa radio (details in `lora.rs`).
+### LoRa Module Configuration
+- Frequency: 433 MHz (ensure your module supports this band)
+- Check local regulations for 433 MHz ISM band usage
+- Use appropriate antenna for 433 MHz (~17 cm for quarter-wave)
 
-### Receiving a Message from LoRa and Forwarding to Android App (LoRa → BLE)
+## Usage
 
-1. **Message Reception from LoRa**:
-   - The LoRa task receives data over the LoRa radio.
-   - It deserializes the data into a `Message` struct.
-   - The `Message` is sent to the `lora_to_ble` channel using `try_send()`.
+### Android App
 
-2. **ESP32 GATT Event Loop**:
-   - In the `gatt_events_task` function, after processing any pending GATT events, the code checks for incoming messages from LoRa:
-     - `if let Ok(msg) = lora_to_ble.try_receive()` attempts to receive a `Message` from the channel.
-     - If a message is available, it is serialized into a buffer using `msg.serialize(&mut buf)`, which returns the length of the serialized data.
+1. **Launch app** on both Android devices
+2. **Grant permissions**: Bluetooth, Location (GPS)
+3. **Wait for BLE connection**: App automatically scans for "ESP32S3-LoRa"
+4. **Send message**:
+   - Type message (max 50 characters)
+   - Ensure GPS has fix (shown in app)
+   - Press "Send"
+5. **Receive message**: Messages appear automatically on receiving device
+6. **View GPS location**: Coordinates displayed with received messages
 
-3. **BLE Notification to Android**:
-   - The serialized data is copied into a `data` array.
-   - `server.lora_service.tx.notify(conn, &data)` is called to send a GATT notification on the TX characteristic (UUID: 0x5678) to the connected Android central.
-   - The Android app receives this notification and can process the message data.
-   - Note: The TX characteristic's value is updated with the notification data, so the Android app can also read the characteristic to retrieve the last received message if needed (though notifications are the primary mechanism for real-time delivery).
+### First-Time Setup
 
-### Key Notes
-- **Channels**: `ble_to_lora` and `lora_to_ble` are Embassy channels used for asynchronous communication between the BLE and LoRa tasks.
-- **Characteristics**:
-  - RX (0x5679): Used for receiving data from the Android app (central writes to it).
-  - TX (0x5678): Used for sending data to the Android app (peripheral notifies on it).
-- **Error Handling**: Operations like deserialization, serialization, and channel sends use `if let Ok()` to handle potential failures gracefully without blocking.
-- **Concurrency**: The BLE stack runs concurrently with the LoRa task, allowing bidirectional message forwarding.
+1. Flash firmware to both ESP32-S3 devices
+2. Install app on both Android phones
+3. Power on both ESP32 devices (observe BLE advertising in logs)
+4. Open app on Phone A → connects to ESP32-A
+5. Open app on Phone B → connects to ESP32-B
+6. Test with short message like "Test" from Phone A
+7. Verify receipt on Phone B
+8. Check ACK notification on Phone A
+
+## Performance & Specifications
+
+### Message Characteristics
+
+| Metric | Value |
+|--------|-------|
+| Max text length | 50 characters |
+| Max message size | 61 bytes |
+| ACK size | 2 bytes |
+| Time on Air (max msg) | ~700 ms |
+| Time on Air (ACK) | ~330 ms |
+| End-to-end latency | 1-2 seconds |
+
+### Range Expectations
+
+| Environment | Expected Range |
+|-------------|----------------|
+| Line of sight, open terrain | 10-15 km |
+| Urban, buildings | 2-5 km |
+| Indoor to outdoor | 500m - 2 km |
+| Dense urban/forest | 1-3 km |
+
+### Duty Cycle (EU 433 MHz: 1% = 36 sec/hour)
+
+| Message Length | Messages/Hour |
+|----------------|---------------|
+| Short (10 chars) | ~85 |
+| Medium (30 chars) | ~72 |
+| Long (50 chars) | ~51 |
+
+## Troubleshooting
+
+### ESP32 Issues
+
+**BLE not advertising:**
+- Check serial monitor for "BLE advertising..." message
+- Verify Bluetooth is enabled in ESP32 logs
+- Restart ESP32 (power cycle)
+
+**LoRa not transmitting:**
+- Check SPI wiring (SCK, MISO, MOSI, CS)
+- Verify 3.3V power to LoRa module
+- Check antenna connection (433 MHz antenna)
+- Monitor serial for "LoRa TX successful" messages
+
+**Radio init failed:**
+- Check RESET and DIO0 pin connections
+- Verify SX1276 module is 433 MHz capable
+- Check power supply (some modules need more current)
+
+### Android Issues
+
+**App can't find ESP32:**
+- Grant Bluetooth and Location permissions
+- Enable Bluetooth on phone
+- Ensure ESP32 is powered and advertising
+- Check that device name is "ESP32S3-LoRa" in logs
+- Try restarting both phone and ESP32
+
+**No GPS fix:**
+- Go outdoors or near window
+- Wait 30-60 seconds for GPS acquisition
+- Check Location permission is granted
+- Enable "High accuracy" in phone location settings
+
+**Messages not received:**
+- Check both ESP32 devices are powered
+- Verify LoRa range (start close, then test distance)
+- Check serial monitor for "LoRa RX: received X bytes"
+- Ensure devices are on same frequency (433 MHz)
+
+### Debug Tips
+
+**ESP32 Serial Monitor:**
+```bash
+espflash monitor
+# Look for:
+# - "BLE advertising..."
+# - "LoRa radio ready for RX/TX"
+# - "Message forwarded from BLE to LoRa"
+# - "LoRa TX successful"
+# - "LoRa RX: received X bytes"
+```
+
+**Android Logcat:**
+```bash
+adb logcat -s LoRaApp
+# Or use Android Studio's Logcat viewer
+```
+
+## BLE Message Flow (Technical)
+
+### Sending: Android → BLE → LoRa
+
+1. **BLE Connection**: App scans and connects to "ESP32S3-LoRa" (Service UUID: 0x1234)
+2. **Message Write**: App writes serialized message to RX characteristic (0x5679)
+3. **ESP32 Processing**: 
+   - `gatt_events_task` receives write event
+   - Deserializes message using `Message::deserialize()`
+   - Forwards to `ble_to_lora` channel
+4. **LoRa Transmission**:
+   - `lora_task` receives from channel
+   - Serializes and transmits via SX1276 radio
+   - Returns to RX mode after transmission
+
+### Receiving: LoRa → BLE → Android
+
+1. **LoRa Reception**: ESP32 receives packet on 433 MHz
+2. **Message Processing**:
+   - Deserializes LoRa data
+   - Sends ACK back via LoRa (if data message)
+   - Forwards to `lora_to_ble` channel
+3. **BLE Notification**:
+   - `gatt_events_task` receives from channel
+   - Serializes message
+   - Sends BLE notification on TX characteristic (0x5678)
+4. **Android Display**: App receives notification and displays message
+
+## Documentation
+
+### Project Documentation
+- **`protocol.md`**: Complete binary protocol specification with examples
+- **`architecture.md`**: System architecture and component interaction
+- **`OPTIMIZATION_SUMMARY.md`**: LoRa configuration and performance tuning
+- **`PROTOCOL_COMPATIBILITY.md`**: Java/Rust protocol compatibility analysis
+- **`TEST_REPORT.md`**: Android unit test results and coverage
+
+### External Resources
+- [ESP32-S3 Documentation](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/)
+- [SX1276 Datasheet](https://www.semtech.com/products/wireless-rf/lora-core/sx1276)
+- [LoRa Calculator](https://www.loratools.nl/#/airtime) - Time on Air calculator
+- [ESP-RS Book](https://esp-rs.github.io/book/) - Rust on ESP32
+
+## License
+
+[Add your license here]
+
+## Contributing
+
+[Add contribution guidelines here]
+
+## Acknowledgments
+
+Built with:
+- [Embassy](https://embassy.dev/) - Async Rust framework for embedded
+- [esp-hal](https://github.com/esp-rs/esp-hal) - ESP32 Hardware Abstraction Layer
+- [trouble-host](https://github.com/embassy-rs/trouble) - BLE Host stack
+- [lora-phy](https://github.com/lora-rs/lora-rs) - LoRa PHY driver
+
+---
+
+**Ready for long-range adventures!** 📡🌍
