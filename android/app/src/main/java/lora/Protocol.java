@@ -152,7 +152,7 @@ public class Protocol {
                 throw new IllegalArgumentException("Data too short for DataMessage");
             }
             byte seq = data[1];
-            byte textLen = data[2];
+            int textLen = data[2] & 0xFF; // Convert to unsigned byte
             if (data.length < 11 + textLen) {
                 throw new IllegalArgumentException("Data too short for text");
             }

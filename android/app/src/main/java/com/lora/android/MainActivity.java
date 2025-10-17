@@ -150,8 +150,20 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                 if (newState == BluetoothGatt.STATE_CONNECTED) {
-                    gatt.discoverServices();
+                    // Request larger MTU to support messages up to 266 bytes
+                    // Default MTU is 23 bytes (20 usable), we request 512 to be safe
+                    gatt.requestMtu(512);
                 }
+            }
+
+            @Override
+            public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                            "MTU negotiated: " + mtu + " bytes", Toast.LENGTH_SHORT).show());
+                }
+                // After MTU negotiation, discover services
+                gatt.discoverServices();
             }
 
             @Override
