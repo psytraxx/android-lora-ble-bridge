@@ -33,7 +33,7 @@ pub enum Message {
 
 impl Message {
     /// Serializes the message into the provided buffer.
-    /// Returns the number of bytes written on success, or an error string on failure.
+    /// Returns the number of bytes written on success, or an error on failure.
     pub fn serialize(&self, buf: &mut [u8]) -> Result<usize, &'static str> {
         match self {
             Message::Data(data) => {
@@ -65,7 +65,7 @@ impl Message {
     }
 
     /// Deserializes a message from the provided buffer.
-    /// Returns the parsed Message on success, or an error string on failure.
+    /// Returns the parsed Message on success, or an error on failure.
     pub fn deserialize(buf: &[u8]) -> Result<Self, &'static str> {
         if buf.is_empty() {
             return Err("Empty buffer");

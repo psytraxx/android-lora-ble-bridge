@@ -5,6 +5,7 @@ use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex,
     channel::{Receiver, Sender},
 };
+use embassy_time::{Duration, Timer};
 use esp_radio::{Controller, ble::controller::BleConnector};
 use log::{error, info, warn};
 use trouble_host::prelude::*;
@@ -29,7 +30,13 @@ pub async fn ble_task(
     info!("BLE task starting...");
 
     // Initialize BLE controller
-    let transport = BleConnector::new(radio, bt_peripheral, Default::default()).unwrap();
+    let transport = match BleConnector::new(radio, bt_peripheral, Default::default()) {
+        Ok(t) => t,
+        Err(e) => {
+            error!("Failed to create BLE connector: {:?}", e);
+            return; // Exit the task
+        }
+    };
     let controller = ExternalController::<_, 20>::new(transport);
     // Set a random address for the BLE device
     let address: Address = Address::random([0xff, 0x8f, 0x1a, 0x05, 0xe4, 0xff]);
@@ -44,38 +51,53 @@ pub async fn ble_task(
     } = stack.build();
 
     // Create the GATT server with peripheral configuration
-    let server = Server::new_with_config(GapConfig::Peripheral(PeripheralConfig {
+    let server = match Server::new_with_config(GapConfig::Peripheral(PeripheralConfig {
         name: "ESP32S3-LoRa",
         appearance: &appearance::power_device::GENERIC_POWER_DEVICE,
-    }))
-    .unwrap();
+    })) {
+        Ok(s) => s,
+        Err(e) => {
+            error!("Failed to create GATT server: {:?}", e);
+            return;
+        }
+    };
     info!("GATT server created with LoRa service");
 
     // Prepare advertising data
     let mut adv_data = [0; 31];
-    let adv_data_len = AdStructure::encode_slice(
+    let adv_data_len = match AdStructure::encode_slice(
         &[
             AdStructure::Flags(LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED),
             AdStructure::ServiceUuids16(&[[0x34, 0x12]]),
             AdStructure::CompleteLocalName(b"ESP32S3-LoRa"),
         ],
         &mut adv_data[..],
-    )
-    .unwrap();
+    ) {
+        Ok(len) => len,
+        Err(e) => {
+            error!("Failed to encode advertising data: {:?}", e);
+            return;
+        }
+    };
 
     let mut scan_data = [0; 31];
-    let scan_data_len = AdStructure::encode_slice(
+    let scan_data_len = match AdStructure::encode_slice(
         &[AdStructure::CompleteLocalName(b"ESP32S3-LoRa")],
         &mut scan_data[..],
-    )
-    .unwrap();
+    ) {
+        Ok(len) => len,
+        Err(e) => {
+            error!("Failed to encode scan data: {:?}", e);
+            return;
+        }
+    };
 
     // Run the BLE runner and advertising loop concurrently
     join(ble_runner(runner), async {
         loop {
             info!("Starting BLE advertising...");
             // Advertise and wait for connection
-            let acceptor = peripheral
+            let acceptor = match peripheral
                 .advertise(
                     &Default::default(),
                     Advertisement::ConnectableScannableUndirected {
@@ -84,14 +106,29 @@ pub async fn ble_task(
                     },
                 )
                 .await
-                .unwrap();
+            {
+                Ok(a) => a,
+                Err(e) => {
+                    error!("Failed to start BLE advertising: {:?}", e);
+                    Timer::after(Duration::from_secs(1)).await;
+                    continue;
+                }
+            };
             info!("BLE connection accepted");
-            let conn = acceptor
-                .accept()
-                .await
-                .unwrap()
-                .with_attribute_server(&server)
-                .unwrap();
+            let conn = match acceptor.accept().await {
+                Ok(c) => c,
+                Err(e) => {
+                    error!("Failed to accept BLE connection: {:?}", e);
+                    continue;
+                }
+            };
+            let conn = match conn.with_attribute_server(&server) {
+                Ok(c) => c,
+                Err(e) => {
+                    error!("Failed to attach GATT server to connection: {:?}", e);
+                    continue;
+                }
+            };
 
             // Handle the GATT connection
             gatt_events_task(&server, &conn, &mut ble_to_lora, &mut lora_to_ble).await;

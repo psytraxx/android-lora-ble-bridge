@@ -77,38 +77,71 @@ pub async fn lora_task(
     );
     let dio0 = Input::new(gpios.dio0, InputConfig::default());
 
-    let iv = GenericSx127xInterfaceVariant::new(reset, dio0, None, None).unwrap();
+    let iv = match GenericSx127xInterfaceVariant::new(reset, dio0, None, None) {
+        Ok(i) => i,
+        Err(e) => {
+            error!("Failed to create LoRa interface: {:?}", e);
+            return;
+        }
+    };
 
     let radio = Sx127x::new(spi_device, iv, config);
-    let mut lora: LoraRadio = LoRa::new(radio, true, Delay).await.unwrap();
+    let mut lora: LoraRadio = match LoRa::new(radio, true, Delay).await {
+        Ok(l) => l,
+        Err(e) => {
+            error!("Failed to create LoRa radio: {:?}", e);
+            return;
+        }
+    };
     // Initialize LoRa
     info!("Initializing LoRa radio");
-    lora.init().await.unwrap();
+    if let Err(e) = lora.init().await {
+        error!("Failed to initialize LoRa radio: {:?}", e);
+        return;
+    }
 
     // Create modulation parameters (adjust frequency as needed, e.g., 868MHz for EU)
-    let modulation_params = lora
-        .create_modulation_params(
-            SpreadingFactor::_7,
-            Bandwidth::_250KHz,
-            CodingRate::_4_5,
-            868_000_000,
-        )
-        .unwrap();
+    let modulation_params = match lora.create_modulation_params(
+        SpreadingFactor::_7,
+        Bandwidth::_250KHz,
+        CodingRate::_4_5,
+        868_000_000,
+    ) {
+        Ok(p) => p,
+        Err(e) => {
+            error!("Failed to create LoRa modulation parameters: {:?}", e);
+            return;
+        }
+    };
 
     // Create TX packet parameters
-    let mut tx_packet_params = lora
-        .create_tx_packet_params(8, false, true, false, &modulation_params)
-        .unwrap();
+    let mut tx_packet_params =
+        match lora.create_tx_packet_params(8, false, true, false, &modulation_params) {
+            Ok(p) => p,
+            Err(e) => {
+                error!("Failed to create LoRa TX packet parameters: {:?}", e);
+                return;
+            }
+        };
 
     // Create RX packet parameters
-    let rx_packet_params = lora
-        .create_rx_packet_params(8, false, 255, true, false, &modulation_params)
-        .unwrap();
+    let rx_packet_params =
+        match lora.create_rx_packet_params(8, false, 255, true, false, &modulation_params) {
+            Ok(p) => p,
+            Err(e) => {
+                error!("Failed to create LoRa RX packet parameters: {:?}", e);
+                return;
+            }
+        };
 
     // Prepare for continuous receive
-    lora.prepare_for_rx(RxMode::Continuous, &modulation_params, &rx_packet_params)
+    if let Err(e) = lora
+        .prepare_for_rx(RxMode::Continuous, &modulation_params, &rx_packet_params)
         .await
-        .unwrap();
+    {
+        error!("Failed to prepare LoRa for RX: {:?}", e);
+        return;
+    }
     info!("LoRa radio ready for RX/TX operations");
 
     let mut rx_buffer = [0u8; 256];

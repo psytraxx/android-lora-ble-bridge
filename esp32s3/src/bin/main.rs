@@ -82,32 +82,34 @@ async fn main(spawner: Spawner) -> ! {
 
     // Spawn the BLE task with radio and BT peripheral
     info!("Spawning BLE task...");
-    spawner
-        .spawn(ble_task(
-            radio,
-            peripherals.BT,
-            ble_to_lora.sender(),
-            lora_to_ble.receiver(),
-        ))
-        .unwrap();
+    if let Err(e) = spawner.spawn(ble_task(
+        radio,
+        peripherals.BT,
+        ble_to_lora.sender(),
+        lora_to_ble.receiver(),
+    )) {
+        error!("Failed to spawn BLE task: {:?}", e);
+        panic!("Cannot continue without BLE task");
+    }
 
     // Spawn LoRa task with SPI peripheral and GPIO pins
     info!("Spawning LoRa task...");
-    spawner
-        .spawn(lora_task(
-            peripherals.SPI2,
-            LoraGpios {
-                cs: peripherals.GPIO5,
-                reset: peripherals.GPIO12,
-                dio0: peripherals.GPIO15,
-                sck: peripherals.GPIO18,
-                miso: peripherals.GPIO19,
-                mosi: peripherals.GPIO21,
-            },
-            ble_to_lora.receiver(),
-            lora_to_ble.sender(),
-        ))
-        .unwrap();
+    if let Err(e) = spawner.spawn(lora_task(
+        peripherals.SPI2,
+        LoraGpios {
+            cs: peripherals.GPIO5,
+            reset: peripherals.GPIO12,
+            dio0: peripherals.GPIO15,
+            sck: peripherals.GPIO18,
+            miso: peripherals.GPIO19,
+            mosi: peripherals.GPIO21,
+        },
+        ble_to_lora.receiver(),
+        lora_to_ble.sender(),
+    )) {
+        error!("Failed to spawn LoRa task: {:?}", e);
+        panic!("Cannot continue without LoRa task");
+    }
 
     info!("All tasks spawned successfully - system running");
 
