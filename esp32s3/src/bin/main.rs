@@ -33,6 +33,7 @@ use esp32s3::lora::{LoraGpios, lora_task};
 use esp32s3::protocol::Message;
 
 use esp_hal::Config;
+use esp_println::logger::init_logger_from_env;
 use static_cell::StaticCell;
 
 extern crate alloc;
@@ -49,6 +50,8 @@ async fn main(spawner: Spawner) -> ! {
 
     // Allocate heap memory for dynamic allocations
     heap_allocator!(#[unsafe(link_section = ".dram2_uninit")] size: 73744);
+    // Initialize logging
+    init_logger_from_env();
 
     // Initialize the RTOS timer
     let timg0 = TimerGroup::new(peripherals.TIMG0);
