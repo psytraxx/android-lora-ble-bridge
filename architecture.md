@@ -41,29 +41,32 @@ graph TD
 ## Technical Specifications
 
 ### LoRa Radio Configuration
-- **Frequency**: 433 MHz (ISM band)
-- **Spreading Factor**: SF10 (optimized for long range)
-- **Bandwidth**: 125 kHz (narrow for better sensitivity)
-- **Coding Rate**: 4/5 (forward error correction)
-- **Expected Range**: 5-10 km (open terrain), up to 15+ km in ideal conditions
-- **Time on Air**: ~700ms for maximum message (61 bytes)
-- **Power**: 20 dBm (maximum for SX1276)
+- **Frequency**: 433.92 MHz (default)
+- **Spreading Factor**: SF10 (long range optimized)
+- **Bandwidth**: 125 kHz
+- **Coding Rate**: 4/5
+- **TX Power**: 14 dBm / ~25 mW (default)
+- **Expected Range**: 5-10 km typical (up to 15+ km ideal conditions)
+
+*Configuration: See [LORA_CONFIG.md](LORA_CONFIG.md) for frequency/power configuration and regional limits.*
 
 ### BLE Configuration
 - **Service UUID**: 0x1234
-- **TX Characteristic**: 0x5678 (ESP32 → Android notifications)
-- **RX Characteristic**: 0x5679 (Android → ESP32 writes)
-- **MTU**: Negotiated up to 512 bytes (typical 247+)
-- **Buffer Size**: 64 bytes (sufficient for max 61-byte message)
+- **TX Characteristic**: 0x5678 (ESP32 → Android)
+- **RX Characteristic**: 0x5679 (Android → ESP32)
+- **MTU**: Up to 512 bytes
+- **Buffer Size**: 64 bytes
 
-### Message Protocol
-- **Max Message Size**: 61 bytes (11-byte header + 50 chars text)
-- **ACK Size**: 2 bytes
-- **Text Encoding**: UTF-8
-- **GPS Precision**: ±1 meter (coordinates × 1,000,000)
-- **Sequence Numbers**: 0-255 with automatic wraparound
+### Protocol
+See **[protocol.md](protocol.md)** for complete message format specification.
 
-### Performance
-- **Messages per Hour**: ~51 (within 1% duty cycle limit)
-- **Latency**: ~1-2 seconds end-to-end (BLE + LoRa + BLE)
-- **Battery Life**: Optimized with 64-byte buffers and efficient transmission
+**Summary:**
+- Max message: 61 bytes (50 chars text + 11 byte header)
+- ACK: 2 bytes
+- GPS precision: ±1 meter
+- Latency: 1-2 seconds end-to-end
+
+## See Also
+- **[protocol.md](protocol.md)** - Binary message format specification
+- **[LORA_CONFIG.md](LORA_CONFIG.md)** - Radio configuration and regional compliance
+- **[README.md](README.md)** - Project overview and build instructions

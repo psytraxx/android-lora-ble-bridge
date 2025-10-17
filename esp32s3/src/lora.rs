@@ -93,6 +93,7 @@ pub async fn lora_task(
             return;
         }
     };
+
     // Initialize LoRa
     info!("Initializing LoRa radio");
     if let Err(e) = lora.init().await {
@@ -100,15 +101,82 @@ pub async fn lora_task(
         return;
     }
 
-    // Create modulation parameters optimized for long-range 433 MHz communication
+    // Configure TX power from environment variable (set in .cargo/config.toml)
+    // Default: 14 dBm (~25 mW) - check local regulations for 433 MHz ISM band
+    // SX1276 supports -4 dBm to +20 dBm on PA_BOOST pin
+    let output_power: i32 = if let Some(power_str) = option_env!("LORA_TX_POWER_DBM") {
+        match power_str.parse::<i32>() {
+            Ok(v) if (-4..=20).contains(&v) => {
+                info!("Using TX power from config: {} dBm", v);
+                v
+            }
+            Ok(v) => {
+                warn!(
+                    "TX power {} dBm out of range (-4 to 20), using default 14 dBm",
+                    v
+                );
+                14
+            }
+            Err(_) => {
+                warn!(
+                    "Invalid TX power value '{}', using default 14 dBm",
+                    power_str
+                );
+                14
+            }
+        }
+    } else {
+        info!("TX power not configured, using default 14 dBm");
+        14
+    };
+
+    // Configure LoRa frequency from environment variable (set in .cargo/config.toml)
+    // Default: 433.92 MHz - standard frequency for 433 MHz ISM band
+    // Valid ISM bands: 433.05-434.79 MHz (worldwide), 863-870 MHz (EU), 902-928 MHz (US)
+    let frequency: u32 = if let Some(freq_str) = option_env!("LORA_TX_FREQUENCY") {
+        match freq_str.parse::<u32>() {
+            Ok(v)
+                if (433_050_000..=434_790_000).contains(&v)
+                    || (863_000_000..=870_000_000).contains(&v)
+                    || (902_000_000..=928_000_000).contains(&v) =>
+            {
+                info!(
+                    "Using frequency from config: {} Hz ({:.2} MHz)",
+                    v,
+                    v as f32 / 1_000_000.0
+                );
+                v
+            }
+            Ok(v) => {
+                warn!(
+                    "Frequency {} Hz ({:.2} MHz) outside common ISM bands, using default 433.92 MHz",
+                    v,
+                    v as f32 / 1_000_000.0
+                );
+                433_920_000
+            }
+            Err(_) => {
+                warn!(
+                    "Invalid frequency value '{}', using default 433.92 MHz",
+                    freq_str
+                );
+                433_920_000
+            }
+        }
+    } else {
+        info!("Frequency not configured, using default 433.92 MHz");
+        433_920_000
+    };
+
+    // Create modulation parameters optimized for long-range communication
     // SF10 + BW125 provides excellent range (5-10 km) with reasonable data rate
     // SF7 at 868MHz: ~40ms ToA for 61 bytes
-    // SF10 at 433MHz: ~700ms ToA for 61 bytes (max message size with 50 char text)
+    // SF10 at 433.92MHz: ~700ms ToA for 61 bytes (max message size with 50 char text)
     let modulation_params = match lora.create_modulation_params(
         SpreadingFactor::_10, // Higher SF = longer range, slower speed
         Bandwidth::_125KHz,   // Narrower BW = better sensitivity, longer range
         CodingRate::_4_5,     // Good error correction
-        433_000_000,          // 433 MHz ISM band
+        frequency,            // Frequency from config (default: 433.92 MHz)
     ) {
         Ok(p) => p,
         Err(e) => {
@@ -166,7 +234,7 @@ pub async fn lora_task(
                             .prepare_for_tx(
                                 &modulation_params,
                                 &mut tx_packet_params,
-                                14,
+                                output_power,
                                 &buf[..len],
                             )
                             .await
@@ -214,7 +282,7 @@ pub async fn lora_task(
                                                 .prepare_for_tx(
                                                     &modulation_params,
                                                     &mut tx_packet_params,
-                                                    14,
+                                                    output_power,
                                                     &buf[..ack_len],
                                                 )
                                                 .await

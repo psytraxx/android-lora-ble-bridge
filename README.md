@@ -13,13 +13,7 @@ A long-range communication system for sending text messages (up to 50 characters
 
 ## Architecture
 
-See `architecture.md` for the detailed system diagram and requirements.
-
-**High-level flow:**
-```
-Android Phone A → BLE → ESP32-S3 A → LoRa (433 MHz) → ESP32-S3 B → BLE → Android Phone B
-                                    ←─────── ACK ──────┘
-```
+See **[architecture.md](architecture.md)** for the detailed system diagram and requirements.
 
 ## Project Structure
 
@@ -46,13 +40,7 @@ lora-android-rs/
 
 ## Protocol
 
-See `protocol.md` for the complete binary message format specification.
-
-**Quick overview:**
-- **Data Message** (Type 0x01): 11 + text_length bytes (max 61 bytes)
-- **ACK Message** (Type 0x02): 2 bytes
-- **Text Limit**: 50 characters (optimized for long-range transmission)
-- **Encoding**: UTF-8 (supports emoji and unicode)
+See **[protocol.md](protocol.md)** for the complete binary message format specification.
 
 ## Building & Installation
 
@@ -143,9 +131,18 @@ cd android
 | GND | GND | Ground |
 
 ### LoRa Module Configuration
-- Frequency: 433 MHz (ensure your module supports this band)
-- Check local regulations for 433 MHz ISM band usage
-- Use appropriate antenna for 433 MHz (~17 cm for quarter-wave)
+
+For detailed configuration including frequency, power, and regional compliance, see **[LORA_CONFIG.md](LORA_CONFIG.md)**.
+
+**Quick Start:**
+```toml
+# Edit esp32s3/.cargo/config.toml
+[env]
+LORA_TX_POWER_DBM = "14"        # Power in dBm (-4 to 20)
+LORA_TX_FREQUENCY = "433920000" # Frequency in Hz (433/868/915 MHz bands)
+```
+
+**Antenna:** Use antenna tuned for your chosen frequency (~17 cm for 433 MHz quarter-wave)
 
 ## Usage
 
@@ -174,33 +171,13 @@ cd android
 
 ## Performance & Specifications
 
-### Message Characteristics
+See **[protocol.md](protocol.md)** for detailed performance characteristics including Time on Air calculations and duty cycle compliance.
 
-| Metric | Value |
-|--------|-------|
-| Max text length | 50 characters |
-| Max message size | 61 bytes |
-| ACK size | 2 bytes |
-| Time on Air (max msg) | ~700 ms |
-| Time on Air (ACK) | ~330 ms |
-| End-to-end latency | 1-2 seconds |
-
-### Range Expectations
-
-| Environment | Expected Range |
-|-------------|----------------|
-| Line of sight, open terrain | 10-15 km |
-| Urban, buildings | 2-5 km |
-| Indoor to outdoor | 500m - 2 km |
-| Dense urban/forest | 1-3 km |
-
-### Duty Cycle (EU 433 MHz: 1% = 36 sec/hour)
-
-| Message Length | Messages/Hour |
-|----------------|---------------|
-| Short (10 chars) | ~85 |
-| Medium (30 chars) | ~72 |
-| Long (50 chars) | ~51 |
+**Quick Reference:**
+- Max text: 50 characters (61 bytes total)
+- Typical range: 5-10 km (up to 15+ km ideal conditions)
+- Latency: 1-2 seconds end-to-end
+- See **[LORA_CONFIG.md](LORA_CONFIG.md)** for range estimates by frequency and power
 
 ## Troubleshooting
 
@@ -262,33 +239,9 @@ adb logcat -s LoRaApp
 # Or use Android Studio's Logcat viewer
 ```
 
-## BLE Message Flow (Technical)
+## Message Flow
 
-### Sending: Android → BLE → LoRa
-
-1. **BLE Connection**: App scans and connects to "ESP32S3-LoRa" (Service UUID: 0x1234)
-2. **Message Write**: App writes serialized message to RX characteristic (0x5679)
-3. **ESP32 Processing**: 
-   - `gatt_events_task` receives write event
-   - Deserializes message using `Message::deserialize()`
-   - Forwards to `ble_to_lora` channel
-4. **LoRa Transmission**:
-   - `lora_task` receives from channel
-   - Serializes and transmits via SX1276 radio
-   - Returns to RX mode after transmission
-
-### Receiving: LoRa → BLE → Android
-
-1. **LoRa Reception**: ESP32 receives packet on 433 MHz
-2. **Message Processing**:
-   - Deserializes LoRa data
-   - Sends ACK back via LoRa (if data message)
-   - Forwards to `lora_to_ble` channel
-3. **BLE Notification**:
-   - `gatt_events_task` receives from channel
-   - Serializes message
-   - Sends BLE notification on TX characteristic (0x5678)
-4. **Android Display**: App receives notification and displays message
+See **[protocol.md](protocol.md#message-flow)** and **[architecture.md](architecture.md)** for detailed message flow diagrams.
 
 ## Documentation
 

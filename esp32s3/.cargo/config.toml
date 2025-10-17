@@ -2,11 +2,11 @@
 runner = "espflash flash --monitor --chip esp32s3"
 
 [env]
+LORA_TX_POWER_DBM = "14"
+LORA_TX_FREQUENCY = "433920000"
 
 [build]
-rustflags = [
-  "-C", "link-arg=-nostartfiles",
-]
+rustflags = ["-C", "link-arg=-nostartfiles"]
 
 target = "xtensa-esp32s3-none-elf"
 
