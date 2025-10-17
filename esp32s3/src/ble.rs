@@ -190,14 +190,14 @@ async fn gatt_events_task(
         // Check for messages from LoRa to send to BLE central
         if let Ok(msg) = lora_to_ble.try_receive() {
             info!("Received message from LoRa to forward to BLE");
-            let mut buf = [0u8; 256];
+            let mut buf = [0u8; 64];
             match msg.serialize(&mut buf) {
                 Ok(len) => {
                     info!("Sending {} bytes via BLE notification", len);
                     // Note: trouble-host notify() requires the full characteristic array.
                     // The BLE stack should handle MTU negotiation and packetization automatically.
                     // Android will negotiate a larger MTU (typically 247+ bytes) which is sufficient
-                    // for our max message size of 266 bytes (11 + 255 text).
+                    // for our max message size of 61 bytes (11 + 50 text).
                     match server.lora_service.tx.notify(conn, &buf).await {
                         Ok(_) => info!("Message forwarded from LoRa to BLE via notification"),
                         Err(e) => error!("Failed to send BLE notification: {:?}", e),
@@ -223,10 +223,12 @@ struct Server {
 struct LoraService {
     /// TX characteristic (UUID 0x5678): Used to notify connected centrals of outgoing messages.
     /// Readable, writable, and notifiable.
-    #[characteristic(uuid = "5678", read, write, notify, value = [0u8; 256])]
-    tx: [u8; 256],
+    /// Buffer size: 64 bytes (sufficient for max message: 11 bytes + 50 char text = 61 bytes)
+    #[characteristic(uuid = "5678", read, write, notify, value = [0u8; 64])]
+    tx: [u8; 64],
     /// RX characteristic (UUID 0x5679): Used to receive incoming messages from connected centrals.
     /// Readable, writable, and notifiable.
-    #[characteristic(uuid = "5679", read, write, notify, value = [0u8; 256])]
-    rx: [u8; 256],
+    /// Buffer size: 64 bytes (sufficient for max message: 11 bytes + 50 char text = 61 bytes)
+    #[characteristic(uuid = "5679", read, write, notify, value = [0u8; 64])]
+    rx: [u8; 64],
 }

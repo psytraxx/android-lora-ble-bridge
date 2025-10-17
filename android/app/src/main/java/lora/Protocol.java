@@ -10,6 +10,13 @@ import java.nio.charset.StandardCharsets;
  */
 public class Protocol {
 
+    /**
+     * Maximum text length in characters for optimal long-range LoRa transmission.
+     * With SF10, BW125, 433MHz: 61 bytes (11 header + 50 text) = ~700ms Time on Air
+     * This allows ~51 messages per hour within 1% duty cycle limits.
+     */
+    public static final int MAX_TEXT_LENGTH = 50;
+
     public enum MessageType {
         DATA((byte) 0x01),
         ACK((byte) 0x02);
@@ -42,8 +49,8 @@ public class Protocol {
 
         public DataMessage(byte seq, String text, int lat, int lon) {
             super(MessageType.DATA);
-            if (text.length() > 255) {
-                throw new IllegalArgumentException("Text too long");
+            if (text.length() > MAX_TEXT_LENGTH) {
+                throw new IllegalArgumentException("Text too long (max " + MAX_TEXT_LENGTH + " chars)");
             }
             this.seq = seq;
             this.text = text;

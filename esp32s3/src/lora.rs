@@ -100,12 +100,15 @@ pub async fn lora_task(
         return;
     }
 
-    // Create modulation parameters (adjust frequency as needed, e.g., 868MHz for EU)
+    // Create modulation parameters optimized for long-range 433 MHz communication
+    // SF10 + BW125 provides excellent range (5-10 km) with reasonable data rate
+    // SF7 at 868MHz: ~40ms ToA for 61 bytes
+    // SF10 at 433MHz: ~700ms ToA for 61 bytes (max message size with 50 char text)
     let modulation_params = match lora.create_modulation_params(
-        SpreadingFactor::_7,
-        Bandwidth::_250KHz,
-        CodingRate::_4_5,
-        868_000_000,
+        SpreadingFactor::_10, // Higher SF = longer range, slower speed
+        Bandwidth::_125KHz,   // Narrower BW = better sensitivity, longer range
+        CodingRate::_4_5,     // Good error correction
+        433_000_000,          // 433 MHz ISM band
     ) {
         Ok(p) => p,
         Err(e) => {
@@ -144,7 +147,9 @@ pub async fn lora_task(
     }
     info!("LoRa radio ready for RX/TX operations");
 
-    let mut rx_buffer = [0u8; 256];
+    // Buffer sized for max message: 11 bytes + 50 char text = 61 bytes
+    // Using 64 bytes (power of 2) for alignment
+    let mut rx_buffer = [0u8; 64];
 
     loop {
         let ble_recv = ble_to_lora.receive();
@@ -154,7 +159,7 @@ pub async fn lora_task(
             Either::First(msg) => {
                 info!("Received message from BLE to transmit via LoRa: {:?}", msg);
                 // Transmit message over LoRa
-                let mut buf = [0u8; 256];
+                let mut buf = [0u8; 64];
                 match msg.serialize(&mut buf) {
                     Ok(len) => {
                         match lora
@@ -203,7 +208,7 @@ pub async fn lora_task(
                                         // Send ACK
                                         let ack = Message::Ack(AckMessage { seq: data.seq });
                                         info!("Sending ACK for seq: {}", data.seq);
-                                        let mut buf = [0u8; 256];
+                                        let mut buf = [0u8; 64];
                                         if let Ok(ack_len) = ack.serialize(&mut buf) {
                                             if let Err(e) = lora
                                                 .prepare_for_tx(

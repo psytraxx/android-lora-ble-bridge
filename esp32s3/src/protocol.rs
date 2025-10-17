@@ -1,6 +1,11 @@
 use alloc::boxed::Box;
 use heapless::String;
 
+/// Maximum text length in characters for optimal long-range LoRa transmission.
+/// With SF10, BW125, 433MHz: 61 bytes (11 header + 50 text) = ~700ms Time on Air
+/// This allows ~51 messages per hour within 1% duty cycle limits.
+pub const MAX_TEXT_LENGTH: usize = 50;
+
 /// Message types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -13,9 +18,9 @@ pub enum MessageType {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DataMessage {
     pub seq: u8,
-    pub text: String<256>, // Max 255 chars
-    pub lat: i32,          // latitude * 1_000_000
-    pub lon: i32,          // longitude * 1_000_000
+    pub text: String<64>, // Max 50 chars (optimized for long-range transmission)
+    pub lat: i32,         // latitude * 1_000_000
+    pub lon: i32,         // longitude * 1_000_000
 }
 
 /// Acknowledgment message

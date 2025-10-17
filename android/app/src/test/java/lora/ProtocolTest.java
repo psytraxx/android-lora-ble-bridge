@@ -114,8 +114,8 @@ public class ProtocolTest {
 
     @Test
     public void testDataMessageSerialization_LongText() {
-        // Create a 100-character message
-        String longText = "0123456789".repeat(10); // 100 chars
+        // Create a 40-character message (still within limit)
+        String longText = "0123456789".repeat(4); // 40 chars
         Protocol.DataMessage msg = new Protocol.DataMessage(
                 (byte) 10,
                 longText,
@@ -123,20 +123,20 @@ public class ProtocolTest {
                 -141800);
         byte[] data = msg.serialize();
 
-        assertEquals(111, data.length); // 1 + 1 + 1 + 100 + 4 + 4
+        assertEquals(51, data.length); // 1 + 1 + 1 + 40 + 4 + 4
         assertEquals(0x01, data[0]);
         assertEquals(10, data[1]);
-        assertEquals(100, data[2]);
+        assertEquals(40, data[2]);
 
-        String text = new String(data, 3, 100, StandardCharsets.UTF_8);
+        String text = new String(data, 3, 40, StandardCharsets.UTF_8);
         assertEquals(longText, text);
     }
 
     @Test
     public void testDataMessageSerialization_MaxText() {
-        // Create a 255-character message (maximum allowed)
-        StringBuilder sb = new StringBuilder(255);
-        for (int i = 0; i < 255; i++) {
+        // Create a 50-character message (maximum allowed for optimal LoRa range)
+        StringBuilder sb = new StringBuilder(Protocol.MAX_TEXT_LENGTH);
+        for (int i = 0; i < Protocol.MAX_TEXT_LENGTH; i++) {
             sb.append((char) ('A' + (i % 26)));
         }
         String maxText = sb.toString();
@@ -148,19 +148,19 @@ public class ProtocolTest {
                 139691700);
         byte[] data = msg.serialize();
 
-        assertEquals(266, data.length); // 1 + 1 + 1 + 255 + 4 + 4
+        assertEquals(61, data.length); // 1 + 1 + 1 + 50 + 4 + 4
         assertEquals(0x01, data[0]);
         assertEquals((byte) 255, data[1]);
-        assertEquals((byte) 255, data[2]);
+        assertEquals((byte) 50, data[2]);
 
-        String text = new String(data, 3, 255, StandardCharsets.UTF_8);
+        String text = new String(data, 3, 50, StandardCharsets.UTF_8);
         assertEquals(maxText, text);
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testDataMessageSerialization_TextTooLong() {
-        // Create a 256-character message (should fail)
-        String tooLongText = "X".repeat(256);
+        // Create a 51-character message (should fail - max is 50)
+        String tooLongText = "X".repeat(Protocol.MAX_TEXT_LENGTH + 1);
         new Protocol.DataMessage((byte) 1, tooLongText, 0, 0);
     }
 
@@ -351,7 +351,7 @@ public class ProtocolTest {
                 new Protocol.DataMessage((byte) 0, "", 0, 0),
                 new Protocol.DataMessage((byte) 1, "A", 1000000, -1000000),
                 new Protocol.DataMessage((byte) 127, "Medium length message here", 45000000, 90000000),
-                new Protocol.DataMessage((byte) 255, "X".repeat(255), -90000000, -180000000)
+                new Protocol.DataMessage((byte) 255, "X".repeat(Protocol.MAX_TEXT_LENGTH), -90000000, -180000000)
         };
 
         for (Protocol.DataMessage original : messages) {
@@ -506,7 +506,7 @@ public class ProtocolTest {
                 -122419200);
 
         byte[] transmitted = sos.serialize();
-        assertTrue("Message should fit in 256 bytes", transmitted.length <= 256);
+        assertTrue("Message should fit in 64 bytes", transmitted.length <= 64);
 
         Protocol.DataMessage received = (Protocol.DataMessage) Protocol.Message.deserialize(transmitted);
         assertEquals("SOS - Need help at this location!", received.text);
