@@ -193,9 +193,12 @@ async fn gatt_events_task(
             let mut buf = [0u8; 256];
             match msg.serialize(&mut buf) {
                 Ok(len) => {
-                    let mut data = [0u8; 256];
-                    data[..len].copy_from_slice(&buf[..len]);
-                    match server.lora_service.tx.notify(conn, &data).await {
+                    info!("Sending {} bytes via BLE notification", len);
+                    // Note: trouble-host notify() requires the full characteristic array.
+                    // The BLE stack should handle MTU negotiation and packetization automatically.
+                    // Android will negotiate a larger MTU (typically 247+ bytes) which is sufficient
+                    // for our max message size of 266 bytes (11 + 255 text).
+                    match server.lora_service.tx.notify(conn, &buf).await {
                         Ok(_) => info!("Message forwarded from LoRa to BLE via notification"),
                         Err(e) => error!("Failed to send BLE notification: {:?}", e),
                     }
