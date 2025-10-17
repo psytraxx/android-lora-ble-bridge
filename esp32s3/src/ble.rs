@@ -190,10 +190,10 @@ async fn gatt_events_task(
         // Check for messages from LoRa to send to BLE central
         if let Ok(msg) = lora_to_ble.try_receive() {
             info!("Received message from LoRa to forward to BLE");
-            let mut buf = [0u8; 512];
+            let mut buf = [0u8; 256];
             match msg.serialize(&mut buf) {
                 Ok(len) => {
-                    let mut data = [0u8; 512];
+                    let mut data = [0u8; 256];
                     data[..len].copy_from_slice(&buf[..len]);
                     match server.lora_service.tx.notify(conn, &data).await {
                         Ok(_) => info!("Message forwarded from LoRa to BLE via notification"),
@@ -220,10 +220,10 @@ struct Server {
 struct LoraService {
     /// TX characteristic (UUID 0x5678): Used to notify connected centrals of outgoing messages.
     /// Readable, writable, and notifiable.
-    #[characteristic(uuid = "5678", read, write, notify, value = [0u8; 512])]
-    tx: [u8; 512],
+    #[characteristic(uuid = "5678", read, write, notify, value = [0u8; 256])]
+    tx: [u8; 256],
     /// RX characteristic (UUID 0x5679): Used to receive incoming messages from connected centrals.
     /// Readable, writable, and notifiable.
-    #[characteristic(uuid = "5679", read, write, notify, value = [0u8; 512])]
-    rx: [u8; 512],
+    #[characteristic(uuid = "5679", read, write, notify, value = [0u8; 256])]
+    rx: [u8; 256],
 }

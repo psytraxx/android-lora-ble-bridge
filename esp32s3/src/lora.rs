@@ -154,7 +154,7 @@ pub async fn lora_task(
             Either::First(msg) => {
                 info!("Received message from BLE to transmit via LoRa: {:?}", msg);
                 // Transmit message over LoRa
-                let mut buf = [0u8; 512];
+                let mut buf = [0u8; 256];
                 match msg.serialize(&mut buf) {
                     Ok(len) => {
                         match lora
@@ -167,7 +167,20 @@ pub async fn lora_task(
                             .await
                         {
                             Ok(_) => match lora.tx().await {
-                                Ok(_) => info!("LoRa TX successful"),
+                                Ok(_) => {
+                                    info!("LoRa TX successful");
+                                    // Return to RX mode after transmission
+                                    if let Err(e) = lora
+                                        .prepare_for_rx(
+                                            RxMode::Continuous,
+                                            &modulation_params,
+                                            &rx_packet_params,
+                                        )
+                                        .await
+                                    {
+                                        error!("Failed to return to RX mode after TX: {:?}", e);
+                                    }
+                                }
                                 Err(e) => error!("LoRa TX failed: {:?}", e),
                             },
                             Err(e) => error!("LoRa prepare_for_tx failed: {:?}", e),
@@ -190,7 +203,7 @@ pub async fn lora_task(
                                         // Send ACK
                                         let ack = Message::Ack(AckMessage { seq: data.seq });
                                         info!("Sending ACK for seq: {}", data.seq);
-                                        let mut buf = [0u8; 512];
+                                        let mut buf = [0u8; 256];
                                         if let Ok(ack_len) = ack.serialize(&mut buf) {
                                             if let Err(e) = lora
                                                 .prepare_for_tx(
@@ -206,6 +219,20 @@ pub async fn lora_task(
                                                 error!("Failed to send ACK: {:?}", e);
                                             } else {
                                                 info!("ACK sent successfully");
+                                                // Return to RX mode after ACK transmission
+                                                if let Err(e) = lora
+                                                    .prepare_for_rx(
+                                                        RxMode::Continuous,
+                                                        &modulation_params,
+                                                        &rx_packet_params,
+                                                    )
+                                                    .await
+                                                {
+                                                    error!(
+                                                        "Failed to return to RX mode after ACK TX: {:?}",
+                                                        e
+                                                    );
+                                                }
                                             }
                                         }
                                         // Forward data to BLE
