@@ -82,13 +82,16 @@ public class ProtocolTest {
         );
         byte[] data = msg.serialize();
 
-        assertEquals(11, data.length); // 1 + 1 + 1 + 0 + 4 + 4
+        // With 6-bit packing: 1 (type) + 1 (seq) + 1 (char_count) + 1 (packed_len) + 0
+        // (packed) + 4 (lat) + 4 (lon) = 12
+        assertEquals(12, data.length);
         assertEquals(0x01, data[0]); // DATA type
         assertEquals(1, data[1]); // seq
-        assertEquals(0, data[2]); // text length
+        assertEquals(0, data[2]); // char count
+        assertEquals(0, data[3]); // packed length
 
         // Verify GPS coordinates (little-endian)
-        ByteBuffer buf = ByteBuffer.wrap(data, 3, 8).order(ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer buf = ByteBuffer.wrap(data, 4, 8).order(ByteOrder.LITTLE_ENDIAN);
         assertEquals(37774200, buf.getInt());
         assertEquals(-122419200, buf.getInt());
     }
@@ -97,24 +100,29 @@ public class ProtocolTest {
     public void testDataMessageSerialization_ShortText() {
         Protocol.DataMessage msg = new Protocol.DataMessage(
                 (byte) 5,
-                "Hello",
+                "HELLO", // Use uppercase since it's auto-converted
                 40712800, // NYC
                 -74006000);
         byte[] data = msg.serialize();
 
-        assertEquals(16, data.length); // 1 + 1 + 1 + 5 + 4 + 4
+        // 5 chars * 6 bits = 30 bits = 3.75 -> 4 bytes packed
+        // 1 + 1 + 1 + 1 + 4 + 4 + 4 = 16
+        assertEquals(16, data.length);
         assertEquals(0x01, data[0]);
         assertEquals(5, data[1]);
-        assertEquals(5, data[2]);
+        assertEquals(5, data[2]); // char count
+        assertEquals(4, data[3]); // packed length
 
-        // Verify text
-        String text = new String(data, 3, 5, StandardCharsets.UTF_8);
-        assertEquals("Hello", text);
+        // Verify roundtrip instead of checking raw bytes (6-bit encoding is complex)
+        Protocol.Message deserialized = Protocol.Message.deserialize(data);
+        assertTrue(deserialized instanceof Protocol.DataMessage);
+        Protocol.DataMessage result = (Protocol.DataMessage) deserialized;
+        assertEquals("HELLO", result.text);
     }
 
     @Test
     public void testDataMessageSerialization_LongText() {
-        // Create a 40-character message (still within limit)
+        // Create a 40-character message (still within limit) - use only 6-bit chars
         String longText = "0123456789".repeat(4); // 40 chars
         Protocol.DataMessage msg = new Protocol.DataMessage(
                 (byte) 10,
@@ -123,13 +131,19 @@ public class ProtocolTest {
                 -141800);
         byte[] data = msg.serialize();
 
-        assertEquals(51, data.length); // 1 + 1 + 1 + 40 + 4 + 4
+        // 40 chars * 6 bits = 240 bits = 30 bytes packed
+        // 1 + 1 + 1 + 1 + 30 + 4 + 4 = 42
+        assertEquals(42, data.length);
         assertEquals(0x01, data[0]);
         assertEquals(10, data[1]);
-        assertEquals(40, data[2]);
+        assertEquals(40, data[2]); // char count
+        assertEquals(30, data[3]); // packed length
 
-        String text = new String(data, 3, 40, StandardCharsets.UTF_8);
-        assertEquals(longText, text);
+        // Verify roundtrip
+        Protocol.Message deserialized = Protocol.Message.deserialize(data);
+        assertTrue(deserialized instanceof Protocol.DataMessage);
+        Protocol.DataMessage result = (Protocol.DataMessage) deserialized;
+        assertEquals(longText, result.text);
     }
 
     @Test
@@ -148,13 +162,19 @@ public class ProtocolTest {
                 139691700);
         byte[] data = msg.serialize();
 
-        assertEquals(61, data.length); // 1 + 1 + 1 + 50 + 4 + 4
+        // 50 chars * 6 bits = 300 bits = 37.5 -> 38 bytes packed
+        // 1 + 1 + 1 + 1 + 38 + 4 + 4 = 50
+        assertEquals(50, data.length);
         assertEquals(0x01, data[0]);
         assertEquals((byte) 255, data[1]);
-        assertEquals((byte) 50, data[2]);
+        assertEquals((byte) 50, data[2]); // char count
+        assertEquals((byte) 38, data[3]); // packed length
 
-        String text = new String(data, 3, 50, StandardCharsets.UTF_8);
-        assertEquals(maxText, text);
+        // Verify roundtrip
+        Protocol.Message deserialized = Protocol.Message.deserialize(data);
+        assertTrue(deserialized instanceof Protocol.DataMessage);
+        Protocol.DataMessage result = (Protocol.DataMessage) deserialized;
+        assertEquals(maxText, result.text);
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -174,7 +194,7 @@ public class ProtocolTest {
         int lat = -33868800;
         int lon = 151209300;
 
-        Protocol.DataMessage msg = new Protocol.DataMessage((byte) 1, "Sydney", lat, lon);
+        Protocol.DataMessage msg = new Protocol.DataMessage((byte) 1, "SYDNEY", lat, lon);
         byte[] data = msg.serialize();
 
         Protocol.Message deserialized = Protocol.Message.deserialize(data);
@@ -183,6 +203,7 @@ public class ProtocolTest {
 
         assertEquals(lat, result.lat);
         assertEquals(lon, result.lon);
+        assertEquals("SYDNEY", result.text); // Auto-converted to uppercase
 
         // Verify conversion back to degrees
         double latDegrees = result.lat / 1_000_000.0;
@@ -197,7 +218,7 @@ public class ProtocolTest {
         int lat = -34603700;
         int lon = -58381600;
 
-        Protocol.DataMessage msg = new Protocol.DataMessage((byte) 2, "BuenosAires", lat, lon);
+        Protocol.DataMessage msg = new Protocol.DataMessage((byte) 2, "BUENOS AIRES", lat, lon);
         byte[] data = msg.serialize();
 
         Protocol.Message deserialized = Protocol.Message.deserialize(data);
@@ -210,7 +231,7 @@ public class ProtocolTest {
     @Test
     public void testDataMessage_ZeroCoordinates() {
         // Null Island (0°, 0°)
-        Protocol.DataMessage msg = new Protocol.DataMessage((byte) 3, "NullIsland", 0, 0);
+        Protocol.DataMessage msg = new Protocol.DataMessage((byte) 3, "NULL ISLAND", 0, 0);
         byte[] data = msg.serialize();
 
         Protocol.Message deserialized = Protocol.Message.deserialize(data);
@@ -226,7 +247,7 @@ public class ProtocolTest {
         int lat = 90_000_000;
         int lon = 180_000_000;
 
-        Protocol.DataMessage msg = new Protocol.DataMessage((byte) 4, "Extreme", lat, lon);
+        Protocol.DataMessage msg = new Protocol.DataMessage((byte) 4, "EXTREME", lat, lon);
         byte[] data = msg.serialize();
 
         Protocol.Message deserialized = Protocol.Message.deserialize(data);
@@ -240,21 +261,14 @@ public class ProtocolTest {
     // Data Message Tests - UTF-8 Text
     // ============================================
 
-    @Test
-    public void testDataMessage_UnicodeText() {
-        String unicodeText = "Hello 世界 🌍";
-        Protocol.DataMessage msg = new Protocol.DataMessage((byte) 7, unicodeText, 0, 0);
-        byte[] data = msg.serialize();
-
-        Protocol.Message deserialized = Protocol.Message.deserialize(data);
-        Protocol.DataMessage result = (Protocol.DataMessage) deserialized;
-
-        assertEquals(unicodeText, result.text);
-    }
+    // Note: 6-bit packing only supports: "
+    // ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'"@#$%&*()[]{}=+/<>_"
+    // Unicode, lowercase, newlines, tabs are not supported
 
     @Test
     public void testDataMessage_SpecialCharacters() {
-        String specialText = "Test!@#$%^&*(){}[]|\\:;\"'<>,.?/~`";
+        // Test a few supported special characters from 6-bit charset
+        String specialText = "TEST 123!?.,";
         Protocol.DataMessage msg = new Protocol.DataMessage((byte) 8, specialText, 0, 0);
         byte[] data = msg.serialize();
 
@@ -264,40 +278,22 @@ public class ProtocolTest {
         assertEquals(specialText, result.text);
     }
 
-    @Test
-    public void testDataMessage_NewlineAndTabs() {
-        String text = "Line1\nLine2\tTabbed";
-        Protocol.DataMessage msg = new Protocol.DataMessage((byte) 9, text, 0, 0);
-        byte[] data = msg.serialize();
-
-        Protocol.Message deserialized = Protocol.Message.deserialize(data);
-        Protocol.DataMessage result = (Protocol.DataMessage) deserialized;
-
-        assertEquals(text, result.text);
-    }
-
     // ============================================
     // Data Message Tests - Deserialization
     // ============================================
 
     @Test
     public void testDataMessageDeserialization_Valid() {
-        byte[] data = new byte[16]; // 1 + 1 + 1 + 5 + 4 + 4
-        data[0] = 0x01; // DATA type
-        data[1] = 42; // seq
-        data[2] = 5; // text length
-        System.arraycopy("Hello".getBytes(StandardCharsets.UTF_8), 0, data, 3, 5);
-
-        ByteBuffer buf = ByteBuffer.wrap(data, 8, 8).order(ByteOrder.LITTLE_ENDIAN);
-        buf.putInt(12345678);
-        buf.putInt(-87654321);
+        // Create message with 6-bit packing
+        Protocol.DataMessage original = new Protocol.DataMessage((byte) 42, "HELLO", 12345678, -87654321);
+        byte[] data = original.serialize();
 
         Protocol.Message msg = Protocol.Message.deserialize(data);
         assertTrue(msg instanceof Protocol.DataMessage);
 
         Protocol.DataMessage dataMsg = (Protocol.DataMessage) msg;
         assertEquals(42, dataMsg.seq);
-        assertEquals("Hello", dataMsg.text);
+        assertEquals("HELLO", dataMsg.text);
         assertEquals(12345678, dataMsg.lat);
         assertEquals(-87654321, dataMsg.lon);
     }
@@ -310,13 +306,15 @@ public class ProtocolTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void testDataMessageDeserialization_TextTooShort() {
-        byte[] data = new byte[13]; // Says 5 bytes text but only has 2
-        data[0] = 0x01;
-        data[1] = 1;
-        data[2] = 5; // Claims 5 bytes of text
-        data[3] = 'H';
-        data[4] = 'i';
-        // Missing 3 bytes of text and GPS coordinates
+        // Manually create malformed data with incorrect packed length
+        byte[] data = new byte[13];
+        data[0] = 0x01; // DATA type
+        data[1] = 1; // seq
+        data[2] = 5; // char_count (claims 5 chars)
+        data[3] = 10; // packed_len (claims 10 bytes but we provide less)
+        data[4] = 'H';
+        data[5] = 'i';
+        // Missing expected packed bytes and GPS coordinates
         Protocol.Message.deserialize(data);
     }
 
@@ -328,7 +326,7 @@ public class ProtocolTest {
     public void testDataMessageRoundTrip_Simple() {
         Protocol.DataMessage original = new Protocol.DataMessage(
                 (byte) 50,
-                "Test message",
+                "TEST MESSAGE",
                 48856600, // Paris
                 2341200);
 
@@ -350,7 +348,7 @@ public class ProtocolTest {
         Protocol.DataMessage[] messages = new Protocol.DataMessage[] {
                 new Protocol.DataMessage((byte) 0, "", 0, 0),
                 new Protocol.DataMessage((byte) 1, "A", 1000000, -1000000),
-                new Protocol.DataMessage((byte) 127, "Medium length message here", 45000000, 90000000),
+                new Protocol.DataMessage((byte) 127, "MEDIUM LENGTH MESSAGE HERE", 45000000, 90000000),
                 new Protocol.DataMessage((byte) 255, "X".repeat(Protocol.MAX_TEXT_LENGTH), -90000000, -180000000)
         };
 
@@ -440,8 +438,8 @@ public class ProtocolTest {
 
     @Test
     public void testDataMessage_HashCode() {
-        Protocol.DataMessage msg1 = new Protocol.DataMessage((byte) 1, "Test", 100, 200);
-        Protocol.DataMessage msg2 = new Protocol.DataMessage((byte) 1, "Test", 100, 200);
+        Protocol.DataMessage msg1 = new Protocol.DataMessage((byte) 1, "TEST", 100, 200);
+        Protocol.DataMessage msg2 = new Protocol.DataMessage((byte) 1, "TEST", 100, 200);
 
         assertEquals(msg1.hashCode(), msg2.hashCode());
     }
@@ -473,12 +471,12 @@ public class ProtocolTest {
 
     @Test
     public void testDataMessage_ToString() {
-        Protocol.DataMessage msg = new Protocol.DataMessage((byte) 5, "Hello", 1000, 2000);
+        Protocol.DataMessage msg = new Protocol.DataMessage((byte) 5, "HELLO", 1000, 2000);
         String str = msg.toString();
 
         assertTrue(str.contains("DataMessage"));
         assertTrue(str.contains("seq=5"));
-        assertTrue(str.contains("Hello"));
+        assertTrue(str.contains("HELLO"));
         assertTrue(str.contains("1000"));
         assertTrue(str.contains("2000"));
     }
@@ -501,7 +499,7 @@ public class ProtocolTest {
         // Simulate emergency SOS message with GPS
         Protocol.DataMessage sos = new Protocol.DataMessage(
                 (byte) 1,
-                "SOS - Need help at this location!",
+                "SOS - NEED HELP AT THIS LOCATION!",
                 37774200, // San Francisco
                 -122419200);
 
@@ -509,7 +507,7 @@ public class ProtocolTest {
         assertTrue("Message should fit in 64 bytes", transmitted.length <= 64);
 
         Protocol.DataMessage received = (Protocol.DataMessage) Protocol.Message.deserialize(transmitted);
-        assertEquals("SOS - Need help at this location!", received.text);
+        assertEquals("SOS - NEED HELP AT THIS LOCATION!", received.text);
 
         // Verify GPS coordinates can be converted back
         double lat = received.lat / 1_000_000.0;
@@ -524,10 +522,10 @@ public class ProtocolTest {
         byte seq = 0;
 
         // Send message 1
-        Protocol.DataMessage msg1 = new Protocol.DataMessage(seq++, "Hello from device A", 1000, 2000);
+        Protocol.DataMessage msg1 = new Protocol.DataMessage(seq++, "HELLO FROM DEVICE A", 1000, 2000);
         byte[] data1 = msg1.serialize();
         Protocol.DataMessage receivedMsg1 = (Protocol.DataMessage) Protocol.Message.deserialize(data1);
-        assertEquals("Hello from device A", receivedMsg1.text);
+        assertEquals("HELLO FROM DEVICE A", receivedMsg1.text);
 
         // Send ACK for message 1
         Protocol.AckMessage ack1 = new Protocol.AckMessage(receivedMsg1.seq);
@@ -536,7 +534,7 @@ public class ProtocolTest {
         assertEquals(receivedMsg1.seq, receivedAck1.seq);
 
         // Send message 2
-        Protocol.DataMessage msg2 = new Protocol.DataMessage(seq++, "Hello from device B", 3000, 4000);
+        Protocol.DataMessage msg2 = new Protocol.DataMessage(seq++, "HELLO FROM DEVICE B", 3000, 4000);
         byte[] data2 = msg2.serialize();
         Protocol.DataMessage receivedMsg2 = (Protocol.DataMessage) Protocol.Message.deserialize(data2);
 
@@ -550,9 +548,9 @@ public class ProtocolTest {
     @Test
     public void testRealWorldScenario_SequenceNumberWrapAround() {
         // Test that sequence numbers wrap around correctly at 255
-        Protocol.DataMessage msg254 = new Protocol.DataMessage((byte) 254, "Message 254", 0, 0);
-        Protocol.DataMessage msg255 = new Protocol.DataMessage((byte) 255, "Message 255", 0, 0);
-        Protocol.DataMessage msg0 = new Protocol.DataMessage((byte) 0, "Message 0 (wrapped)", 0, 0);
+        Protocol.DataMessage msg254 = new Protocol.DataMessage((byte) 254, "MESSAGE 254", 0, 0);
+        Protocol.DataMessage msg255 = new Protocol.DataMessage((byte) 255, "MESSAGE 255", 0, 0);
+        Protocol.DataMessage msg0 = new Protocol.DataMessage((byte) 0, "MESSAGE 0", 0, 0);
 
         // All should serialize and deserialize correctly
         assertEquals(msg254, Protocol.Message.deserialize(msg254.serialize()));

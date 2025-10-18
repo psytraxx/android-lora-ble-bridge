@@ -50,6 +50,7 @@ public class MainActivity extends AppCompatActivity {
     private Button sendButton;
     private TextView receivedTextView;
     private TextView gpsTextView;
+    private TextView charCountTextView;
 
     private LocationManager locationManager;
     private byte seqCounter = 0;
@@ -63,6 +64,7 @@ public class MainActivity extends AppCompatActivity {
         sendButton = findViewById(R.id.sendButton);
         receivedTextView = findViewById(R.id.receivedTextView);
         gpsTextView = findViewById(R.id.gpsTextView);
+        charCountTextView = findViewById(R.id.charCountTextView);
 
         BluetoothManager bluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         bluetoothAdapter = bluetoothManager.getAdapter();
@@ -73,7 +75,24 @@ public class MainActivity extends AppCompatActivity {
 
         sendButton.setOnClickListener(v -> sendMessage());
 
+        // Add text watcher to update character count
+        messageEditText.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                updateCharCount(s.toString());
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+            }
+        });
+
         updateGps();
+        updateCharCount(""); // Initialize counter
     }
 
     private void checkPermissions() {
@@ -216,6 +235,12 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "Message truncated to " + MAX_TEXT_LENGTH + " chars", Toast.LENGTH_SHORT).show();
         }
 
+        // Validate all characters are supported
+        if (!Protocol.isTextSupported(text)) {
+            Toast.makeText(this, "Invalid characters! Use only A-Z, 0-3, space, and period.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
         Location location = getLastKnownLocation();
         if (location == null) {
             Toast.makeText(this, "No GPS", Toast.LENGTH_SHORT).show();
@@ -225,11 +250,36 @@ public class MainActivity extends AppCompatActivity {
         int lat = (int) (location.getLatitude() * 1_000_000);
         int lon = (int) (location.getLongitude() * 1_000_000);
 
-        Protocol.DataMessage dataMsg = new Protocol.DataMessage(seqCounter++, text, lat, lon);
-        byte[] data = dataMsg.serialize();
+        try {
+            Protocol.DataMessage dataMsg = new Protocol.DataMessage(seqCounter++, text, lat, lon);
+            byte[] data = dataMsg.serialize();
 
-        txCharacteristic.setValue(data);
-        bluetoothGatt.writeCharacteristic(txCharacteristic);
+            txCharacteristic.setValue(data);
+            bluetoothGatt.writeCharacteristic(txCharacteristic);
+
+            Toast.makeText(this, "Sent (" + data.length + " bytes)", Toast.LENGTH_SHORT).show();
+            messageEditText.setText(""); // Clear input after sending
+        } catch (IllegalArgumentException e) {
+            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void updateCharCount(String text) {
+        int charCount = text.length();
+        int packedBytes = Protocol.calculatePackedSize(text);
+        int totalMessageSize = 12 + packedBytes; // 12 byte header + packed text
+
+        String countText = charCount + "/" + MAX_TEXT_LENGTH + " chars (" + totalMessageSize + " bytes)";
+        charCountTextView.setText(countText);
+
+        // Change color if approaching limit
+        if (charCount >= MAX_TEXT_LENGTH) {
+            charCountTextView.setTextColor(0xFFFF0000); // Red
+        } else if (charCount >= MAX_TEXT_LENGTH * 0.9) {
+            charCountTextView.setTextColor(0xFFFF6600); // Orange
+        } else {
+            charCountTextView.setTextColor(0xFF666666); // Gray
+        }
     }
 
     private Location getLastKnownLocation() {

@@ -10,9 +10,10 @@
         android:id="@+id/messageEditText"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:hint="Enter message (max 50 chars)"
+        android:hint="Enter message (max 50 chars, UPPERCASE)"
         android:maxLength="50"
-        android:inputType="text"
+        android:inputType="textCapCharacters"
+        android:digits=" ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'&quot;@#$%&amp;*()[]{}=+/&lt;&gt;_"
         app:layout_constraintEnd_toStartOf="@+id/sendButton"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
@@ -30,13 +31,26 @@
         android:layout_marginEnd="16dp" />
 
     <TextView
+        android:id="@+id/charCountTextView"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="0/50 chars (0 bytes)"
+        android:textSize="12sp"
+        android:textColor="#666666"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/messageEditText"
+        android:layout_marginTop="4dp"
+        android:layout_marginStart="16dp" />
+
+    <TextView
         android:id="@+id/receivedTextView"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:text="Received: "
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/messageEditText"
+        app:layout_constraintTop_toBottomOf="@+id/charCountTextView"
         android:layout_marginTop="16dp" />
 
     <TextView

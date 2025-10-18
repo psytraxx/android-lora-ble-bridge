@@ -7,15 +7,155 @@ import java.nio.charset.StandardCharsets;
 /**
  * LoRa Message Protocol for Android
  * Binary format for efficient BLE and LoRa communication
+ * Uses 6-bit character packing for bandwidth optimization
  */
 public class Protocol {
 
     /**
      * Maximum text length in characters for optimal long-range LoRa transmission.
-     * With SF10, BW125, 433MHz: 61 bytes (11 header + 50 text) = ~700ms Time on Air
-     * This allows ~51 messages per hour within 1% duty cycle limits.
+     * With 6-bit packing: 50 chars = 38 bytes (was 50 bytes)
+     * With SF10, BW125, 433MHz: 50 bytes (12 header + 38 text) = ~600ms Time on Air
+     * This allows ~60 messages per hour within 1% duty cycle limits.
      */
     public static final int MAX_TEXT_LENGTH = 50;
+
+    /**
+     * Character set for 6-bit encoding (64 characters)
+     * UPPERCASE ONLY: Space + A-Z + 0-9 + punctuation
+     */
+    private static final String CHARSET = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'\"@#$%&*()[]{}=+/<>_";
+
+    /**
+     * Convert a character to its 6-bit encoded value
+     * Automatically converts lowercase to uppercase
+     */
+    private static byte charTo6Bit(char ch) throws IllegalArgumentException {
+        char upperCh = Character.toUpperCase(ch);
+        int index = CHARSET.indexOf(upperCh);
+        if (index < 0) {
+            throw new IllegalArgumentException("Character not supported: '" + ch + "'");
+        }
+        return (byte) index;
+    }
+
+    /**
+     * Convert a 6-bit value back to a character
+     */
+    private static char sixBitToChar(byte val) throws IllegalArgumentException {
+        if (val < 0 || val >= CHARSET.length()) {
+            throw new IllegalArgumentException("Invalid 6-bit value: " + val);
+        }
+        return CHARSET.charAt(val);
+    }
+
+    /**
+     * Pack text into 6-bit encoded bytes
+     * Each character is encoded as 6 bits instead of 8 bits (UTF-8)
+     * Lowercase letters are automatically converted to uppercase
+     * 50 chars × 6 bits = 300 bits = 37.5 bytes → 38 bytes
+     */
+    private static byte[] packText(String text) throws IllegalArgumentException {
+        int charCount = text.length();
+        int byteCount = (charCount * 6 + 7) / 8; // Round up
+        byte[] result = new byte[byteCount];
+
+        int bitOffset = 0;
+
+        for (int i = 0; i < charCount; i++) {
+            byte value = charTo6Bit(text.charAt(i));
+
+            int byteIdx = bitOffset / 8;
+            int bitInByte = bitOffset % 8;
+
+            if (bitInByte <= 2) {
+                // The 6 bits fit within the current byte
+                result[byteIdx] |= (value << (2 - bitInByte));
+            } else {
+                // The 6 bits span two bytes
+                int bitsInFirst = 8 - bitInByte;
+                int bitsInSecond = 6 - bitsInFirst;
+
+                result[byteIdx] |= (value >> bitsInSecond);
+                if (byteIdx + 1 < result.length) {
+                    result[byteIdx + 1] |= (value << (8 - bitsInSecond));
+                }
+            }
+
+            bitOffset += 6;
+        }
+
+        return result;
+    }
+
+    /**
+     * Unpack 6-bit encoded bytes back to text
+     * Reads 6 bits at a time and converts to characters (uppercase)
+     */
+    private static String unpackText(byte[] packed, int charCount) throws IllegalArgumentException {
+        StringBuilder result = new StringBuilder(charCount);
+        int bitOffset = 0;
+
+        for (int i = 0; i < charCount; i++) {
+            int byteIdx = bitOffset / 8;
+            int bitInByte = bitOffset % 8;
+
+            if (byteIdx >= packed.length) {
+                throw new IllegalArgumentException("Insufficient packed data");
+            }
+
+            byte value;
+            if (bitInByte <= 2) {
+                // The 6 bits are within the current byte
+                value = (byte) (((packed[byteIdx] & 0xFF) >>> (2 - bitInByte)) & 0x3F);
+            } else {
+                // The 6 bits span two bytes
+                int bitsInFirst = 8 - bitInByte;
+                int bitsInSecond = 6 - bitsInFirst;
+
+                byte firstPart = (byte) (packed[byteIdx] & ((1 << bitsInFirst) - 1));
+                byte secondPart;
+                if (byteIdx + 1 < packed.length) {
+                    secondPart = (byte) ((packed[byteIdx + 1] & 0xFF) >>> (8 - bitsInSecond));
+                } else {
+                    throw new IllegalArgumentException("Insufficient packed data");
+                }
+
+                value = (byte) ((firstPart << bitsInSecond) | secondPart);
+            }
+
+            result.append(sixBitToChar(value));
+            bitOffset += 6;
+        }
+
+        return result.toString();
+    }
+
+    /**
+     * Calculate the packed size for a given text
+     */
+    public static int calculatePackedSize(String text) {
+        return (text.length() * 6 + 7) / 8;
+    }
+
+    /**
+     * Validate if a character is supported
+     */
+    public static boolean isCharacterSupported(char ch) {
+        char upperCh = Character.toUpperCase(ch);
+        return CHARSET.indexOf(upperCh) >= 0;
+    }
+
+    /**
+     * Validate if all characters in text are supported
+     */
+    public static boolean isTextSupported(String text) {
+        for (int i = 0; i < text.length(); i++) {
+            if (!isCharacterSupported(text.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     public enum MessageType {
         DATA((byte) 0x01),
@@ -60,13 +200,14 @@ public class Protocol {
 
         @Override
         public byte[] serialize() {
-            byte textBytes[] = text.getBytes(StandardCharsets.UTF_8);
-            byte data[] = new byte[1 + 1 + 1 + textBytes.length + 8];
+            byte[] packedText = packText(text);
+            byte[] data = new byte[1 + 1 + 1 + 1 + packedText.length + 8];
             data[0] = MessageType.DATA.getValue();
             data[1] = seq;
-            data[2] = (byte) textBytes.length;
-            System.arraycopy(textBytes, 0, data, 3, textBytes.length);
-            ByteBuffer buf = ByteBuffer.wrap(data, 3 + textBytes.length, 8).order(ByteOrder.LITTLE_ENDIAN);
+            data[2] = (byte) text.length(); // Original character count
+            data[3] = (byte) packedText.length; // Packed byte count
+            System.arraycopy(packedText, 0, data, 4, packedText.length);
+            ByteBuffer buf = ByteBuffer.wrap(data, 4 + packedText.length, 8).order(ByteOrder.LITTLE_ENDIAN);
             buf.putInt(lat);
             buf.putInt(lon);
             return data;
@@ -155,16 +296,19 @@ public class Protocol {
         }
 
         private static DataMessage deserializeData(byte[] data) {
-            if (data.length < 11) {
+            if (data.length < 12) {
                 throw new IllegalArgumentException("Data too short for DataMessage");
             }
             byte seq = data[1];
-            int textLen = data[2] & 0xFF; // Convert to unsigned byte
-            if (data.length < 11 + textLen) {
-                throw new IllegalArgumentException("Data too short for text");
+            int charCount = data[2] & 0xFF; // Original character count
+            int packedLen = data[3] & 0xFF; // Packed byte count
+            if (data.length < 12 + packedLen) {
+                throw new IllegalArgumentException("Data too short for packed text");
             }
-            String text = new String(data, 3, textLen, StandardCharsets.UTF_8);
-            ByteBuffer buf = ByteBuffer.wrap(data, 3 + textLen, 8).order(ByteOrder.LITTLE_ENDIAN);
+            byte[] packedBytes = new byte[packedLen];
+            System.arraycopy(data, 4, packedBytes, 0, packedLen);
+            String text = unpackText(packedBytes, charCount);
+            ByteBuffer buf = ByteBuffer.wrap(data, 4 + packedLen, 8).order(ByteOrder.LITTLE_ENDIAN);
             int lat = buf.getInt();
             int lon = buf.getInt();
             return new DataMessage(seq, text, lat, lon);
