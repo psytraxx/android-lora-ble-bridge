@@ -36,9 +36,9 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_PERMISSIONS = 1;
     private static final int MAX_TEXT_LENGTH = 50; // Maximum text length for optimal LoRa range
     private static final String DEVICE_NAME = "ESP32-LoRa";
-    private static final UUID SERVICE_UUID = UUID.fromString("12340000-0000-0000-0000-000000000000");
-    private static final UUID TX_CHAR_UUID = UUID.fromString("56780000-0000-0000-0000-000000000000");
-    private static final UUID RX_CHAR_UUID = UUID.fromString("56790000-0000-0000-0000-000000000000");
+    private static final UUID SERVICE_UUID = UUID.fromString("1234");
+    private static final UUID TX_CHAR_UUID = UUID.fromString("5678");
+    private static final UUID RX_CHAR_UUID = UUID.fromString("5679");
 
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner bluetoothLeScanner;
