@@ -9,10 +9,25 @@ A long-range communication system for sending text messages (up to 50 characters
 - 🔋 **Power Optimized**: 40-50% power savings (70-100 hours on 2500 mAh battery)
 - 📦 **Message Buffering**: Buffers up to 10 messages when phone is disconnected
 - ✅ **Reliable**: ACK mechanism confirms message delivery
-- 🌍 **GPS Precision**: ±1 meter accuracy
+- 🌍 **GPS Precision**: ±1 meter accuracy (GPS sent only when available)
 - 🚀 **Fast**: ~1-2 second end-to-end latency
+- 📉 **Bandwidth Efficient**: 6-bit character packing (40% smaller than UTF-8)
 
 ## Recent Improvements
+
+### Protocol v2.0 - Separate Message Types (Oct 2025)
+- **Separate Messages**: Text and GPS now sent as independent messages
+  - `TextMessage` (0x01): Text only with 6-bit packing
+  - `GpsMessage` (0x02): GPS coordinates only (10 bytes fixed)
+  - `AckMessage` (0x03): Acknowledgments
+- **Bandwidth Savings**: 
+  - Text-only: 40% smaller (7 bytes for "SOS" vs 15 bytes)
+  - 6-bit encoding: 25% smaller than UTF-8 for uppercase text
+  - GPS optional: Only sent when GPS is enabled
+- **Flexible Usage**:
+  - Send text without GPS when location not needed
+  - Send GPS updates separately for tracking
+  - Text always sent, GPS only when available
 
 ### Power Optimization (40-50% savings)
 - **CPU Clock**: Reduced from 240 MHz to 160 MHz
@@ -21,9 +36,9 @@ A long-range communication system for sending text messages (up to 50 characters
 
 ### Message Buffering
 - **Buffer Capacity**: 10 messages (was 1)
+- **BLE→LoRa Channel**: 5 messages (increased from 1 for text+GPS bursts)
 - **Behavior**: Continues receiving LoRa messages even when phone is disconnected
 - **On Reconnect**: All buffered messages delivered immediately
-- **Memory Cost**: Only 640 bytes of RAM
 
 ## Architecture
 
@@ -146,9 +161,18 @@ cargo clippy                       # Linting
 **Android App:**
 ```bash
 cd android
-./gradlew test                     # Run unit tests (37 tests)
+./gradlew test                     # Run unit tests (9 tests)
 ./gradlew connectedAndroidTest     # Run instrumentation tests
 ```
+
+### Test Coverage
+- **ESP32**: Protocol serialization/deserialization, 6-bit packing
+- **Android**: 9 comprehensive unit tests covering:
+  - TextMessage, GpsMessage, AckMessage serialization
+  - 6-bit character packing/unpacking
+  - Round-trip encoding/decoding
+  - Character validation and support
+  - Edge cases and error handling
 
 ## Hardware Setup
 
@@ -212,7 +236,10 @@ The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
 
 Edit `esp32s3/src/bin/main.rs`:
 ```rust
-// Change 10 to desired size (5-50 recommended)
+// BLE to LoRa channel (for text+GPS bursts)
+static BLE_TO_LORA: StaticCell<Channel<CriticalSectionRawMutex, Message, 5>> = StaticCell::new();
+
+// LoRa to BLE channel (for phone disconnection)
 static LORA_TO_BLE: StaticCell<Channel<CriticalSectionRawMutex, Message, 10>> = StaticCell::new();
 ```
 
@@ -226,22 +253,39 @@ Also update function signatures in `esp32s3/src/ble.rs` and `esp32s3/src/lora.rs
 
 1. **Launch app** on both Android devices
 2. **Grant permissions**: Bluetooth, Location (GPS)
-3. **Wait for BLE connection**: App automatically scans for "ESP32S3-LoRa"
+3. **Wait for BLE connection**: App automatically scans for "ESP32-LoRa"
 4. **Send message**:
-   - Type message (max 50 characters)
-   - Ensure GPS has fix (shown in app)
+   - Type message (max 50 characters, uppercase A-Z, 0-9, punctuation)
+   - GPS is optional - app will send text even without GPS
    - Press "Send"
+   - App sends text message first, then GPS (if available) 100ms later
 5. **Receive message**: Messages appear automatically on receiving device
-6. **View GPS location**: Coordinates displayed with received messages
+6. **View GPS location**: Coordinates displayed if GPS message received
+
+### Message Behavior
+- **Text message**: Always sent when you press Send
+- **GPS message**: Only sent if GPS is enabled and has a fix
+- **No GPS?**: App shows "Sent text only (X bytes) - No GPS"
+- **With GPS**: App shows "Sent text (X bytes) + GPS (Y bytes)"
+
+### Character Support
+- **Supported**: `A-Z 0-9 .,!?-:;'"@#$%&*()[]{}=+/<>_`
+- **Auto-converted**: Lowercase → uppercase (e.g., "hello" becomes "HELLO")
+- **Not supported**: Emoji, special Unicode, characters outside the 64-char set
 
 ## Performance
 
-- **Max text**: 50 characters (61 bytes total)
+- **Max text**: 50 characters (42 bytes with 6-bit packing)
+- **GPS message**: 10 bytes (fixed size)
 - **Range**: 5-10 km typical (up to 15+ km ideal conditions)
 - **Latency**: 1-2 seconds end-to-end
-- **Battery**: 70-100 hours on 2500 mAh (2500 mAh battery)
-- **Time on Air**: ~370ms (empty) to ~700ms (50 chars) at SF10
+- **Battery**: 70-100 hours on 2500 mAh
+- **Time on Air**: 
+  - Text only: ~350-550ms (empty to 50 chars) at SF10
+  - GPS only: ~380ms at SF10
+  - Text + GPS: Combined + 100ms delay (~850-930ms)
 - **LoRa Config**: SF10, BW125kHz, CR4/5, 433.92 MHz default, 14 dBm
+- **Duty Cycle**: ~38-100 messages/hour depending on message type (EU 1% compliance)
 
 See **[protocol.md](protocol.md)** for detailed Time on Air calculations and duty cycle compliance.
 
@@ -275,10 +319,14 @@ See **[protocol.md](protocol.md)** for detailed Time on Air calculations and dut
 - Try restarting both phone and ESP32
 
 **No GPS fix:**
-- Go outdoors or near window
-- Wait 30-60 seconds for GPS acquisition
-- Check Location permission is granted
-- Enable "High accuracy" in phone location settings
+- Text messages can still be sent without GPS
+- GPS message only sent when location is available
+- Check app shows "Sent text only - No GPS" when GPS unavailable
+- For GPS-required scenarios:
+  - Go outdoors or near window
+  - Wait 30-60 seconds for GPS acquisition
+  - Check Location permission is granted
+  - Enable "High accuracy" in phone location settings
 
 **Messages not received:**
 - Check both ESP32 devices are powered
@@ -287,6 +335,14 @@ See **[protocol.md](protocol.md)** for detailed Time on Air calculations and dut
 - Ensure devices are on same frequency (433 MHz)
 
 ### Debug Tips
+
+**Protocol Version Compatibility:**
+- ⚠️ Protocol v2.0 is **not backward compatible** with v1.0
+- All devices must run same protocol version
+- v2.0 changes:
+  - Message types: TEXT (0x01), GPS (0x02), ACK (0x03)
+  - 6-bit character encoding (not UTF-8)
+  - GPS sent separately from text
 
 **ESP32 Serial Monitor:**
 ```bash

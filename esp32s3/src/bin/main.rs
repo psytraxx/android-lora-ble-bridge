@@ -121,8 +121,8 @@ async fn main(spawner: Spawner) -> ! {
 }
 
 // Communication channels between BLE and LoRa tasks
-// BLE_TO_LORA: Capacity of 1 is sufficient (BLE only sends when user actively sends a message)
+// BLE_TO_LORA: Capacity of 5 allows sending text + GPS in quick succession
 // LORA_TO_BLE: Capacity of 10 allows buffering messages received while BLE is disconnected
-static BLE_TO_LORA: StaticCell<Channel<CriticalSectionRawMutex, Message, 1>> = StaticCell::new();
+static BLE_TO_LORA: StaticCell<Channel<CriticalSectionRawMutex, Message, 5>> = StaticCell::new();
 static LORA_TO_BLE: StaticCell<Channel<CriticalSectionRawMutex, Message, 10>> = StaticCell::new();
 static RADIO: StaticCell<esp_radio::Controller<'static>> = StaticCell::new();

@@ -158,8 +158,9 @@ public class Protocol {
     }
 
     public enum MessageType {
-        DATA((byte) 0x01),
-        ACK((byte) 0x02);
+        TEXT((byte) 0x01),
+        GPS((byte) 0x02),
+        ACK((byte) 0x03);
 
         private final byte value;
 
@@ -181,33 +182,70 @@ public class Protocol {
         }
     }
 
-    public static class DataMessage extends Message {
+    public static class TextMessage extends Message {
         public final byte seq;
         public final String text;
-        public final int lat; // latitude * 1_000_000
-        public final int lon; // longitude * 1_000_000
 
-        public DataMessage(byte seq, String text, int lat, int lon) {
-            super(MessageType.DATA);
+        public TextMessage(byte seq, String text) {
+            super(MessageType.TEXT);
             if (text.length() > MAX_TEXT_LENGTH) {
                 throw new IllegalArgumentException("Text too long (max " + MAX_TEXT_LENGTH + " chars)");
             }
             this.seq = seq;
             this.text = text;
+        }
+
+        @Override
+        public byte[] serialize() {
+            byte[] packedText = packText(text);
+            byte[] data = new byte[1 + 1 + 1 + 1 + packedText.length];
+            data[0] = MessageType.TEXT.getValue();
+            data[1] = seq;
+            data[2] = (byte) text.length(); // Original character count
+            data[3] = (byte) packedText.length; // Packed byte count
+            System.arraycopy(packedText, 0, data, 4, packedText.length);
+            return data;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj)
+                return true;
+            if (obj == null || getClass() != obj.getClass())
+                return false;
+            TextMessage that = (TextMessage) obj;
+            return seq == that.seq && text.equals(that.text);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(seq, text);
+        }
+
+        @Override
+        public String toString() {
+            return "TextMessage{seq=" + seq + ", text='" + text + "'}";
+        }
+    }
+
+    public static class GpsMessage extends Message {
+        public final byte seq;
+        public final int lat; // latitude * 1_000_000
+        public final int lon; // longitude * 1_000_000
+
+        public GpsMessage(byte seq, int lat, int lon) {
+            super(MessageType.GPS);
+            this.seq = seq;
             this.lat = lat;
             this.lon = lon;
         }
 
         @Override
         public byte[] serialize() {
-            byte[] packedText = packText(text);
-            byte[] data = new byte[1 + 1 + 1 + 1 + packedText.length + 8];
-            data[0] = MessageType.DATA.getValue();
+            byte[] data = new byte[10];
+            data[0] = MessageType.GPS.getValue();
             data[1] = seq;
-            data[2] = (byte) text.length(); // Original character count
-            data[3] = (byte) packedText.length; // Packed byte count
-            System.arraycopy(packedText, 0, data, 4, packedText.length);
-            ByteBuffer buf = ByteBuffer.wrap(data, 4 + packedText.length, 8).order(ByteOrder.LITTLE_ENDIAN);
+            ByteBuffer buf = ByteBuffer.wrap(data, 2, 8).order(ByteOrder.LITTLE_ENDIAN);
             buf.putInt(lat);
             buf.putInt(lon);
             return data;
@@ -219,18 +257,18 @@ public class Protocol {
                 return true;
             if (obj == null || getClass() != obj.getClass())
                 return false;
-            DataMessage that = (DataMessage) obj;
-            return seq == that.seq && lat == that.lat && lon == that.lon && text.equals(that.text);
+            GpsMessage that = (GpsMessage) obj;
+            return seq == that.seq && lat == that.lat && lon == that.lon;
         }
 
         @Override
         public int hashCode() {
-            return java.util.Objects.hash(seq, text, lat, lon);
+            return java.util.Objects.hash(seq, lat, lon);
         }
 
         @Override
         public String toString() {
-            return "DataMessage{seq=" + seq + ", text='" + text + "', lat=" + lat + ", lon=" + lon + "}";
+            return "GpsMessage{seq=" + seq + ", lat=" + lat + ", lon=" + lon + "}";
         }
     }
 
@@ -286,8 +324,10 @@ public class Protocol {
             }
             MessageType type = MessageType.fromByte(data[0]);
             switch (type) {
-                case DATA:
-                    return deserializeData(data);
+                case TEXT:
+                    return deserializeText(data);
+                case GPS:
+                    return deserializeGps(data);
                 case ACK:
                     return deserializeAck(data);
                 default:
@@ -295,23 +335,31 @@ public class Protocol {
             }
         }
 
-        private static DataMessage deserializeData(byte[] data) {
-            if (data.length < 12) {
-                throw new IllegalArgumentException("Data too short for DataMessage");
+        private static TextMessage deserializeText(byte[] data) {
+            if (data.length < 4) {
+                throw new IllegalArgumentException("Data too short for TextMessage header");
             }
             byte seq = data[1];
             int charCount = data[2] & 0xFF; // Original character count
             int packedLen = data[3] & 0xFF; // Packed byte count
-            if (data.length < 12 + packedLen) {
+            if (data.length < 4 + packedLen) {
                 throw new IllegalArgumentException("Data too short for packed text");
             }
             byte[] packedBytes = new byte[packedLen];
             System.arraycopy(data, 4, packedBytes, 0, packedLen);
             String text = unpackText(packedBytes, charCount);
-            ByteBuffer buf = ByteBuffer.wrap(data, 4 + packedLen, 8).order(ByteOrder.LITTLE_ENDIAN);
+            return new TextMessage(seq, text);
+        }
+
+        private static GpsMessage deserializeGps(byte[] data) {
+            if (data.length < 10) {
+                throw new IllegalArgumentException("Data too short for GpsMessage");
+            }
+            byte seq = data[1];
+            ByteBuffer buf = ByteBuffer.wrap(data, 2, 8).order(ByteOrder.LITTLE_ENDIAN);
             int lat = buf.getInt();
             int lon = buf.getInt();
-            return new DataMessage(seq, text, lat, lon);
+            return new GpsMessage(seq, lat, lon);
         }
 
         private static AckMessage deserializeAck(byte[] data) {

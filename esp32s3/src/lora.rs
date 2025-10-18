@@ -39,7 +39,7 @@ pub struct LoraGpios<'a> {
 pub async fn lora_task(
     spi_peripheral: esp_hal::peripherals::SPI2<'static>,
     gpios: LoraGpios<'static>,
-    ble_to_lora: Receiver<'static, CriticalSectionRawMutex, Message, 1>,
+    ble_to_lora: Receiver<'static, CriticalSectionRawMutex, Message, 5>,
     lora_to_ble: Sender<'static, CriticalSectionRawMutex, Message, 10>,
 ) {
     info!("LoRa task starting...");
@@ -273,10 +273,10 @@ pub async fn lora_task(
                             Ok(msg) => {
                                 info!("LoRa message deserialized: {:?}", msg);
                                 match msg {
-                                    Message::Data(ref data) => {
+                                    Message::Text(ref text_msg) => {
                                         // Send ACK
-                                        let ack = Message::Ack(AckMessage { seq: data.seq });
-                                        info!("Sending ACK for seq: {}", data.seq);
+                                        let ack = Message::Ack(AckMessage { seq: text_msg.seq });
+                                        info!("Sending ACK for seq: {}", text_msg.seq);
                                         let mut buf = [0u8; 64];
                                         if let Ok(ack_len) = ack.serialize(&mut buf) {
                                             if let Err(e) = lora
@@ -312,10 +312,60 @@ pub async fn lora_task(
                                         // Forward data to BLE (non-blocking)
                                         // If channel is full (10 messages buffered), oldest will be dropped
                                         match lora_to_ble.try_send(msg) {
-                                            Ok(_) => info!("Message forwarded from LoRa to BLE"),
+                                            Ok(_) => {
+                                                info!("Text message forwarded from LoRa to BLE")
+                                            }
                                             Err(_) => {
                                                 warn!(
                                                     "BLE message buffer full (10 messages) - message dropped. Reconnect phone to receive buffered messages."
+                                                );
+                                            }
+                                        }
+                                    }
+                                    Message::Gps(ref gps_msg) => {
+                                        // Send ACK
+                                        let ack = Message::Ack(AckMessage { seq: gps_msg.seq });
+                                        info!("Sending ACK for GPS seq: {}", gps_msg.seq);
+                                        let mut buf = [0u8; 64];
+                                        if let Ok(ack_len) = ack.serialize(&mut buf) {
+                                            if let Err(e) = lora
+                                                .prepare_for_tx(
+                                                    &modulation_params,
+                                                    &mut tx_packet_params,
+                                                    output_power,
+                                                    &buf[..ack_len],
+                                                )
+                                                .await
+                                            {
+                                                error!("Failed to prepare ACK TX: {:?}", e);
+                                            } else if let Err(e) = lora.tx().await {
+                                                error!("Failed to send ACK: {:?}", e);
+                                            } else {
+                                                info!("ACK sent successfully");
+                                                // Return to RX mode after ACK transmission
+                                                if let Err(e) = lora
+                                                    .prepare_for_rx(
+                                                        RxMode::Continuous,
+                                                        &modulation_params,
+                                                        &rx_packet_params,
+                                                    )
+                                                    .await
+                                                {
+                                                    error!(
+                                                        "Failed to return to RX mode after ACK TX: {:?}",
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        // Forward GPS data to BLE
+                                        match lora_to_ble.try_send(msg) {
+                                            Ok(_) => {
+                                                info!("GPS message forwarded from LoRa to BLE")
+                                            }
+                                            Err(_) => {
+                                                warn!(
+                                                    "BLE message buffer full - GPS message dropped"
                                                 );
                                             }
                                         }

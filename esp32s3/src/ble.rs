@@ -25,7 +25,7 @@ const L2CAP_CHANNELS_MAX: usize = 1;
 pub async fn ble_task(
     radio: &'static Controller<'static>,
     bt_peripheral: esp_hal::peripherals::BT<'static>,
-    mut ble_to_lora: Sender<'static, CriticalSectionRawMutex, Message, 1>,
+    mut ble_to_lora: Sender<'static, CriticalSectionRawMutex, Message, 5>,
     mut lora_to_ble: Receiver<'static, CriticalSectionRawMutex, Message, 10>,
 ) {
     info!("BLE task starting...");
@@ -155,7 +155,7 @@ async fn ble_runner(
 async fn gatt_events_task(
     server: &Server<'_>,
     conn: &GattConnection<'_, '_, DefaultPacketPool>,
-    ble_to_lora: &mut Sender<'static, CriticalSectionRawMutex, Message, 1>,
+    ble_to_lora: &mut Sender<'static, CriticalSectionRawMutex, Message, 5>,
     lora_to_ble: &mut Receiver<'static, CriticalSectionRawMutex, Message, 10>,
 ) {
     info!("GATT event handler started");

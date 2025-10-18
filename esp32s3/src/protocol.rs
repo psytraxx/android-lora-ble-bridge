@@ -117,17 +117,24 @@ fn unpack_text(packed: &[u8], char_count: usize) -> Result<String<64>, &'static 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum MessageType {
-    Data = 0x01,
-    Ack = 0x02,
+    Text = 0x01,
+    Gps = 0x02,
+    Ack = 0x03,
 }
 
-/// Data message containing text and GPS coordinates
+/// Text message containing only text
 #[derive(Debug, Clone, PartialEq)]
-pub struct DataMessage {
+pub struct TextMessage {
     pub seq: u8,
     pub text: String<64>, // Max 50 chars (optimized for long-range transmission)
-    pub lat: i32,         // latitude * 1_000_000
-    pub lon: i32,         // longitude * 1_000_000
+}
+
+/// GPS message containing only GPS coordinates (no text)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GpsMessage {
+    pub seq: u8,
+    pub lat: i32, // latitude * 1_000_000
+    pub lon: i32, // longitude * 1_000_000
 }
 
 /// Acknowledgment message
@@ -139,7 +146,8 @@ pub struct AckMessage {
 /// Union of all message types
 #[derive(Debug, Clone, PartialEq)]
 pub enum Message {
-    Data(Box<DataMessage>),
+    Text(Box<TextMessage>),
+    Gps(GpsMessage),
     Ack(AckMessage),
 }
 
@@ -149,31 +157,36 @@ impl Message {
     /// Text is packed using 6-bit encoding for efficiency.
     pub fn serialize(&self, buf: &mut [u8]) -> Result<usize, &'static str> {
         match self {
-            Message::Data(data) => {
-                if data.text.len() > MAX_TEXT_LENGTH {
+            Message::Text(text_msg) => {
+                if text_msg.text.len() > MAX_TEXT_LENGTH {
                     return Err("Text too long");
                 }
 
                 // Pack the text using 6-bit encoding
-                let packed_text = pack_text(&data.text)?;
+                let packed_text = pack_text(&text_msg.text)?;
                 let packed_len = packed_text.len();
 
-                if buf.len() < 12 + packed_len {
+                if buf.len() < 4 + packed_len {
                     return Err("Buffer too small");
                 }
 
-                buf[0] = MessageType::Data as u8;
-                buf[1] = data.seq;
-                buf[2] = data.text.len() as u8; // Store original character count
+                buf[0] = MessageType::Text as u8;
+                buf[1] = text_msg.seq;
+                buf[2] = text_msg.text.len() as u8; // Store original character count
                 buf[3] = packed_len as u8; // Store packed byte count
                 buf[4..4 + packed_len].copy_from_slice(&packed_text);
 
-                let mut offset = 4 + packed_len;
-                buf[offset..offset + 4].copy_from_slice(&data.lat.to_le_bytes());
-                offset += 4;
-                buf[offset..offset + 4].copy_from_slice(&data.lon.to_le_bytes());
-
-                Ok(12 + packed_len)
+                Ok(4 + packed_len)
+            }
+            Message::Gps(gps) => {
+                if buf.len() < 10 {
+                    return Err("Buffer too small");
+                }
+                buf[0] = MessageType::Gps as u8;
+                buf[1] = gps.seq;
+                buf[2..6].copy_from_slice(&gps.lat.to_le_bytes());
+                buf[6..10].copy_from_slice(&gps.lon.to_le_bytes());
+                Ok(10)
             }
             Message::Ack(ack) => {
                 if buf.len() < 2 {
@@ -195,33 +208,36 @@ impl Message {
         }
         match buf[0] {
             0x01 => {
-                if buf.len() < 12 {
-                    return Err("Buffer too small for data message");
+                // Text message
+                if buf.len() < 4 {
+                    return Err("Buffer too small for text message header");
                 }
                 let seq = buf[1];
                 let char_count = buf[2] as usize;
                 let packed_len = buf[3] as usize;
 
-                if buf.len() < 12 + packed_len {
+                if buf.len() < 4 + packed_len {
                     return Err("Buffer too small for packed text");
                 }
 
                 let packed_bytes = &buf[4..4 + packed_len];
                 let text = unpack_text(packed_bytes, char_count)?;
 
-                let mut offset = 4 + packed_len;
-                let lat = i32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap());
-                offset += 4;
-                let lon = i32::from_le_bytes(buf[offset..offset + 4].try_into().unwrap());
-
-                Ok(Message::Data(Box::new(DataMessage {
-                    seq,
-                    text,
-                    lat,
-                    lon,
-                })))
+                Ok(Message::Text(Box::new(TextMessage { seq, text })))
             }
             0x02 => {
+                // GPS message
+                if buf.len() < 10 {
+                    return Err("Buffer too small for GPS message");
+                }
+                let seq = buf[1];
+                let lat = i32::from_le_bytes(buf[2..6].try_into().unwrap());
+                let lon = i32::from_le_bytes(buf[6..10].try_into().unwrap());
+
+                Ok(Message::Gps(GpsMessage { seq, lat, lon }))
+            }
+            0x03 => {
+                // ACK message
                 if buf.len() < 2 {
                     return Err("Buffer too small for ack");
                 }
@@ -315,42 +331,56 @@ mod tests {
     }
 
     #[test]
-    fn test_message_serialize_deserialize() {
-        let msg = Message::Data(Box::new(DataMessage {
+    fn test_text_message_serialize_deserialize() {
+        let msg = Message::Text(Box::new(TextMessage {
             seq: 42,
             text: "SOS".try_into().unwrap(),
-            lat: 37774200,   // 37.7742°
-            lon: -122419200, // -122.4192°
         }));
 
         let mut buf = [0u8; 128];
         let len = msg.serialize(&mut buf).unwrap();
 
-        // Expected: 1 (type) + 1 (seq) + 1 (char_count) + 1 (packed_len) + 3 (packed "SOS") + 4 (lat) + 4 (lon)
+        // Expected: 1 (type) + 1 (seq) + 1 (char_count) + 1 (packed_len) + 3 (packed "SOS")
         // "SOS" = 3 chars * 6 bits = 18 bits = 3 bytes (rounded up)
-        assert_eq!(len, 15, "SOS message should be 15 bytes total");
+        assert_eq!(len, 7, "SOS text message should be 7 bytes total");
 
         let decoded = Message::deserialize(&buf[..len]).unwrap();
         assert_eq!(msg, decoded);
     }
 
     #[test]
-    fn test_message_max_length() {
+    fn test_gps_message_serialize_deserialize() {
+        let msg = Message::Gps(GpsMessage {
+            seq: 42,
+            lat: 37774200,   // 37.7742°
+            lon: -122419200, // -122.4192°
+        });
+
+        let mut buf = [0u8; 128];
+        let len = msg.serialize(&mut buf).unwrap();
+
+        // Expected: 1 (type) + 1 (seq) + 4 (lat) + 4 (lon) = 10 bytes
+        assert_eq!(len, 10, "GPS message should be 10 bytes total");
+
+        let decoded = Message::deserialize(&buf[..len]).unwrap();
+        assert_eq!(msg, decoded);
+    }
+
+    #[test]
+    fn test_text_message_max_length() {
         let text = "At checkpoint 2, all good. Weather clear. Moving.";
-        let msg = Message::Data(Box::new(DataMessage {
+        let msg = Message::Text(Box::new(TextMessage {
             seq: 1,
             text: text.try_into().unwrap(),
-            lat: 40712800,
-            lon: -74006000,
         }));
 
         let mut buf = [0u8; 128];
         let len = msg.serialize(&mut buf).unwrap();
 
-        // Expected: 1 (type) + 1 (seq) + 1 (char_count) + 1 (packed_len) + 38 (packed 50 chars) + 4 (lat) + 4 (lon)
+        // Expected: 1 (type) + 1 (seq) + 1 (char_count) + 1 (packed_len) + 38 (packed 50 chars)
         assert_eq!(
-            len, 50,
-            "Max length message should be 50 bytes (was 61 bytes without packing)"
+            len, 42,
+            "Max length text message should be 42 bytes (was 61 bytes with GPS)"
         );
 
         let decoded = Message::deserialize(&buf[..len]).unwrap();
@@ -371,41 +401,39 @@ mod tests {
 
     #[test]
     fn test_savings_demonstration() {
-        // Demonstrate the actual byte savings
-        let test_messages = [
-            ("SOS", 3, 14, 15), // Old: 14, New: 15 (overhead dominates short messages)
-            ("At checkpoint 2, all good", 26, 37, 32), // Old: 37, New: 32
-            ("Weather is getting bad for the hike today", 43, 54, 45), // Old: 54, New: 45
+        // Demonstrate the actual byte savings with separate message types
+        let test_text_messages = [
+            ("SOS", 3, 14, 7),                      // Old: 14 (with GPS), New: 7 (text only)
+            ("At checkpoint 2", 16, 27, 16),        // Old: 27, New: 16
+            ("Weather is getting bad", 23, 34, 21), // Old: 34, New: 21
             (
                 "At checkpoint 2, all good. Weather clear. Moving.",
                 50,
                 61,
-                50,
-            ), // Old: 61, New: 50
+                42,
+            ), // Old: 61, New: 42
         ];
 
-        for (text, char_count, old_size, expected_new_size) in test_messages {
-            let msg = Message::Data(Box::new(DataMessage {
+        for (text, char_count, old_size_with_gps, expected_new_size) in test_text_messages {
+            let msg = Message::Text(Box::new(TextMessage {
                 seq: 1,
                 text: text.try_into().unwrap(),
-                lat: 0,
-                lon: 0,
             }));
 
             let mut buf = [0u8; 128];
             let new_size = msg.serialize(&mut buf).unwrap();
 
-            println!(
-                "'{}' ({} chars): Old={} bytes, New={} bytes, Saved={} bytes ({:.1}%)",
-                text,
-                char_count,
-                old_size,
-                new_size,
-                old_size as i32 - new_size as i32,
-                (old_size as f32 - new_size as f32) / old_size as f32 * 100.0
-            );
-
             assert_eq!(new_size, expected_new_size);
         }
+
+        // GPS message is always 10 bytes (smaller than old combined message)
+        let gps_msg = Message::Gps(GpsMessage {
+            seq: 1,
+            lat: 37774200,
+            lon: -122419200,
+        });
+        let mut buf = [0u8; 128];
+        let gps_size = gps_msg.serialize(&mut buf).unwrap();
+        assert_eq!(gps_size, 10, "GPS message should be 10 bytes");
     }
 }

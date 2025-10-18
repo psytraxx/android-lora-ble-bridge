@@ -204,10 +204,14 @@ public class MainActivity extends AppCompatActivity {
                     byte[] data = characteristic.getValue();
                     try {
                         Protocol.Message msg = Protocol.Message.deserialize(data);
-                        if (msg instanceof Protocol.DataMessage) {
-                            Protocol.DataMessage dataMsg = (Protocol.DataMessage) msg;
+                        if (msg instanceof Protocol.TextMessage) {
+                            Protocol.TextMessage textMsg = (Protocol.TextMessage) msg;
                             runOnUiThread(() -> receivedTextView.setText(
-                                    "Received: " + dataMsg.text + " Lat: " + dataMsg.lat + " Lon: " + dataMsg.lon));
+                                    "Received: " + textMsg.text));
+                        } else if (msg instanceof Protocol.GpsMessage) {
+                            Protocol.GpsMessage gpsMsg = (Protocol.GpsMessage) msg;
+                            runOnUiThread(() -> receivedTextView.setText(
+                                    "GPS: Lat=" + gpsMsg.lat + " Lon=" + gpsMsg.lon));
                         } else if (msg instanceof Protocol.AckMessage) {
                             runOnUiThread(
                                     () -> Toast.makeText(MainActivity.this, "ACK received", Toast.LENGTH_SHORT).show());
@@ -237,27 +241,44 @@ public class MainActivity extends AppCompatActivity {
 
         // Validate all characters are supported
         if (!Protocol.isTextSupported(text)) {
-            Toast.makeText(this, "Invalid characters! Use only A-Z, 0-3, space, and period.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Invalid characters! Use only A-Z, 0-9, space, and punctuation.", Toast.LENGTH_LONG)
+                    .show();
             return;
         }
 
         Location location = getLastKnownLocation();
-        if (location == null) {
-            Toast.makeText(this, "No GPS", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        int lat = (int) (location.getLatitude() * 1_000_000);
-        int lon = (int) (location.getLongitude() * 1_000_000);
 
         try {
-            Protocol.DataMessage dataMsg = new Protocol.DataMessage(seqCounter++, text, lat, lon);
-            byte[] data = dataMsg.serialize();
+            // Send text message first
+            Protocol.TextMessage textMsg = new Protocol.TextMessage(seqCounter++, text);
+            byte[] textData = textMsg.serialize();
 
-            txCharacteristic.setValue(data);
+            txCharacteristic.setValue(textData);
             bluetoothGatt.writeCharacteristic(txCharacteristic);
 
-            Toast.makeText(this, "Sent (" + data.length + " bytes)", Toast.LENGTH_SHORT).show();
+            // Send GPS message only if GPS is enabled and available
+            if (location != null) {
+                int lat = (int) (location.getLatitude() * 1_000_000);
+                int lon = (int) (location.getLongitude() * 1_000_000);
+
+                // Small delay to ensure messages are sent in order
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    // Send GPS message second
+                    Protocol.GpsMessage gpsMsg = new Protocol.GpsMessage(seqCounter++, lat, lon);
+                    byte[] gpsData = gpsMsg.serialize();
+
+                    txCharacteristic.setValue(gpsData);
+                    bluetoothGatt.writeCharacteristic(txCharacteristic);
+
+                    Toast.makeText(this, "Sent text (" + textData.length + "B) + GPS (" + gpsData.length + "B)",
+                            Toast.LENGTH_SHORT).show();
+                }, 100); // 100ms delay between messages
+            } else {
+                // No GPS available - text only
+                Toast.makeText(this, "Sent text only (" + textData.length + "B) - No GPS",
+                        Toast.LENGTH_SHORT).show();
+            }
+
             messageEditText.setText(""); // Clear input after sending
         } catch (IllegalArgumentException e) {
             Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
