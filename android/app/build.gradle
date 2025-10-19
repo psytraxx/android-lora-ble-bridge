@@ -27,7 +27,7 @@ dependencies {
     implementation libs.androidx.appcompat
     implementation libs.material
     implementation libs.androidx.constraintlayout
-    
+
     // Unit testing dependencies
     testImplementation libs.junit
     testImplementation libs.mockito.core

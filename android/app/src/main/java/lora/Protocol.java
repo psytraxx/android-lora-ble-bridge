@@ -1,5 +1,7 @@
 package lora;
 
+import androidx.annotation.NonNull;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -167,10 +169,6 @@ public class Protocol {
             this.value = value;
         }
 
-        public byte getValue() {
-            return value;
-        }
-
         public static MessageType fromByte(byte value) {
             for (MessageType type : values()) {
                 if (type.value == value) {
@@ -178,6 +176,10 @@ public class Protocol {
                 }
             }
             throw new IllegalArgumentException("Unknown message type: " + value);
+        }
+
+        public byte getValue() {
+            return value;
         }
     }
 
@@ -221,6 +223,7 @@ public class Protocol {
             return java.util.Objects.hash(seq, text);
         }
 
+        @NonNull
         @Override
         public String toString() {
             return "TextMessage{seq=" + seq + ", text='" + text + "'}";
@@ -265,6 +268,7 @@ public class Protocol {
             return java.util.Objects.hash(seq, lat, lon);
         }
 
+        @NonNull
         @Override
         public String toString() {
             return "GpsMessage{seq=" + seq + ", lat=" + lat + ", lon=" + lon + "}";
@@ -302,6 +306,7 @@ public class Protocol {
             return Byte.hashCode(seq);
         }
 
+        @NonNull
         @Override
         public String toString() {
             return "AckMessage{seq=" + seq + "}";
@@ -314,8 +319,6 @@ public class Protocol {
         protected Message(MessageType type) {
             this.type = type;
         }
-
-        public abstract byte[] serialize();
 
         public static Message deserialize(byte[] data) throws IllegalArgumentException {
             if (data.length < 1) {
@@ -368,5 +371,7 @@ public class Protocol {
             byte seq = data[1];
             return new AckMessage(seq);
         }
+
+        public abstract byte[] serialize();
     }
 }
