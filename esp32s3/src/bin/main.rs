@@ -27,6 +27,7 @@ use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
 use esp_alloc::heap_allocator;
 use esp_hal::clock::CpuClock;
+use esp_hal::gpio::Pin;
 use esp_hal::timer::timg::TimerGroup;
 use esp32s3::ble::ble_task;
 use esp32s3::lora::{LoraGpios, lora_task};
@@ -98,12 +99,12 @@ async fn main(spawner: Spawner) -> ! {
     if let Err(e) = spawner.spawn(lora_task(
         peripherals.SPI2,
         LoraGpios {
-            cs: peripherals.GPIO5,
-            reset: peripherals.GPIO12,
-            dio0: peripherals.GPIO15,
-            sck: peripherals.GPIO18,
-            miso: peripherals.GPIO19,
-            mosi: peripherals.GPIO21,
+            cs: peripherals.GPIO10.degrade(),
+            reset: peripherals.GPIO43.degrade(),
+            dio0: peripherals.GPIO44.degrade(),
+            sck: peripherals.GPIO12.degrade(),
+            miso: peripherals.GPIO13.degrade(),
+            mosi: peripherals.GPIO11.degrade(),
         },
         ble_to_lora.receiver(),
         lora_to_ble.sender(),

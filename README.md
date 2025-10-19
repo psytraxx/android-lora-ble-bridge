@@ -45,9 +45,9 @@ A long-range communication system for sending text messages (up to 50 characters
 ```mermaid
 graph TD
     A[Android Phone 1<br/>- Internal GPS<br/>- Text Input<br/>- Display<br/>- Java App] -->|Text + GPS Data| B[BLE]
-    B --> C[ESP32-S3<br/>LoRa Transmitter<br/>- Sx1276 Module<br/>- Pins: SCK18, MISO19, MOSI21, SS5, RST12, DIO015<br/>- Firmware: Rust/Arduino]
+    B --> C[ESP32-S3<br/>LoRa Transmitter<br/>- Sx1276 Module<br/>- Pins: SCK12, MISO13, MOSI11, CS10, RST43, DIO044<br/>- Firmware: Rust/Embassy]
     C -->|LoRa Transmission| D[LoRa Radio Waves]
-    D --> E[ESP32-S3<br/>LoRa Receiver<br/>- Same hardware/firmware]
+    D -->     E[ESP32-S3<br/>LoRa Receiver<br/>- Same hardware/firmware<br/>- Rust/Embassy]
     E -->|Forwarded Data| F[BLE]
     F --> G[Android Phone 2<br/>- Display<br/>- Receives Text + GPS<br/>- Same Java App]
     
@@ -73,13 +73,17 @@ graph TD
 
 ```
 lora-android-rs/
-├── esp32s3/              # ESP32-S3 firmware (Rust)
+├── esp32s3/              # ESP32-S3 firmware (Rust/Embassy)
 │   ├── src/
-│   │   ├── main.rs       # Main entry point
-│   │   ├── ble.rs        # BLE GATT server and event handling
+│   │   ├── bin/
+│   │   │   └── main.rs   # Main entry point and task spawning
+│   │   ├── ble.rs        # BLE GATT server (advertises as "ESP32S3-LoRa")
 │   │   ├── lora.rs       # LoRa radio driver and message handling
-│   │   └── protocol.rs   # Binary protocol implementation
-│   └── Cargo.toml
+│   │   ├── protocol.rs   # Binary protocol implementation
+│   │   └── lib.rs        # Library root
+│   ├── Cargo.toml        # Dependencies and build config
+│   ├── build.rs          # Build script
+│   └── rust-toolchain.toml # Rust toolchain specification
 ├── android/              # Android application (Java)
 │   ├── app/src/main/
 │   │   ├── java/
@@ -88,8 +92,7 @@ lora-android-rs/
 │   │   └── res/layout/activity_main.xml
 │   └── build.gradle
 ├── protocol.md           # Protocol specification
-├── architecture.md       # System architecture
-└── README.md            # This file
+└── README.md            # This file (you are here)
 ```
 
 ## Building & Installation
@@ -124,14 +127,17 @@ lora-android-rs/
 
 3. **Flash to ESP32-S3:**
    ```bash
+   # Recommended (uses .cargo/config.toml runner):
    cargo run --release
-   # Or use espflash:
-   espflash flash target/xtensa-esp32s3-none-elf/release/esp32s3 --monitor
+   
+   # Alternative using espflash directly:
+   espflash flash target/xtensa-esp32s3-none-elf/release/esp32s3 --monitor --chip esp32s3
    ```
 
 4. **Monitor logs:**
    ```bash
    espflash monitor
+   # Logs show: BLE advertising, LoRa TX/RX, message routing
    ```
 
 ### Android App Build
@@ -180,12 +186,12 @@ cd android
 
 | SX1276 Pin | ESP32-S3 Pin | Function |
 |------------|--------------|----------|
-| SCK | GPIO18 | SPI Clock |
-| MISO | GPIO19 | SPI MISO |
-| MOSI | GPIO21 | SPI MOSI |
-| NSS/CS | GPIO5 | Chip Select |
-| RESET | GPIO12 | Reset |
-| DIO0 | GPIO15 | Interrupt |
+| SCK | GPIO12 | SPI Clock |
+| MISO | GPIO13 | SPI MISO |
+| MOSI | GPIO11 | SPI MOSI |
+| NSS/CS | GPIO10 | Chip Select |
+| RESET | GPIO43 | Reset |
+| DIO0 | GPIO44 | Interrupt |
 | 3.3V | 3.3V | Power |
 | GND | GND | Ground |
 
@@ -378,10 +384,12 @@ adb logcat -s LoRaApp
 ## Acknowledgments
 
 Built with:
-- [Embassy](https://embassy.dev/) - Async Rust framework for embedded
-- [esp-hal](https://github.com/esp-rs/esp-hal) - ESP32 Hardware Abstraction Layer
-- [trouble-host](https://github.com/embassy-rs/trouble) - BLE Host stack
-- [lora-phy](https://github.com/lora-rs/lora-rs) - LoRa PHY driver
+- [Embassy](https://embassy.dev/) - Async Rust framework for embedded systems
+- [esp-hal](https://github.com/esp-rs/esp-hal) - ESP32 Hardware Abstraction Layer (v1.0.0-rc.1)
+- [esp-rtos](https://crates.io/crates/esp-rtos) - ESP32 RTOS integration with Embassy
+- [trouble-host](https://github.com/embassy-rs/trouble) - BLE Host stack (v0.5.0)
+- [lora-phy](https://github.com/lora-rs/lora-rs) - LoRa PHY driver (v3.0.1)
+- [esp-radio](https://crates.io/crates/esp-radio) - Wi-Fi/BLE radio controller
 
 ---
 

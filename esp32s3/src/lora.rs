@@ -8,7 +8,7 @@ use embassy_sync::{
 use embassy_time::Delay;
 use esp_hal::{
     Async,
-    gpio::{Input, InputConfig, Output, OutputConfig},
+    gpio::{AnyPin, Input, InputConfig, Output, OutputConfig},
     time::Rate,
 };
 use log::{error, info, warn};
@@ -24,12 +24,12 @@ use crate::protocol::{AckMessage, Message};
 
 /// LoRa GPIO pins configuration
 pub struct LoraGpios<'a> {
-    pub cs: esp_hal::peripherals::GPIO5<'a>,
-    pub reset: esp_hal::peripherals::GPIO12<'a>,
-    pub dio0: esp_hal::peripherals::GPIO15<'a>,
-    pub sck: esp_hal::peripherals::GPIO18<'a>,
-    pub miso: esp_hal::peripherals::GPIO19<'a>,
-    pub mosi: esp_hal::peripherals::GPIO21<'a>,
+    pub cs: AnyPin<'a>,
+    pub reset: AnyPin<'a>,
+    pub dio0: AnyPin<'a>,
+    pub sck: AnyPin<'a>,
+    pub miso: AnyPin<'a>,
+    pub mosi: AnyPin<'a>,
 }
 
 #[embassy_executor::task]
