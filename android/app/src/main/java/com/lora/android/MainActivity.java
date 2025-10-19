@@ -36,9 +36,13 @@ public class MainActivity extends AppCompatActivity {
     private static final int REQUEST_PERMISSIONS = 1;
     private static final int MAX_TEXT_LENGTH = 50; // Maximum text length for optimal LoRa range
     private static final String DEVICE_NAME = "ESP32-LoRa";
-    private static final UUID SERVICE_UUID = UUID.fromString("1234");
-    private static final UUID TX_CHAR_UUID = UUID.fromString("5678");
-    private static final UUID RX_CHAR_UUID = UUID.fromString("5679");
+    // Bluetooth Base UUID: 0000xxxx-0000-1000-8000-00805F9B34FB
+    // Service UUID: 0x1234 -> 00001234-0000-1000-8000-00805F9B34FB
+    private static final UUID SERVICE_UUID = UUID.fromString("00001234-0000-1000-8000-00805F9B34FB");
+    // TX Characteristic UUID: 0x5678 -> 00005678-0000-1000-8000-00805F9B34FB
+    private static final UUID TX_CHAR_UUID = UUID.fromString("00005678-0000-1000-8000-00805F9B34FB");
+    // RX Characteristic UUID: 0x5679 -> 00005679-0000-1000-8000-00805F9B34FB
+    private static final UUID RX_CHAR_UUID = UUID.fromString("00005679-0000-1000-8000-00805F9B34FB");
 
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner bluetoothLeScanner;
@@ -47,7 +51,6 @@ public class MainActivity extends AppCompatActivity {
     private BluetoothGattCharacteristic rxCharacteristic;
 
     private EditText messageEditText;
-    private Button sendButton;
     private TextView receivedTextView;
     private TextView gpsTextView;
     private TextView charCountTextView;
@@ -61,7 +64,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         messageEditText = findViewById(R.id.messageEditText);
-        sendButton = findViewById(R.id.sendButton);
+        Button sendButton = findViewById(R.id.sendButton);
         receivedTextView = findViewById(R.id.receivedTextView);
         gpsTextView = findViewById(R.id.gpsTextView);
         charCountTextView = findViewById(R.id.charCountTextView);

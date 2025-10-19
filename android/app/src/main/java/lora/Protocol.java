@@ -2,7 +2,6 @@ package lora;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.charset.StandardCharsets;
 
 /**
  * LoRa Message Protocol for Android
@@ -69,15 +68,15 @@ public class Protocol {
 
             if (bitInByte <= 2) {
                 // The 6 bits fit within the current byte
-                result[byteIdx] |= (value << (2 - bitInByte));
+                result[byteIdx] |= (byte) (value << (2 - bitInByte));
             } else {
                 // The 6 bits span two bytes
                 int bitsInFirst = 8 - bitInByte;
                 int bitsInSecond = 6 - bitsInFirst;
 
-                result[byteIdx] |= (value >> bitsInSecond);
+                result[byteIdx] |= (byte) (value >> bitsInSecond);
                 if (byteIdx + 1 < result.length) {
-                    result[byteIdx + 1] |= (value << (8 - bitsInSecond));
+                    result[byteIdx + 1] |= (byte) (value << (8 - bitsInSecond));
                 }
             }
 
@@ -282,7 +281,7 @@ public class Protocol {
 
         @Override
         public byte[] serialize() {
-            byte data[] = new byte[2];
+            byte[] data = new byte[2];
             data[0] = MessageType.ACK.getValue();
             data[1] = seq;
             return data;

@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace 'com.lora.android'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.lora.android"
-        minSdk 24
-        targetSdk 34
+        minSdk 31
+        targetSdk 36
         versionCode 1
         versionName "1.0"
     }
@@ -20,18 +20,15 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
-    }
+    buildToolsVersion '36.0.0'
 }
 
 dependencies {
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'com.google.android.material:material:1.9.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation libs.androidx.appcompat
+    implementation libs.material
+    implementation libs.androidx.constraintlayout
     
     // Unit testing dependencies
-    testImplementation 'junit:junit:4.13.2'
-    testImplementation 'org.mockito:mockito-core:5.3.1'
+    testImplementation libs.junit
+    testImplementation libs.mockito.core
 }
