@@ -16,26 +16,20 @@
     holding buffers for the duration of a data transfer."
 )]
 
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
-
+use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
 use esp_alloc::heap_allocator;
+use esp_hal::Config;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Pin;
 use esp_hal::timer::timg::TimerGroup;
 use esp32s3::ble::ble_task;
 use esp32s3::lora::{LoraGpios, lora_task};
 use esp32s3::protocol::Message;
-
-use esp_hal::Config;
-use esp_println::logger::init_logger_from_env;
-use log::{error, info};
+use panic_rtt_target as _;
 use static_cell::StaticCell;
 
 extern crate alloc;
@@ -54,7 +48,7 @@ async fn main(spawner: Spawner) -> ! {
     // Allocate heap memory for dynamic allocations
     heap_allocator!(#[unsafe(link_section = ".dram2_uninit")] size: 73744);
     // Initialize logging
-    init_logger_from_env();
+    rtt_target::rtt_init_defmt!();
 
     info!("ESP32-S3 LoRa-BLE Bridge starting...");
 

@@ -1,5 +1,5 @@
-use alloc::boxed::Box;
 use alloc::vec::Vec;
+use defmt::Format;
 use heapless::String;
 
 /// Maximum text length in characters for optimal long-range LoRa transmission.
@@ -123,14 +123,14 @@ pub enum MessageType {
 }
 
 /// Text message containing only text
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Format)]
 pub struct TextMessage {
     pub seq: u8,
     pub text: String<64>, // Max 50 chars (optimized for long-range transmission)
 }
 
 /// GPS message containing only GPS coordinates (no text)
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Format)]
 pub struct GpsMessage {
     pub seq: u8,
     pub lat: i32, // latitude * 1_000_000
@@ -138,15 +138,15 @@ pub struct GpsMessage {
 }
 
 /// Acknowledgment message
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Format)]
 pub struct AckMessage {
     pub seq: u8,
 }
 
 /// Union of all message types
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Format)]
 pub enum Message {
-    Text(Box<TextMessage>),
+    Text(TextMessage),
     Gps(GpsMessage),
     Ack(AckMessage),
 }
@@ -223,7 +223,7 @@ impl Message {
                 let packed_bytes = &buf[4..4 + packed_len];
                 let text = unpack_text(packed_bytes, char_count)?;
 
-                Ok(Message::Text(Box::new(TextMessage { seq, text })))
+                Ok(Message::Text(TextMessage { seq, text }))
             }
             0x02 => {
                 // GPS message

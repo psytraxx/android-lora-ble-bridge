@@ -1,3 +1,4 @@
+use defmt::{error, info, warn};
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_futures::select::{Either, select};
 use embassy_sync::{
@@ -11,7 +12,6 @@ use esp_hal::{
     gpio::{AnyPin, Input, InputConfig, Output, OutputConfig},
     time::Rate,
 };
-use log::{error, info, warn};
 use lora_phy::mod_params::*;
 use lora_phy::{
     LoRa, RxMode,
@@ -141,18 +141,13 @@ pub async fn lora_task(
                     || (863_000_000..=870_000_000).contains(&v)
                     || (902_000_000..=928_000_000).contains(&v) =>
             {
-                info!(
-                    "Using frequency from config: {} Hz ({:.2} MHz)",
-                    v,
-                    v as f32 / 1_000_000.0
-                );
+                info!("Using frequency from config: {}", v);
                 v
             }
             Ok(v) => {
                 warn!(
-                    "Frequency {} Hz ({:.2} MHz) outside common ISM bands, using default 433.92 MHz",
-                    v,
-                    v as f32 / 1_000_000.0
+                    "Frequency {} Hz  outside common ISM bands, using default 433.92 MHz",
+                    v
                 );
                 433_920_000
             }

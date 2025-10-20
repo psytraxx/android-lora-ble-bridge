@@ -1,5 +1,6 @@
 use crate::protocol::Message;
 use bt_hci::controller::ExternalController;
+use defmt::{error, info, warn};
 use embassy_futures::join::join;
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex,
@@ -7,7 +8,6 @@ use embassy_sync::{
 };
 use embassy_time::{Duration, Timer};
 use esp_radio::{Controller, ble::controller::BleConnector};
-use log::{error, info, warn};
 use trouble_host::prelude::*;
 use trouble_host::{
     Address,
