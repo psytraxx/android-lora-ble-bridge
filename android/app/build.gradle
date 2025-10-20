@@ -21,6 +21,10 @@ android {
         }
     }
     buildToolsVersion '36.0.0'
+    compileOptions {
+        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_17
+    }
 }
 
 dependencies {

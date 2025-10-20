@@ -1,5 +1,10 @@
 ## Recent Improvements
 
+### Android Chat UI Refresh (Oct 2025)
+- **Chat Layout**: Introduced RecyclerView with message bubbles, timestamps, GPS markers, and delivery (ACK) indicators.
+- **Status Banner**: Connection and GPS info now live in a compact, icon-led header.
+- **Input Experience**: Added single-line composer with character counter, keyboard send/enter handling, and automatic dismissal after sending.
+
 ### Protocol v2.0 - Separate Message Types (Oct 2025)
 - **Separate Messages**: Text and GPS now sent as independent messages
   - `TextMessage` (0x01): Text only with 6-bit packing
