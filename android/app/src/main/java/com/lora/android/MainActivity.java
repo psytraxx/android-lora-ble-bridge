@@ -100,6 +100,16 @@ public class MainActivity extends AppCompatActivity {
         updateGps();
         updateCharCount(""); // Initialize counter
         updateConnectionStatus("Initializing...");
+        
+        // Update GPS periodically every 5 seconds
+        final android.os.Handler gpsHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        gpsHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                updateGps();
+                gpsHandler.postDelayed(this, 5000); // Update every 5 seconds
+            }
+        }, 5000);
     }
 
     private void checkPermissions() {
@@ -329,6 +339,9 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
+        // Update GPS before sending to get the latest location
+        android.util.Log.d("LoRaApp", "Updating GPS before sending message...");
+        updateGps();
         Location location = getLastKnownLocation();
 
         try {
@@ -395,15 +408,77 @@ public class MainActivity extends AppCompatActivity {
     private Location getLastKnownLocation() {
         if (ActivityCompat.checkSelfPermission(this,
                 Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            android.util.Log.e("LoRaApp", "Location permission not granted");
             return null;
         }
-        return locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+        
+        // Try multiple providers to get the best location
+        Location bestLocation = null;
+        
+        // Try GPS provider first (most accurate)
+        try {
+            Location gpsLocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+            if (gpsLocation != null) {
+                android.util.Log.d("LoRaApp", "GPS location: " + gpsLocation.getLatitude() + ", " + gpsLocation.getLongitude() + " (age: " + (System.currentTimeMillis() - gpsLocation.getTime()) + "ms)");
+                bestLocation = gpsLocation;
+            } else {
+                android.util.Log.d("LoRaApp", "GPS location is null");
+            }
+        } catch (Exception e) {
+            android.util.Log.e("LoRaApp", "Error getting GPS location: " + e.getMessage());
+        }
+        
+        // Try Network provider as fallback
+        try {
+            Location networkLocation = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+            if (networkLocation != null) {
+                android.util.Log.d("LoRaApp", "Network location: " + networkLocation.getLatitude() + ", " + networkLocation.getLongitude() + " (age: " + (System.currentTimeMillis() - networkLocation.getTime()) + "ms)");
+                if (bestLocation == null || networkLocation.getTime() > bestLocation.getTime()) {
+                    bestLocation = networkLocation;
+                }
+            } else {
+                android.util.Log.d("LoRaApp", "Network location is null");
+            }
+        } catch (Exception e) {
+            android.util.Log.e("LoRaApp", "Error getting network location: " + e.getMessage());
+        }
+        
+        // Try Fused provider (if available)
+        try {
+            Location fusedLocation = locationManager.getLastKnownLocation(LocationManager.FUSED_PROVIDER);
+            if (fusedLocation != null) {
+                android.util.Log.d("LoRaApp", "Fused location: " + fusedLocation.getLatitude() + ", " + fusedLocation.getLongitude() + " (age: " + (System.currentTimeMillis() - fusedLocation.getTime()) + "ms)");
+                if (bestLocation == null || fusedLocation.getTime() > bestLocation.getTime()) {
+                    bestLocation = fusedLocation;
+                }
+            } else {
+                android.util.Log.d("LoRaApp", "Fused location is null");
+            }
+        } catch (Exception e) {
+            android.util.Log.e("LoRaApp", "Error getting fused location: " + e.getMessage());
+        }
+        
+        if (bestLocation == null) {
+            android.util.Log.w("LoRaApp", "No location available from any provider");
+        } else {
+            android.util.Log.i("LoRaApp", "Using location: " + bestLocation.getLatitude() + ", " + bestLocation.getLongitude() + " from provider: " + bestLocation.getProvider());
+        }
+        
+        return bestLocation;
     }
 
     private void updateGps() {
         Location location = getLastKnownLocation();
         if (location != null) {
-            gpsTextView.setText("GPS: " + location.getLatitude() + ", " + location.getLongitude());
+            String gpsText = String.format("GPS: %.6f, %.6f (%s)", 
+                location.getLatitude(), 
+                location.getLongitude(),
+                location.getProvider());
+            gpsTextView.setText(gpsText);
+            android.util.Log.d("LoRaApp", "GPS display updated: " + gpsText);
+        } else {
+            gpsTextView.setText("GPS: No location available");
+            android.util.Log.w("LoRaApp", "No GPS location to display");
         }
     }
 
