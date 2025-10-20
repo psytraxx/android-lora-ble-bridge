@@ -1,5 +1,14 @@
 ## Recent Improvements
 
+### Android App Refactoring (October 2025)
+- **Separation of Concerns**: Completely refactored MainActivity (~600 lines → ~150 lines) by extracting business logic into dedicated managers
+- **BleManager**: New class handling all Bluetooth LE operations (scanning, connection, GATT services, message sending/receiving)
+- **GpsManager**: Dedicated GPS location management with fallback providers (GPS, Network, Fused)
+- **MessageViewModel**: MVVM pattern implementation for message state management and UI updates
+- **PermissionHelper**: Utility class for centralized permission checking and requests
+- **Layout Optimization**: Fixed unnecessary nested LinearLayout in message items, improved performance
+- **Build Fixes**: Resolved compilation errors and lint warnings for stable builds
+
 ### Android Chat UI Refresh (Oct 2025)
 - **Chat Layout**: Introduced RecyclerView with message bubbles, timestamps, GPS markers, and delivery (ACK) indicators.
 - **Status Banner**: Connection and GPS info now live in a compact, icon-led header.

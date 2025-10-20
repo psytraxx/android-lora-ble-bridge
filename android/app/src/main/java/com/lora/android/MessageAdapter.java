@@ -4,6 +4,7 @@ import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -37,7 +38,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
         holder.messageTime.setText(timeFormat.format(new Date(message.timestamp)));
 
         // Align message bubble based on sender
-        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) holder.messageContainer.getLayoutParams();
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) holder.messageContainer.getLayoutParams();
 
         if (message.isSent) {
             // Sent messages: align right, green background
@@ -98,16 +99,16 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
     }
 
     public enum AckStatus {
-        NONE,       // Not applicable (received messages)
-        PENDING,    // Sent, waiting for ACK
-        DELIVERED   // ACK received
+        NONE, // Not applicable (received messages)
+        PENDING, // Sent, waiting for ACK
+        DELIVERED // ACK received
     }
 
     public static class ChatMessage {
         public final String text;
         public final boolean isSent; // true = sent by user, false = received
         public final long timestamp;
-        public final byte seq;      // Sequence number for matching ACKs
+        public final byte seq; // Sequence number for matching ACKs
         public AckStatus ackStatus;
 
         public ChatMessage(String text, boolean isSent, byte seq) {
