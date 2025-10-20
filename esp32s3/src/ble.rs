@@ -97,6 +97,11 @@ pub async fn ble_task(
     join(ble_runner(runner), async {
         loop {
             info!("Starting BLE advertising...");
+            info!("Device name: ESP32S3-LoRa");
+            info!(
+                "Advertising with adv_data: {} bytes, scan_data: {} bytes",
+                adv_data_len, scan_data_len
+            );
             // Advertise and wait for connection
             let acceptor = match peripheral
                 .advertise(
@@ -108,7 +113,10 @@ pub async fn ble_task(
                 )
                 .await
             {
-                Ok(a) => a,
+                Ok(a) => {
+                    info!("Advertising started successfully, waiting for connection...");
+                    a
+                }
                 Err(e) => {
                     error!("Failed to start BLE advertising: {:?}", e);
                     Timer::after(Duration::from_secs(1)).await;
@@ -117,7 +125,10 @@ pub async fn ble_task(
             };
             info!("BLE connection accepted");
             let conn = match acceptor.accept().await {
-                Ok(c) => c,
+                Ok(c) => {
+                    info!("Connection accepted successfully");
+                    c
+                }
                 Err(e) => {
                     error!("Failed to accept BLE connection: {:?}", e);
                     continue;
@@ -159,33 +170,64 @@ async fn gatt_events_task(
     lora_to_ble: &mut Receiver<'static, CriticalSectionRawMutex, Message, 10>,
 ) {
     info!("GATT event handler started");
+    info!(
+        "RX characteristic handle: {:?}",
+        server.lora_service.rx.handle
+    );
+    info!(
+        "TX characteristic handle: {:?}",
+        server.lora_service.tx.handle
+    );
     loop {
+        info!("Waiting for GATT event...");
         match conn.next().await {
             GattConnectionEvent::Disconnected { .. } => {
                 info!("BLE client disconnected");
                 break;
             }
-            GattConnectionEvent::Gatt { event } => match &event {
-                GattEvent::Write(event) if event.handle() == server.lora_service.rx.handle => {
-                    info!(
-                        "Received BLE write on RX characteristic, {} bytes",
-                        event.data().len()
-                    );
-                    match Message::deserialize(event.data()) {
-                        Ok(msg) => match ble_to_lora.try_send(msg) {
-                            Ok(_) => info!("Message forwarded from BLE to LoRa"),
-                            Err(_) => {
-                                error!("Failed to send message to LoRa channel (channel full)")
+            GattConnectionEvent::Gatt { event } => {
+                info!("Received GATT event");
+                match &event {
+                    GattEvent::Write(write_event) => {
+                        info!(
+                            "Write event - handle: {:?}, data length: {}",
+                            write_event.handle(),
+                            write_event.data().len()
+                        );
+                        if write_event.handle() == server.lora_service.rx.handle {
+                            info!(
+                                "Received BLE write on RX characteristic, {} bytes",
+                                write_event.data().len()
+                            );
+                            match Message::deserialize(write_event.data()) {
+                                Ok(msg) => {
+                                    info!("Deserialized message: {:?}", msg);
+                                    match ble_to_lora.try_send(msg) {
+                                        Ok(_) => info!("Message forwarded from BLE to LoRa"),
+                                        Err(_) => {
+                                            error!(
+                                                "Failed to send message to LoRa channel (channel full)"
+                                            )
+                                        }
+                                    }
+                                }
+                                Err(e) => error!("Failed to deserialize message from BLE: {:?}", e),
                             }
-                        },
-                        Err(e) => error!("Failed to deserialize message from BLE: {:?}", e),
+                        } else {
+                            info!(
+                                "Write to different characteristic (handle: {:?})",
+                                write_event.handle()
+                            );
+                        }
+                    }
+                    GattEvent::Read(read_event) => {
+                        info!("Read event - handle: {:?}", read_event.handle());
+                    }
+                    _ => {
+                        info!("Other GATT event");
                     }
                 }
-                GattEvent::Read(event) if event.handle() == server.lora_service.tx.handle => {
-                    // Handle read requests (currently no-op for TX)
-                }
-                _ => {}
-            },
+            }
             _ => {}
         }
 

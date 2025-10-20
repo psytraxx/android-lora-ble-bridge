@@ -35,7 +35,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_PERMISSIONS = 1;
     private static final int MAX_TEXT_LENGTH = 50; // Maximum text length for optimal LoRa range
-    private static final String DEVICE_NAME = "ESP32-LoRa";
+    private static final String DEVICE_NAME = "ESP32S3-LoRa"; // Fixed: was "ESP32-LoRa", ESP32 advertises as "ESP32S3-LoRa"
     // Bluetooth Base UUID: 0000xxxx-0000-1000-8000-00805F9B34FB
     // Service UUID: 0x1234 -> 00001234-0000-1000-8000-00805F9B34FB
     private static final UUID SERVICE_UUID = UUID.fromString("00001234-0000-1000-8000-00805F9B34FB");
@@ -54,9 +54,11 @@ public class MainActivity extends AppCompatActivity {
     private TextView receivedTextView;
     private TextView gpsTextView;
     private TextView charCountTextView;
+    private TextView connectionStatusTextView;
 
     private LocationManager locationManager;
     private byte seqCounter = 0;
+    private boolean isConnected = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,6 +70,7 @@ public class MainActivity extends AppCompatActivity {
         receivedTextView = findViewById(R.id.receivedTextView);
         gpsTextView = findViewById(R.id.gpsTextView);
         charCountTextView = findViewById(R.id.charCountTextView);
+        connectionStatusTextView = findViewById(R.id.connectionStatusTextView);
 
         BluetoothManager bluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         bluetoothAdapter = bluetoothManager.getAdapter();
@@ -96,6 +99,7 @@ public class MainActivity extends AppCompatActivity {
 
         updateGps();
         updateCharCount(""); // Initialize counter
+        updateConnectionStatus("Initializing...");
     }
 
     private void checkPermissions() {
@@ -146,81 +150,150 @@ public class MainActivity extends AppCompatActivity {
                 Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED ||
                 ActivityCompat.checkSelfPermission(this,
                         Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            updateConnectionStatus("❌ Bluetooth permissions missing");
             Toast.makeText(this, "Bluetooth permissions required", Toast.LENGTH_SHORT).show();
             return;
         }
 
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
+            updateConnectionStatus("❌ Bluetooth not enabled");
             Toast.makeText(this, "Bluetooth not enabled", Toast.LENGTH_SHORT).show();
             return;
         }
+
+        android.util.Log.d("LoRaApp", "Starting BLE scan for device: " + DEVICE_NAME);
+        updateConnectionStatus("🔍 Scanning for " + DEVICE_NAME + "...");
 
         bluetoothLeScanner.startScan(new ScanCallback() {
             @Override
             public void onScanResult(int callbackType, ScanResult result) {
                 BluetoothDevice device = result.getDevice();
-                if (DEVICE_NAME.equals(device.getName())) {
+                String deviceName = device.getName();
+                android.util.Log.d("LoRaApp", "Found BLE device: " + deviceName + " (" + device.getAddress() + ")");
+                
+                if (DEVICE_NAME.equals(deviceName)) {
+                    android.util.Log.d("LoRaApp", "Target device found! Connecting...");
+                    updateConnectionStatus("📡 Found " + DEVICE_NAME + ", connecting...");
                     bluetoothLeScanner.stopScan(this);
                     connectToDevice(device);
                 }
+            }
+
+            @Override
+            public void onScanFailed(int errorCode) {
+                android.util.Log.e("LoRaApp", "BLE scan failed with error code: " + errorCode);
+                updateConnectionStatus("❌ Scan failed (error " + errorCode + ")");
             }
         });
     }
 
     @SuppressLint("MissingPermission")
     private void connectToDevice(BluetoothDevice device) {
+        android.util.Log.d("LoRaApp", "Connecting to device: " + device.getAddress());
         bluetoothGatt = device.connectGatt(this, false, new BluetoothGattCallback() {
             @Override
             public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
+                android.util.Log.d("LoRaApp", "Connection state changed: status=" + status + ", newState=" + newState);
+                
                 if (newState == BluetoothGatt.STATE_CONNECTED) {
+                    android.util.Log.d("LoRaApp", "Connected! Requesting MTU...");
+                    updateConnectionStatus("🔗 Connected, negotiating MTU...");
                     // Request larger MTU to support messages up to 266 bytes
                     // Default MTU is 23 bytes (20 usable), we request 512 to be safe
                     gatt.requestMtu(512);
+                } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
+                    android.util.Log.d("LoRaApp", "Disconnected from device");
+                    isConnected = false;
+                    updateConnectionStatus("❌ Disconnected - Retrying scan...");
+                    // Retry scan after disconnect
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        startBleScan();
+                    }, 2000); // Wait 2 seconds before retrying
                 }
             }
 
             @Override
             public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
+                android.util.Log.d("LoRaApp", "MTU changed: mtu=" + mtu + ", status=" + status);
                 if (status == BluetoothGatt.GATT_SUCCESS) {
-                    runOnUiThread(() -> Toast.makeText(MainActivity.this,
-                            "MTU negotiated: " + mtu + " bytes", Toast.LENGTH_SHORT).show());
+                    android.util.Log.d("LoRaApp", "MTU negotiated successfully: " + mtu + " bytes");
+                    updateConnectionStatus("🔧 MTU=" + mtu + "B, discovering services...");
+                } else {
+                    android.util.Log.e("LoRaApp", "MTU negotiation failed with status: " + status);
                 }
                 // After MTU negotiation, discover services
+                android.util.Log.d("LoRaApp", "Discovering GATT services...");
                 gatt.discoverServices();
             }
 
             @Override
             public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+                android.util.Log.d("LoRaApp", "Services discovered: status=" + status);
+                
                 if (status == BluetoothGatt.GATT_SUCCESS) {
+                    android.util.Log.d("LoRaApp", "Service discovery successful");
+                    
+                    // Log all discovered services for debugging
+                    for (BluetoothGattService svc : gatt.getServices()) {
+                        android.util.Log.d("LoRaApp", "Found service: " + svc.getUuid());
+                    }
+                    
                     BluetoothGattService service = gatt.getService(SERVICE_UUID);
                     if (service != null) {
-                        txCharacteristic = service.getCharacteristic(TX_CHAR_UUID);
-                        rxCharacteristic = service.getCharacteristic(RX_CHAR_UUID);
-                        gatt.setCharacteristicNotification(rxCharacteristic, true);
+                        android.util.Log.d("LoRaApp", "LoRa service found!");
+                        txCharacteristic = service.getCharacteristic(TX_CHAR_UUID); // ESP32 TX = Android RX (receive notifications)
+                        rxCharacteristic = service.getCharacteristic(RX_CHAR_UUID); // ESP32 RX = Android TX (write to this)
+                        
+                        android.util.Log.d("LoRaApp", "TX characteristic (ESP32->Android): " + (txCharacteristic != null ? "found" : "NOT FOUND"));
+                        android.util.Log.d("LoRaApp", "RX characteristic (Android->ESP32): " + (rxCharacteristic != null ? "found" : "NOT FOUND"));
+                        
+                        if (txCharacteristic != null && rxCharacteristic != null) {
+                            // Enable notifications on TX characteristic (to receive messages FROM ESP32)
+                            boolean notifySuccess = gatt.setCharacteristicNotification(txCharacteristic, true);
+                            android.util.Log.d("LoRaApp", "Notification enabled on TX: " + notifySuccess);
+                            isConnected = true;
+                            updateConnectionStatus("✅ Connected - Ready to send!");
+                        } else {
+                            android.util.Log.e("LoRaApp", "Characteristics not found!");
+                            updateConnectionStatus("❌ Characteristics missing");
+                        }
+                    } else {
+                        android.util.Log.e("LoRaApp", "LoRa service not found! Expected UUID: " + SERVICE_UUID);
+                        updateConnectionStatus("❌ LoRa service not found");
                     }
+                } else {
+                    android.util.Log.e("LoRaApp", "Service discovery failed with status: " + status);
+                    updateConnectionStatus("❌ Service discovery failed");
                 }
             }
 
             @Override
             public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-                if (characteristic.getUuid().equals(RX_CHAR_UUID)) {
+                // Receive notifications from ESP32's TX characteristic
+                if (characteristic.getUuid().equals(TX_CHAR_UUID)) {
                     byte[] data = characteristic.getValue();
+                    android.util.Log.d("LoRaApp", "Received notification: " + data.length + " bytes");
                     try {
                         Protocol.Message msg = Protocol.Message.deserialize(data);
+                        android.util.Log.d("LoRaApp", "Deserialized message: " + msg);
+                        
                         if (msg instanceof Protocol.TextMessage) {
                             Protocol.TextMessage textMsg = (Protocol.TextMessage) msg;
+                            android.util.Log.d("LoRaApp", "Text message received: " + textMsg.text);
                             runOnUiThread(() -> receivedTextView.setText(
                                     "Received: " + textMsg.text));
                         } else if (msg instanceof Protocol.GpsMessage) {
                             Protocol.GpsMessage gpsMsg = (Protocol.GpsMessage) msg;
+                            android.util.Log.d("LoRaApp", "GPS message received: lat=" + gpsMsg.lat + ", lon=" + gpsMsg.lon);
                             runOnUiThread(() -> receivedTextView.setText(
                                     "GPS: Lat=" + gpsMsg.lat + " Lon=" + gpsMsg.lon));
                         } else if (msg instanceof Protocol.AckMessage) {
+                            android.util.Log.d("LoRaApp", "ACK received for seq: " + ((Protocol.AckMessage) msg).seq);
                             runOnUiThread(
                                     () -> Toast.makeText(MainActivity.this, "ACK received", Toast.LENGTH_SHORT).show());
                         }
                     } catch (Exception e) {
-                        // Invalid data
+                        android.util.Log.e("LoRaApp", "Failed to deserialize message: " + e.getMessage());
                     }
                 }
             }
@@ -229,8 +302,15 @@ public class MainActivity extends AppCompatActivity {
 
     @SuppressLint("MissingPermission")
     private void sendMessage() {
-        if (bluetoothGatt == null || txCharacteristic == null) {
-            Toast.makeText(this, "Not connected", Toast.LENGTH_SHORT).show();
+        android.util.Log.d("LoRaApp", "Send message clicked - isConnected=" + isConnected + 
+                           ", gatt=" + (bluetoothGatt != null) + 
+                           ", rxChar=" + (rxCharacteristic != null));
+        
+        if (!isConnected || bluetoothGatt == null || rxCharacteristic == null) {
+            String reason = !isConnected ? "Not connected" : 
+                           bluetoothGatt == null ? "GATT null" : "RX characteristic null";
+            android.util.Log.e("LoRaApp", "Cannot send: " + reason);
+            Toast.makeText(this, "Not connected - Check status above", Toast.LENGTH_LONG).show();
             return;
         }
 
@@ -252,12 +332,15 @@ public class MainActivity extends AppCompatActivity {
         Location location = getLastKnownLocation();
 
         try {
-            // Send text message first
+            // Send text message first - WRITE TO RX CHARACTERISTIC (Android->ESP32)
             Protocol.TextMessage textMsg = new Protocol.TextMessage(seqCounter++, text);
             byte[] textData = textMsg.serialize();
+            
+            android.util.Log.d("LoRaApp", "Sending text message to RX characteristic: " + text + " (" + textData.length + " bytes)");
 
-            txCharacteristic.setValue(textData);
-            bluetoothGatt.writeCharacteristic(txCharacteristic);
+            rxCharacteristic.setValue(textData);
+            boolean writeSuccess = bluetoothGatt.writeCharacteristic(rxCharacteristic);
+            android.util.Log.d("LoRaApp", "Write characteristic result: " + writeSuccess);
 
             // Send GPS message only if GPS is enabled and available
             if (location != null) {
@@ -266,12 +349,15 @@ public class MainActivity extends AppCompatActivity {
 
                 // Small delay to ensure messages are sent in order
                 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                    // Send GPS message second
+                    // Send GPS message second - WRITE TO RX CHARACTERISTIC (Android->ESP32)
                     Protocol.GpsMessage gpsMsg = new Protocol.GpsMessage(seqCounter++, lat, lon);
                     byte[] gpsData = gpsMsg.serialize();
+                    
+                    android.util.Log.d("LoRaApp", "Sending GPS message to RX characteristic: lat=" + lat + ", lon=" + lon + " (" + gpsData.length + " bytes)");
 
-                    txCharacteristic.setValue(gpsData);
-                    bluetoothGatt.writeCharacteristic(txCharacteristic);
+                    rxCharacteristic.setValue(gpsData);
+                    boolean gpsWriteSuccess = bluetoothGatt.writeCharacteristic(rxCharacteristic);
+                    android.util.Log.d("LoRaApp", "GPS write characteristic result: " + gpsWriteSuccess);
 
                     Toast.makeText(this, "Sent text (" + textData.length + "B) + GPS (" + gpsData.length + "B)",
                             Toast.LENGTH_SHORT).show();
@@ -319,5 +405,14 @@ public class MainActivity extends AppCompatActivity {
         if (location != null) {
             gpsTextView.setText("GPS: " + location.getLatitude() + ", " + location.getLongitude());
         }
+    }
+
+    private void updateConnectionStatus(String status) {
+        android.util.Log.d("LoRaApp", "Connection status: " + status);
+        runOnUiThread(() -> {
+            if (connectionStatusTextView != null) {
+                connectionStatusTextView.setText(status);
+            }
+        });
     }
 }
