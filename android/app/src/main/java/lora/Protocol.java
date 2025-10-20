@@ -325,16 +325,11 @@ public class Protocol {
                 throw new IllegalArgumentException("Data too short");
             }
             MessageType type = MessageType.fromByte(data[0]);
-            switch (type) {
-                case TEXT:
-                    return deserializeText(data);
-                case GPS:
-                    return deserializeGps(data);
-                case ACK:
-                    return deserializeAck(data);
-                default:
-                    throw new IllegalArgumentException("Unknown message type");
-            }
+            return switch (type) {
+                case TEXT -> deserializeText(data);
+                case GPS -> deserializeGps(data);
+                case ACK -> deserializeAck(data);
+            };
         }
 
         private static TextMessage deserializeText(byte[] data) {

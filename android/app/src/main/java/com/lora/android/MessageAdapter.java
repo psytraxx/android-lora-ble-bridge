@@ -120,10 +120,10 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
     }
 
     static class MessageViewHolder extends RecyclerView.ViewHolder {
-        LinearLayout messageContainer;
-        TextView messageText;
-        TextView messageTime;
-        TextView ackStatusIcon;
+        final LinearLayout messageContainer;
+        final TextView messageText;
+        final TextView messageTime;
+        final TextView ackStatusIcon;
 
         MessageViewHolder(@NonNull View itemView) {
             super(itemView);
