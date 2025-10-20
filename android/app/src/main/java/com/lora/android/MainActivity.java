@@ -17,7 +17,6 @@ import android.content.pm.PackageManager;
 import android.location.Location;
 import android.location.LocationManager;
 import android.os.Bundle;
-import android.view.KeyEvent;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
@@ -32,6 +31,7 @@ import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.util.Locale;
 import java.util.UUID;
 
 import lora.Protocol;
@@ -124,30 +124,14 @@ public class MainActivity extends AppCompatActivity {
             // Handle any action - Done, Send, Unspecified, etc.
             if (actionId == EditorInfo.IME_ACTION_DONE ||
                     actionId == EditorInfo.IME_ACTION_SEND ||
-                    actionId == EditorInfo.IME_ACTION_UNSPECIFIED ||
                     actionId == EditorInfo.IME_ACTION_GO ||
                     actionId == EditorInfo.IME_NULL) {
                 dismissKeyboard();
                 return true;
             }
-            // Handle Enter key press
-            if (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER) {
-                if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                    dismissKeyboard();
-                }
-                return true;
-            }
             return false;
         });
 
-        // Additional key listener as backup
-        messageEditText.setOnKeyListener((v, keyCode, event) -> {
-            if (keyCode == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_DOWN) {
-                dismissKeyboard();
-                return true;
-            }
-            return false;
-        });
 
         updateGps();
         updateCharCount(""); // Initialize counter
@@ -269,9 +253,7 @@ public class MainActivity extends AppCompatActivity {
                     runOnUiThread(() -> sendButton.setEnabled(false));
                     updateConnectionStatus("❌ Disconnected");
                     // Retry scan after disconnect
-                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                        startBleScan();
-                    }, 2000); // Wait 2 seconds before retrying
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> startBleScan(), 2000); // Wait 2 seconds before retrying
                 }
             }
 
@@ -341,24 +323,21 @@ public class MainActivity extends AppCompatActivity {
                         Protocol.Message msg = Protocol.Message.deserialize(data);
                         android.util.Log.d("LoRaApp", "Deserialized message: " + msg);
 
-                        if (msg instanceof Protocol.TextMessage) {
-                            Protocol.TextMessage textMsg = (Protocol.TextMessage) msg;
+                        if (msg instanceof Protocol.TextMessage textMsg) {
                             android.util.Log.d("LoRaApp", "Text message received: " + textMsg.text);
                             runOnUiThread(() -> {
                                 messageAdapter.addMessage(textMsg.text, false, textMsg.seq);
                                 messagesRecyclerView.smoothScrollToPosition(messageAdapter.getItemCount() - 1);
                             });
-                        } else if (msg instanceof Protocol.GpsMessage) {
-                            Protocol.GpsMessage gpsMsg = (Protocol.GpsMessage) msg;
+                        } else if (msg instanceof Protocol.GpsMessage gpsMsg) {
                             android.util.Log.d("LoRaApp", "GPS message received: lat=" + gpsMsg.lat + ", lon=" + gpsMsg.lon);
                             double lat = gpsMsg.lat / 1_000_000.0;
                             double lon = gpsMsg.lon / 1_000_000.0;
                             runOnUiThread(() -> {
-                                messageAdapter.addMessage(String.format("📍 GPS: %.6f, %.6f", lat, lon), false, gpsMsg.seq);
+                                messageAdapter.addMessage(String.format(Locale.US, "📍 GPS: %.6f, %.6f", lat, lon), false, gpsMsg.seq);
                                 messagesRecyclerView.smoothScrollToPosition(messageAdapter.getItemCount() - 1);
                             });
-                        } else if (msg instanceof Protocol.AckMessage) {
-                            Protocol.AckMessage ackMsg = (Protocol.AckMessage) msg;
+                        } else if (msg instanceof Protocol.AckMessage ackMsg) {
                             android.util.Log.d("LoRaApp", "ACK received for seq: " + ackMsg.seq);
                             runOnUiThread(() -> {
                                 messageAdapter.updateAckStatus(ackMsg.seq, MessageAdapter.AckStatus.DELIVERED);
@@ -449,7 +428,7 @@ public class MainActivity extends AppCompatActivity {
                     double latDisplay = lat / 1_000_000.0;
                     double lonDisplay = lon / 1_000_000.0;
                     runOnUiThread(() -> {
-                        messageAdapter.addMessage(String.format("📍 GPS: %.6f, %.6f", latDisplay, lonDisplay), true, gpsSeq);
+                        messageAdapter.addMessage(String.format(Locale.US, "📍 GPS: %.6f, %.6f", latDisplay, lonDisplay), true, gpsSeq);
                         messagesRecyclerView.smoothScrollToPosition(messageAdapter.getItemCount() - 1);
                     });
 
@@ -496,18 +475,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    @Override
-    public boolean dispatchKeyEvent(KeyEvent event) {
-        if (event.getKeyCode() == KeyEvent.KEYCODE_ENTER
-                && event.getAction() == KeyEvent.ACTION_DOWN
-                && messageEditText != null
-                && messageEditText.isFocused()) {
-            android.util.Log.d("LoRaApp", "dispatchKeyEvent captured Enter key");
-            dismissKeyboard();
-            return true;
-        }
-        return super.dispatchKeyEvent(event);
-    }
 
     private Location getLastKnownLocation() {
         if (ActivityCompat.checkSelfPermission(this,
@@ -574,14 +541,14 @@ public class MainActivity extends AppCompatActivity {
     private void updateGps() {
         Location location = getLastKnownLocation();
         if (location != null) {
-            String gpsText = String.format("%.6f, %.6f (%s)",
+        String gpsText = String.format(Locale.US, "%.6f, %.6f (%s)",
                     location.getLatitude(),
                     location.getLongitude(),
                     location.getProvider());
             gpsTextView.setText(gpsText);
             android.util.Log.d("LoRaApp", "GPS display updated: " + gpsText);
         } else {
-            gpsTextView.setText("No fix");
+            gpsTextView.setText(R.string.error_no_fix);
             android.util.Log.w("LoRaApp", "No GPS location to display");
         }
     }

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">LoRa Android</string>
+    <string name="error_no_fix">No fix</string>
 </resources>
