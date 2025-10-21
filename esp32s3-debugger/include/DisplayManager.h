@@ -60,6 +60,34 @@ public:
     }
 
     /**
+     * @brief Prints C-string to the display.
+     * @param text The C-string to print.
+     */
+    void print(const char *text)
+    {
+        gfx->print(text);
+    }
+
+    /**
+     * @brief Prints an integer to the display.
+     * @param value The integer value to print.
+     */
+    void print(int value)
+    {
+        gfx->print(value);
+    }
+
+    /**
+     * @brief Prints a float to the display.
+     * @param value The float value to print.
+     * @param decimals Number of decimal places.
+     */
+    void print(float value, int decimals = 2)
+    {
+        gfx->print(value, decimals);
+    }
+
+    /**
      * @brief Sets the cursor position.
      * @param x The x coordinate.
      * @param y The y coordinate.
@@ -109,83 +137,6 @@ public:
     int height()
     {
         return gfx->height();
-    }
-
-    // Display received LoRa message
-    void displayLoRaMessage(const String &message, int rssi, float snr)
-    {
-        // Clear only the top part for the LoRa message
-        int loraInfoHeight = 40; // Adjust based on text size and lines needed
-        fillRect(0, 0, width(), loraInfoHeight, BLACK);
-        setCursor(0, 0); // Set cursor to top-left
-        setTextSize(2);  // Use a larger font for the message
-        printLine("Received:");
-        printLine(message);
-        setTextSize(1); // Smaller font for RSSI/SNR
-        print("RSSI: ");
-        print(String(rssi));
-        print(" dBm");
-        print(" / SNR: ");
-        printLine(String(snr, 2)); // Print SNR with 2 decimal places
-    }
-
-    // Display GPS information at the bottom of the screen
-    void displayGPSInfo(const String &gpsInfo)
-    {
-        // Clear the bottom area for GPS info
-        int gpsInfoY = height() - 20; // Start Y position for GPS info
-        fillRect(0, gpsInfoY, width(), 20, BLACK);
-        setCursor(0, gpsInfoY);
-        setTextSize(1);
-        setTextColor(GREEN, BLACK); // Use a different color for GPS
-        print(gpsInfo);
-        setTextColor(WHITE, BLACK); // Reset to default color
-    }
-
-    // Display warning message
-    void displayWarning(const String &warning)
-    {
-        int warningY = height() - 30; // Position above GPS line
-        if (warning.length() > 0)
-        {
-            fillRect(0, warningY, width(), 10, BLACK); // Clear area
-            setCursor(0, warningY);
-            setTextColor(RED, BLACK);
-            setTextSize(1);
-            print(warning);
-            setTextColor(WHITE, BLACK); // Reset color
-        }
-        else
-        {
-            fillRect(0, warningY, width(), 10, BLACK); // Clear area
-        }
-    }
-
-    // Display calculated distance in meters
-    void displayDistance(double distanceMeters)
-    {
-        int distanceY = 60;      // Y position below LoRa message area (adjust as needed)
-        int distanceHeight = 30; // Height for the distance text (adjust based on font size)
-
-        // Clear the area for distance display
-        fillRect(0, distanceY, width(), distanceHeight, BLACK);
-        setCursor(0, distanceY); // Set cursor for distance text
-
-        setTextSize(3); // Use a large font size for distance
-
-        if (distanceMeters >= 0.0)
-        {
-            print("Dist: ");
-            print(String(distanceMeters, 0)); // Print distance as whole meters
-            print(" m");                      // Display unit as meters
-        }
-        else
-        {
-            print("Dist: N/A"); // Indicate invalid distance
-        }
-
-        // Reset text size if needed for subsequent prints
-        setTextSize(1);
     }
 
 private:
