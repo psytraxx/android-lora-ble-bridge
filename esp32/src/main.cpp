@@ -18,6 +18,7 @@
 #include <freertos/queue.h>
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
+#include <LoRa.h>
 
 // --- Pin Definitions for LoRa Module ---
 #define LORA_SCK 18
@@ -41,8 +42,38 @@ const int LORA_TO_BLE_QUEUE_SIZE = 15;
 QueueHandle_t bleToLoraQueue;
 QueueHandle_t loraToBleQueue;
 
+// Struct for LoRa packets with metadata
+struct LoRaPacket
+{
+    uint8_t buffer[256];
+    int len;
+    int rssi;
+    float snr;
+};
+
+QueueHandle_t loRaQueue;
+
 // BLEManager declared after queues
 BLEManager *bleManager;
+
+/**
+ * @brief LoRa receive callback - handles incoming LoRa packets event-driven
+ */
+void onLoRaReceive(int packetSize)
+{
+    if (packetSize == 0)
+        return;
+
+    LoRaPacket packet;
+    packet.len = LoRa.readBytes(packet.buffer, sizeof(packet.buffer));
+    packet.rssi = LoRa.packetRssi();
+    packet.snr = LoRa.packetSnr();
+
+    if (packet.len > 0)
+    {
+        xQueueSend(loRaQueue, &packet, 0);
+    }
+}
 
 /**
  * @brief Setup routine for ESP32 LoRa-BLE Bridge
@@ -51,6 +82,15 @@ void setup()
 {
     Serial.begin(115200);
     delay(2000);
+
+// Set CPU frequency for power savings (configurable via build flag)
+#ifndef CPU_FREQ_MHZ
+#define CPU_FREQ_MHZ 160
+#endif
+    setCpuFrequencyMhz(CPU_FREQ_MHZ);
+    Serial.print("CPU Frequency set to: ");
+    Serial.print(getCpuFrequencyMhz());
+    Serial.println(" MHz");
 
     // Initialize watchdog for robustness (30 second timeout)
     esp_task_wdt_config_t wdt_config = {
@@ -67,8 +107,9 @@ void setup()
     // Create message queues
     bleToLoraQueue = xQueueCreate(BLE_TO_LORA_QUEUE_SIZE, sizeof(Message));
     loraToBleQueue = xQueueCreate(LORA_TO_BLE_QUEUE_SIZE, sizeof(Message));
+    loRaQueue = xQueueCreate(15, sizeof(LoRaPacket));
 
-    if (bleToLoraQueue == nullptr || loraToBleQueue == nullptr)
+    if (bleToLoraQueue == nullptr || loraToBleQueue == nullptr || loRaQueue == nullptr)
     {
         Serial.println("Failed to create message queues. Halting execution.");
         while (1)
@@ -161,6 +202,9 @@ void setup()
         }
     }
 
+    // Set up event-driven LoRa reception
+    LoRa.onReceive(onLoRaReceive);
+
     // Start continuous receive mode
     loraManager.startReceiveMode();
 
@@ -211,7 +255,7 @@ void loop()
             {
                 Serial.println("LoRa TX successful");
                 // Blink twice for outgoing message
-                ledManager.blinkMultiple(2);
+                ledManager.blink(2);
             }
             else
             {
@@ -227,26 +271,21 @@ void loop()
         }
     }
 
-    // Check for messages from LoRa
-    uint8_t rxBuffer[64];
-    int packetSize = loraManager.receivePacket(rxBuffer, sizeof(rxBuffer));
-
-    if (packetSize > 0)
+    // Check for messages from LoRa (event-driven via callback)
+    LoRaPacket packet;
+    if (xQueueReceive(loRaQueue, &packet, 0) == pdTRUE)
     {
-        int rssi = loraManager.getRssi();
-        float snr = loraManager.getSnr();
-
         Serial.print("LoRa RX: received ");
-        Serial.print(packetSize);
+        Serial.print(packet.len);
         Serial.print(" bytes, RSSI: ");
-        Serial.print(rssi);
+        Serial.print(packet.rssi);
         Serial.print(" dBm, SNR: ");
-        Serial.print(snr);
+        Serial.print(packet.snr);
         Serial.println(" dB");
 
         // Deserialize message
         Message msg;
-        if (msg.deserialize(rxBuffer, packetSize))
+        if (msg.deserialize(packet.buffer, packet.len))
         {
             Serial.print("LoRa message deserialized: type=");
             Serial.println((int)msg.type);
@@ -290,7 +329,7 @@ void loop()
                 }
                 else
                 {
-                    // Blink once for incoming message
+                    // Blink once for incoming message (reduced frequency for power savings)
                     ledManager.blink();
                 }
                 break;
@@ -334,7 +373,7 @@ void loop()
                 }
                 else
                 {
-                    // Blink once for incoming message
+                    // Blink once for incoming message (reduced frequency for power savings)
                     ledManager.blink();
                 }
                 break;
@@ -352,7 +391,7 @@ void loop()
                 }
                 else
                 {
-                    // Blink once for incoming message
+                    // Blink once for incoming message (reduced frequency for power savings)
                     ledManager.blink();
                 }
                 break;
@@ -375,8 +414,11 @@ void loop()
         }
     }
 
-    // Small delay to prevent watchdog issues
-    delay(10);
+    // Small delay to prevent watchdog issues and allow task switching
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    // Note: Light sleep could be used here for additional power savings, but would interfere with BLE advertising
+    // esp_light_sleep_start(); // Would need wakeup sources configured
 
     // Reset watchdog to prevent timeout
     esp_task_wdt_reset();

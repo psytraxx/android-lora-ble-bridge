@@ -17,14 +17,23 @@ public:
     }
 
     /**
-     * @brief Blinks the LED for a specified duration.
-     * @param duration The duration of the blink in milliseconds.
+     * @brief Blinks the LED a specified number of times.
+     * @param times Number of blinks (default: 1).
+     * @param duration Duration of each blink in milliseconds (default: 100).
+     * @param delayBetween Delay between blinks in milliseconds (default: 100).
      */
-    void blink(int duration = 100)
+    void blink(int times = 1, int duration = 100, int delayBetween = 100)
     {
-        setOn();
-        delay(duration);
-        setOff();
+        for (int i = 0; i < times; i++)
+        {
+            setOn();
+            delay(duration);
+            setOff();
+            if (i < times - 1)
+            {
+                delay(delayBetween);
+            }
+        }
     }
 
     /**
@@ -41,24 +50,6 @@ public:
     void setOff()
     {
         digitalWrite(ledPin, LOW);
-    }
-
-    /**
-     * @brief Blinks the LED multiple times.
-     * @param times Number of blinks.
-     * @param duration Duration of each blink in milliseconds.
-     * @param delayBetween Delay between blinks in milliseconds.
-     */
-    void blinkMultiple(int times, int duration = 100, int delayBetween = 100)
-    {
-        for (int i = 0; i < times; i++)
-        {
-            blink(duration);
-            if (i < times - 1)
-            {
-                delay(delayBetween);
-            }
-        }
     }
 
 private:

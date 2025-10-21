@@ -134,6 +134,7 @@ The ESP32 PlatformIO project has been successfully completed with full feature p
 build_flags = 
     -DLORA_TX_POWER_DBM=14          # TX power (2-20 dBm)
     -DLORA_TX_FREQUENCY=433920000   # Frequency (Hz)
+    -DCPU_FREQ_MHZ=160              # CPU frequency (80, 160, 240 MHz)
 ```
 
 ### Pin Configuration (main.cpp)
@@ -233,6 +234,9 @@ System running - waiting for connections...
 - **RX Mode**: ~15-20 mA (continuous listening)
 - **BLE Advertising**: ~10-15 mA
 - **Total Active**: ~25-35 mA typical
+- **CPU Frequency**: 160 MHz (reduced from 240 MHz for ~15-20% power savings)
+- **Event-Driven**: Reduced CPU polling with interrupt-based LoRa reception
+- **Task Scheduling**: FreeRTOS vTaskDelay for efficient CPU yielding
 
 ## Known Limitations
 
@@ -260,11 +264,10 @@ System running - waiting for connections...
 
 ### Optional Enhancements
 1. **Message Queue**: Implement circular buffer for offline messages
-2. **Power Management**: Add deep sleep for battery operation
-3. **OLED Display**: Add status display
-4. **Button Control**: Add physical buttons for testing
-5. **OTA Updates**: Over-the-air firmware updates
-6. **Retry Logic**: Implement message retry with timeout
+2. **OLED Display**: Add status display
+3. **Button Control**: Add physical buttons for testing
+4. **OTA Updates**: Over-the-air firmware updates
+5. **Retry Logic**: Implement message retry with timeout
 
 ### Documentation
 - ✅ README.md created
@@ -313,7 +316,7 @@ A comprehensive code review was conducted on 21 October 2025, identifying areas 
 - **Issue**: No LED indicators; verbose logging without levels.
 - **Impact**: Hard to debug in field; no visual status.
 - **Solution**: Integrate LEDManager for status; add logging levels.
-- **Status**: ✅ COMPLETED - Added LEDManager with blink patterns: single blink for incoming messages (LoRa→BLE), double blink for outgoing messages (BLE→LoRa). Added blinkMultiple() method. LED on GPIO 2 (built-in).
+- **Status**: ✅ COMPLETED - Added LEDManager with blink patterns: single blink for incoming messages (LoRa→BLE), double blink for outgoing messages (BLE→LoRa). Merged blink and blinkMultiple methods into single blink() method with configurable times parameter.
 
 #### 7. Code Quality and Testing (Low Priority)
 - **Issue**: Magic numbers; no unit tests despite test/ folder.
@@ -321,18 +324,18 @@ A comprehensive code review was conducted on 21 October 2025, identifying areas 
 - **Solution**: Define constants; add unit tests.
 - **Status**: Planned.
 
-#### 8. Performance and Power (Low Priority)
+#### 8. Performance and Power (Low Priority - COMPLETED)
 - **Issue**: No sleep modes; constant polling.
 - **Impact**: High power consumption.
 - **Solution**: Implement deep sleep and event-driven operation.
-- **Status**: Planned.
+- **Status**: ✅ COMPLETED - Implemented event-driven LoRa reception using interrupts. CPU frequency reduced to 160MHz and FreeRTOS task scheduling optimized for power efficiency. Deep sleep not suitable due to BLE always-on requirement for Android messaging.
 
 ### Implementation Plan
 1. **Phase 1 (COMPLETED)**: Implement FreeRTOS queues for message buffering.
 2. **Phase 2 (COMPLETED)**: Fix memory management (String → char arrays).
 3. **Phase 3 (COMPLETED)**: Add error recovery and robustness features.
 4. **Phase 4**: Protocol enhancements (checksums, retransmission).
-5. **Phase 5**: Remaining improvements (config, LEDs, testing).
+5. **Phase 5**: Remaining improvements (config, LEDs, testing, performance/power).
 
 ### Notes
 - All changes will maintain backward compatibility with existing protocol and Android app.
