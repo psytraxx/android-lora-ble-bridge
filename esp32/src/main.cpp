@@ -7,7 +7,7 @@
 //! - BLE GATT server with TX/RX characteristics for message exchange
 //! - LoRa radio for long-range communication (5-10 km typical)
 //! - Message queue for inter-task communication
-//! - Advertising as "ESP32-LoRa"
+//! - Advertising as "ESP32S3-LoRa"
 
 #include <Arduino.h>
 #include "lora_config.h"
@@ -133,7 +133,7 @@ void setup()
         Serial.print("/");
         Serial.println(BLE_RETRY_COUNT);
 
-        if (bleManager->setup("ESP32-LoRa"))
+        if (bleManager->setup("ESP32S3-LoRa"))
         {
             bleSuccess = true;
             Serial.println("BLE setup successful");

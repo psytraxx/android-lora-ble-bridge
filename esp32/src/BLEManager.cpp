@@ -3,13 +3,24 @@
 // Server callbacks implementation
 void MyServerCallbacks::onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo)
 {
-    Serial.println("BLE client connected");
+    Serial.print("BLE client connected: ");
+    Serial.println(connInfo.getAddress().toString().c_str());
+    Serial.print("Connection ID: ");
+    Serial.println(connInfo.getConnHandle());
+    Serial.print("MTU: ");
+    Serial.println(connInfo.getMTU());
+
     bleManager->onConnected();
+
+    // Stop advertising when connected
+    NimBLEDevice::getAdvertising()->stop();
+    Serial.println("Stopped advertising (connected)");
 }
 
 void MyServerCallbacks::onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo, int reason)
 {
-    Serial.println("BLE client disconnected");
+    Serial.print("BLE client disconnected, reason: ");
+    Serial.println(reason);
     bleManager->onDisconnected();
 }
 
@@ -21,7 +32,17 @@ void MyCharacteristicCallbacks::onWrite(NimBLECharacteristic *pCharacteristic, N
     {
         Serial.print("Received BLE write on RX characteristic, ");
         Serial.print(value.length());
-        Serial.println(" bytes");
+        Serial.print(" bytes from client: ");
+        Serial.println(connInfo.getAddress().toString().c_str());
+
+        // Add hex dump for debugging
+        Serial.print("Data (hex): ");
+        for (size_t i = 0; i < value.length(); i++)
+        {
+            Serial.printf("%02X ", (uint8_t)value[i]);
+        }
+        Serial.println();
+
         bleManager->onMessageReceived((const uint8_t *)value.data(), value.length());
     }
 }
@@ -35,6 +56,7 @@ BLEManager::BLEManager(QueueHandle_t queue)
       deviceConnected(false),
       oldDeviceConnected(false),
       bleToLoraQueue(queue),
+      deviceNameStr(""),
       serverCallbacks(nullptr),
       rxCallbacks(nullptr)
 {
@@ -43,6 +65,9 @@ BLEManager::BLEManager(QueueHandle_t queue)
 bool BLEManager::setup(const char *deviceName)
 {
     Serial.println("Initializing BLE...");
+
+    // Store device name for debugging
+    deviceNameStr = String(deviceName);
 
     // Create the BLE Device
     NimBLEDevice::init(deviceName);
@@ -67,6 +92,7 @@ bool BLEManager::setup(const char *deviceName)
         RX_CHARACTERISTIC_UUID,
         NIMBLE_PROPERTY::READ |
             NIMBLE_PROPERTY::WRITE |
+            NIMBLE_PROPERTY::WRITE_NR | // Write without response for faster writes
             NIMBLE_PROPERTY::NOTIFY);
     rxCallbacks = new MyCharacteristicCallbacks(this);
     pRxCharacteristic->setCallbacks(rxCallbacks);
@@ -74,10 +100,20 @@ bool BLEManager::setup(const char *deviceName)
     // Start the service
     pService->start();
 
-    // Get advertising instance
+    // Get advertising instance and configure for better discoverability
     pAdvertising = NimBLEDevice::getAdvertising();
     pAdvertising->addServiceUUID(SERVICE_UUID);
     pAdvertising->enableScanResponse(true);
+
+    // Set advertising parameters for better discoverability
+    pAdvertising->setMinInterval(100); // 100ms (fast advertising for discoverability)
+    pAdvertising->setMaxInterval(200); // 200ms
+
+    // Add device name to advertising data for easier identification
+    pAdvertising->setName(deviceName);
+
+    // Set TX power to maximum for better range
+    NimBLEDevice::setPower(ESP_PWR_LVL_P9); // +9dBm
 
     Serial.println("BLE service created");
     Serial.print("Device name: ");
@@ -95,10 +131,19 @@ bool BLEManager::setup(const char *deviceName)
 void BLEManager::startAdvertising()
 {
     Serial.println("Starting BLE advertising...");
+
+    // Additional debugging information
+    Serial.print("Advertising with device name: ");
+    Serial.println(deviceNameStr);
+    Serial.print("MAC Address: ");
+    Serial.println(NimBLEDevice::getAddress().toString().c_str());
+
     NimBLEDevice::startAdvertising();
     Serial.println("BLE advertising started, waiting for connection...");
+    Serial.print("Device should now be discoverable as '");
+    Serial.print(deviceNameStr);
+    Serial.println("'");
 }
-
 bool BLEManager::sendMessage(const Message &msg)
 {
     if (!deviceConnected)

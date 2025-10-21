@@ -42,7 +42,7 @@ public:
     BLEManager(QueueHandle_t bleToLoraQueue);
 
     /// Initialize BLE with device name
-    bool setup(const char *deviceName = "ESP32-LoRa");
+    bool setup(const char *deviceName = "ESP32S3-LoRa");
 
     /// Start BLE advertising
     void startAdvertising();
@@ -73,6 +73,7 @@ private:
     bool oldDeviceConnected;
 
     QueueHandle_t bleToLoraQueue;
+    String deviceNameStr; // Store device name for debugging
 
     MyServerCallbacks *serverCallbacks;
     MyCharacteristicCallbacks *rxCallbacks;
