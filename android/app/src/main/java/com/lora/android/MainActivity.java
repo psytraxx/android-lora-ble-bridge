@@ -55,6 +55,16 @@ public class MainActivity extends AppCompatActivity {
 
         // Initialize managers
         messageAdapter = new MessageAdapter();
+
+        // Set scroll callback to auto-scroll when messages are added
+        messageAdapter.setScrollCallback(() -> {
+            messagesRecyclerView.post(() -> {
+                if (messageAdapter.getItemCount() > 0) {
+                    messagesRecyclerView.smoothScrollToPosition(messageAdapter.getItemCount() - 1);
+                }
+            });
+        });
+
         messageViewModel = new ViewModelProvider(this).get(MessageViewModel.class);
         bleManager = new BleManager(this, new BleManager.BleCallback() {
             @Override
@@ -77,13 +87,11 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     if (message instanceof Protocol.TextMessage textMsg) {
                         messageAdapter.addMessage(textMsg.text, false, textMsg.seq);
-                        messagesRecyclerView.smoothScrollToPosition(messageAdapter.getItemCount() - 1);
                     } else if (message instanceof Protocol.GpsMessage gpsMsg) {
                         double lat = gpsMsg.lat / 1_000_000.0;
                         double lon = gpsMsg.lon / 1_000_000.0;
                         messageAdapter.addMessage(String.format(Locale.US, "📍 GPS: %.6f, %.6f", lat, lon), false,
                                 gpsMsg.seq);
-                        messagesRecyclerView.smoothScrollToPosition(messageAdapter.getItemCount() - 1);
                     } else if (message instanceof Protocol.AckMessage ackMsg) {
                         android.util.Log.d("MainActivity", "ACK received: seq=" + ackMsg.seq);
                         messageAdapter.updateAckStatus(ackMsg.seq, MessageAdapter.AckStatus.DELIVERED);
@@ -108,9 +116,11 @@ public class MainActivity extends AppCompatActivity {
         checkPermissions();
 
         sendButton.setOnClickListener(v -> {
-            messageViewModel.sendMessage(messageEditText.getText().toString());
-            messageEditText.setText("");
-            dismissKeyboard();
+            String messageText = messageEditText.getText().toString();
+            if (!messageText.isEmpty()) {
+                messageViewModel.sendMessage(messageText);
+                messageEditText.setText("");
+            }
         });
         sendButton.setEnabled(false); // Disabled until connected
 

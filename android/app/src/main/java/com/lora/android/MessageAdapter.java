@@ -21,6 +21,15 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
 
     private final List<ChatMessage> messages = new ArrayList<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
+    private ScrollCallback scrollCallback;
+
+    public interface ScrollCallback {
+        void onMessageAdded();
+    }
+
+    public void setScrollCallback(ScrollCallback callback) {
+        this.scrollCallback = callback;
+    }
 
     @NonNull
     @Override
@@ -80,6 +89,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
     public void addMessage(String text, boolean isSent, byte seq) {
         messages.add(new ChatMessage(text, isSent, seq));
         notifyItemInserted(messages.size() - 1);
+        if (scrollCallback != null) {
+            scrollCallback.onMessageAdded();
+        }
     }
 
     public void updateAckStatus(byte seq, AckStatus status) {
