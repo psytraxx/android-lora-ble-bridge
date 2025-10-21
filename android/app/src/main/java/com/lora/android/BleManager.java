@@ -29,6 +29,7 @@ public class BleManager {
     private static final UUID SERVICE_UUID = UUID.fromString("00001234-0000-1000-8000-00805F9B34FB");
     private static final UUID TX_CHAR_UUID = UUID.fromString("00005678-0000-1000-8000-00805F9B34FB");
     private static final UUID RX_CHAR_UUID = UUID.fromString("00005679-0000-1000-8000-00805F9B34FB");
+    private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private final Context context;
     private final BleCallback callback;
     private BluetoothAdapter bluetoothAdapter;
@@ -37,6 +38,7 @@ public class BleManager {
     private BluetoothGattCharacteristic txCharacteristic;
     private BluetoothGattCharacteristic rxCharacteristic;
     private boolean isConnected = false;
+
     public BleManager(Context context, BleCallback callback) {
         this.context = context;
         this.callback = callback;
@@ -151,8 +153,22 @@ public class BleManager {
                         Log.d(TAG, "RX characteristic: " + (rxCharacteristic != null ? "found" : "NOT FOUND"));
 
                         if (txCharacteristic != null && rxCharacteristic != null) {
+                            // Enable notifications locally
                             boolean notifySuccess = gatt.setCharacteristicNotification(txCharacteristic, true);
-                            Log.d(TAG, "Notification enabled on TX: " + notifySuccess);
+                            Log.d(TAG, "Notification enabled locally on TX: " + notifySuccess);
+
+                            // Write to CCCD descriptor to enable notifications on server side
+                            android.bluetooth.BluetoothGattDescriptor descriptor = txCharacteristic
+                                    .getDescriptor(CCCD_UUID);
+                            if (descriptor != null) {
+                                descriptor
+                                        .setValue(android.bluetooth.BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                                boolean descriptorWriteSuccess = gatt.writeDescriptor(descriptor);
+                                Log.d(TAG, "CCCD descriptor write initiated: " + descriptorWriteSuccess);
+                            } else {
+                                Log.e(TAG, "CCCD descriptor not found on TX characteristic!");
+                            }
+
                             isConnected = true;
                             callback.onConnected();
                             callback.onConnectionStatusChanged("✅ Ready to send!");
@@ -182,6 +198,17 @@ public class BleManager {
                     } catch (Exception e) {
                         Log.e(TAG, "Failed to deserialize message: " + e.getMessage());
                     }
+                }
+            }
+
+            @Override
+            public void onDescriptorWrite(BluetoothGatt gatt, android.bluetooth.BluetoothGattDescriptor descriptor,
+                    int status) {
+                Log.d(TAG, "Descriptor write completed: status=" + status);
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    Log.d(TAG, "Notifications successfully enabled on server side!");
+                } else {
+                    Log.e(TAG, "Failed to enable notifications on server side, status: " + status);
                 }
             }
         });

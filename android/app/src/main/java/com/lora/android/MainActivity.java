@@ -85,8 +85,10 @@ public class MainActivity extends AppCompatActivity {
                                 gpsMsg.seq);
                         messagesRecyclerView.smoothScrollToPosition(messageAdapter.getItemCount() - 1);
                     } else if (message instanceof Protocol.AckMessage ackMsg) {
+                        android.util.Log.d("MainActivity", "ACK received: seq=" + ackMsg.seq);
                         messageAdapter.updateAckStatus(ackMsg.seq, MessageAdapter.AckStatus.DELIVERED);
-                        Toast.makeText(MainActivity.this, "✓ Message delivered", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(MainActivity.this, "✓ Message delivered (seq " + ackMsg.seq + ")",
+                                Toast.LENGTH_SHORT).show();
                     }
                 });
             }
@@ -167,7 +169,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
+            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_PERMISSIONS) {
             if (PermissionHelper.areAllPermissionsGranted(grantResults)) {
