@@ -66,54 +66,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         messageViewModel = new ViewModelProvider(this).get(MessageViewModel.class);
-        bleManager = new BleManager(this, new BleManager.BleCallback() {
-            @Override
-            public void onConnectionStatusChanged(String status) {
-                messageViewModel.updateConnectionStatus(status);
-            }
-
-            @Override
-            public void onConnected() {
-                runOnUiThread(() -> sendButton.setEnabled(true));
-            }
-
-            @Override
-            public void onDisconnected() {
-                runOnUiThread(() -> sendButton.setEnabled(false));
-            }
-
-            @Override
-            public void onMessageReceived(Protocol.Message message) {
-                runOnUiThread(() -> {
-                    if (message instanceof Protocol.TextMessage textMsg) {
-                        messageAdapter.addMessage(textMsg.text, false, textMsg.seq);
-                    } else if (message instanceof Protocol.GpsMessage gpsMsg) {
-                        double lat = gpsMsg.lat / 1_000_000.0;
-                        double lon = gpsMsg.lon / 1_000_000.0;
-                        messageAdapter.addMessage(String.format(Locale.US, "📍 GPS: %.6f, %.6f", lat, lon), false,
-                                gpsMsg.seq);
-                    } else if (message instanceof Protocol.AckMessage ackMsg) {
-                        android.util.Log.d("MainActivity", "ACK received: seq=" + ackMsg.seq);
-                        messageAdapter.updateAckStatus(ackMsg.seq, MessageAdapter.AckStatus.DELIVERED);
-                        Toast.makeText(MainActivity.this, "✓ Message delivered (seq " + ackMsg.seq + ")",
-                                Toast.LENGTH_SHORT).show();
-                    }
-                });
-            }
-
-            @Override
-            public void onShowToast(String message) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show());
-            }
-
-            @Override
-            public void onLocationEnabled() {
-                runOnUiThread(() -> {
-                    gpsManager.startLocationUpdates();
-                    messageViewModel.updateGps(); // Immediately update GPS display
-                });
-            }
-        });
+        bleManager = new BleManager(this);
         gpsManager = new GpsManager(this);
 
         messageViewModel.setManagers(bleManager, gpsManager, messageAdapter);
@@ -125,6 +78,15 @@ public class MainActivity extends AppCompatActivity {
         // Observe ViewModel
         messageViewModel.getConnectionStatus().observe(this, status -> connectionStatusTextView.setText(status));
         messageViewModel.getGpsDisplay().observe(this, gps -> gpsTextView.setText(gps));
+        messageViewModel.getShowToast().observe(this, message -> {
+            if (message != null) {
+                Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+            }
+        });
+
+        // Observe BLE connection state for send button
+        bleManager.getConnected().observe(this,
+                connected -> sendButton.setEnabled(connected != null ? connected : false));
 
         checkPermissions();
 
@@ -171,15 +133,7 @@ public class MainActivity extends AppCompatActivity {
         updateCharCount(""); // Initialize counter
         messageViewModel.updateConnectionStatus("Initializing...");
 
-        // Update GPS periodically every 5 seconds
-        final android.os.Handler gpsHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-        gpsHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                messageViewModel.updateGps();
-                gpsHandler.postDelayed(this, 5000); // Update every 5 seconds
-            }
-        }, 5000);
+        startGpsPeriodicUpdates();
     }
 
     private void checkPermissions() {
@@ -242,5 +196,17 @@ public class MainActivity extends AppCompatActivity {
         } else {
             charCountTextView.setTextColor(0xFF666666); // Gray
         }
+    }
+
+    private void startGpsPeriodicUpdates() {
+        final android.os.Handler gpsHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        Runnable gpsUpdateRunnable = new Runnable() {
+            @Override
+            public void run() {
+                messageViewModel.updateGps();
+                gpsHandler.postDelayed(this, 5000); // Update every 5 seconds
+            }
+        };
+        gpsHandler.postDelayed(gpsUpdateRunnable, 5000);
     }
 }

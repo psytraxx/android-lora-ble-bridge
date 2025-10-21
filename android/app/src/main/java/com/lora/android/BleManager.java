@@ -18,6 +18,8 @@ import android.location.LocationManager;
 import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
+import androidx.lifecycle.LiveData;
+import androidx.lifecycle.MutableLiveData;
 
 import java.util.UUID;
 
@@ -33,7 +35,6 @@ public class BleManager {
     private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private static final long LOCATION_CHECK_INTERVAL_MS = 3000; // Check every 3 seconds
     private final Context context;
-    private final BleCallback callback;
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner bluetoothLeScanner;
     private BluetoothGatt bluetoothGatt;
@@ -43,10 +44,37 @@ public class BleManager {
     private boolean isWaitingForLocation = false;
     private final android.os.Handler locationCheckHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
-    public BleManager(Context context, BleCallback callback) {
+    // LiveData for state changes
+    private final MutableLiveData<String> connectionStatus = new MutableLiveData<>();
+    private final MutableLiveData<Protocol.Message> messageReceived = new MutableLiveData<>();
+    private final MutableLiveData<String> showToast = new MutableLiveData<>();
+    private final MutableLiveData<Boolean> connected = new MutableLiveData<>();
+    private final MutableLiveData<Void> locationEnabled = new MutableLiveData<>();
+
+    public BleManager(Context context) {
         this.context = context;
-        this.callback = callback;
         initializeBluetooth();
+    }
+
+    // LiveData getters
+    public LiveData<String> getConnectionStatus() {
+        return connectionStatus;
+    }
+
+    public LiveData<Protocol.Message> getMessageReceived() {
+        return messageReceived;
+    }
+
+    public LiveData<String> getShowToast() {
+        return showToast;
+    }
+
+    public LiveData<Boolean> getConnected() {
+        return connected;
+    }
+
+    public LiveData<Void> getLocationEnabled() {
+        return locationEnabled;
     }
 
     private void initializeBluetooth() {
@@ -80,18 +108,18 @@ public class BleManager {
     @SuppressLint("MissingPermission")
     public void startScan() {
         if (!hasPermissions()) {
-            callback.onConnectionStatusChanged("❌ BT permissions missing");
+            connectionStatus.postValue("❌ BT permissions missing");
             return;
         }
 
         if (!isBluetoothEnabled()) {
-            callback.onConnectionStatusChanged("❌ BT not enabled");
+            connectionStatus.postValue("❌ BT not enabled");
             return;
         }
 
         if (!isLocationEnabled()) {
-            callback.onConnectionStatusChanged("❌ Location services disabled (required for BLE)");
-            callback.onShowToast("Please enable Location services to scan for BLE devices");
+            connectionStatus.postValue("❌ Location services disabled (required for BLE)");
+            showToast.postValue("Please enable Location services to scan for BLE devices");
             Log.w(TAG,
                     "Location services are disabled. BLE scanning requires location services to be enabled on Android.");
 
@@ -108,7 +136,7 @@ public class BleManager {
         locationCheckHandler.removeCallbacksAndMessages(null);
 
         Log.d(TAG, "Starting BLE scan for device: " + DEVICE_NAME);
-        callback.onConnectionStatusChanged("🔍 Scanning...");
+        connectionStatus.postValue("🔍 Scanning...");
 
         bluetoothLeScanner.startScan(new ScanCallback() {
             @Override
@@ -119,7 +147,7 @@ public class BleManager {
 
                 if (DEVICE_NAME.equals(deviceName)) {
                     Log.d(TAG, "Target device found! Connecting...");
-                    callback.onConnectionStatusChanged("📡 Connecting...");
+                    connectionStatus.postValue("📡 Connecting...");
                     bluetoothLeScanner.stopScan(this);
                     connectToDevice(device);
                 }
@@ -128,7 +156,7 @@ public class BleManager {
             @Override
             public void onScanFailed(int errorCode) {
                 Log.e(TAG, "BLE scan failed with error code: " + errorCode);
-                callback.onConnectionStatusChanged("❌ Scan failed (error " + errorCode + ")");
+                connectionStatus.postValue("❌ Scan failed (error " + errorCode + ")");
             }
         });
     }
@@ -140,8 +168,8 @@ public class BleManager {
                 if (isWaitingForLocation && !isConnected) {
                     if (isLocationEnabled()) {
                         Log.d(TAG, "Location services now enabled! Retrying BLE scan...");
-                        callback.onShowToast("Location enabled! Scanning for device...");
-                        callback.onLocationEnabled(); // Notify that location is enabled
+                        showToast.postValue("Location enabled! Scanning for device...");
+                        locationEnabled.postValue(null); // Notify that location is enabled
                         startScan();
                     } else {
                         // Keep checking
@@ -162,13 +190,13 @@ public class BleManager {
 
                 if (newState == BluetoothGatt.STATE_CONNECTED) {
                     Log.d(TAG, "Connected! Requesting MTU...");
-                    callback.onConnectionStatusChanged("🔗 Negotiating...");
+                    connectionStatus.postValue("🔗 Negotiating...");
                     gatt.requestMtu(512);
                 } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
                     Log.d(TAG, "Disconnected from device");
                     isConnected = false;
-                    callback.onDisconnected();
-                    callback.onConnectionStatusChanged("❌ Disconnected");
+                    connected.postValue(false);
+                    connectionStatus.postValue("❌ Disconnected");
                     // Retry scan after disconnect
                     new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> startScan(), 2000);
                 }
@@ -179,7 +207,7 @@ public class BleManager {
                 Log.d(TAG, "MTU changed: mtu=" + mtu + ", status=" + status);
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     Log.d(TAG, "MTU negotiated successfully: " + mtu + " bytes");
-                    callback.onConnectionStatusChanged("🔧 Discovering services...");
+                    connectionStatus.postValue("🔧 Discovering services...");
                 } else {
                     Log.e(TAG, "MTU negotiation failed with status: " + status);
                 }
@@ -220,19 +248,19 @@ public class BleManager {
                             }
 
                             isConnected = true;
-                            callback.onConnected();
-                            callback.onConnectionStatusChanged("✅ Ready to send!");
+                            connected.postValue(true);
+                            connectionStatus.postValue("✅ Ready to send!");
                         } else {
                             Log.e(TAG, "Characteristics not found!");
-                            callback.onConnectionStatusChanged("❌ Characteristics missing");
+                            connectionStatus.postValue("❌ Characteristics missing");
                         }
                     } else {
                         Log.e(TAG, "LoRa service not found! Expected UUID: " + SERVICE_UUID);
-                        callback.onConnectionStatusChanged("❌ LoRa service not found");
+                        connectionStatus.postValue("❌ LoRa service not found");
                     }
                 } else {
                     Log.e(TAG, "Service discovery failed with status: " + status);
-                    callback.onConnectionStatusChanged("❌ Service discovery failed");
+                    connectionStatus.postValue("❌ Service discovery failed");
                 }
             }
 
@@ -244,7 +272,7 @@ public class BleManager {
                     try {
                         Protocol.Message msg = Protocol.Message.deserialize(data);
                         Log.d(TAG, "Deserialized message: " + msg);
-                        callback.onMessageReceived(msg);
+                        messageReceived.postValue(msg);
                     } catch (Exception e) {
                         Log.e(TAG, "Failed to deserialize message: " + e.getMessage());
                     }
@@ -294,19 +322,5 @@ public class BleManager {
         isConnected = false;
         isWaitingForLocation = false;
         locationCheckHandler.removeCallbacksAndMessages(null);
-    }
-
-    public interface BleCallback {
-        void onConnectionStatusChanged(String status);
-
-        void onConnected();
-
-        void onDisconnected();
-
-        void onMessageReceived(Protocol.Message message);
-
-        void onShowToast(String message);
-
-        void onLocationEnabled();
     }
 }

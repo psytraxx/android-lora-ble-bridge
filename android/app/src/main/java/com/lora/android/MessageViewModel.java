@@ -7,6 +7,7 @@ import android.util.Log;
 
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
+import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModel;
 
 import java.util.Locale;
@@ -20,16 +21,37 @@ public class MessageViewModel extends ViewModel {
 
     private final MutableLiveData<String> connectionStatus = new MutableLiveData<>("Initializing...");
     private final MutableLiveData<String> gpsDisplay = new MutableLiveData<>();
+    private final MutableLiveData<String> showToast = new MutableLiveData<>();
 
     private BleManager bleManager;
     private GpsManager gpsManager;
     private MessageAdapter messageAdapter;
     private byte seqCounter = 0;
 
+    // Observers for BLE manager
+    private final Observer<String> bleConnectionStatusObserver = status -> connectionStatus.postValue(status);
+    private final Observer<Protocol.Message> messageReceivedObserver = this::handleReceivedMessage;
+    private final Observer<String> bleShowToastObserver = message -> showToast.postValue(message);
+    private final Observer<Boolean> bleConnectedObserver = connected -> {
+        // Handle connection state changes if needed
+        Log.d(TAG, "BLE connection state changed: " + connected);
+    };
+    private final Observer<Void> locationEnabledObserver = unused -> {
+        gpsManager.startLocationUpdates();
+        updateGps(); // Immediately update GPS display
+    };
+
     public void setManagers(BleManager bleManager, GpsManager gpsManager, MessageAdapter messageAdapter) {
         this.bleManager = bleManager;
         this.gpsManager = gpsManager;
         this.messageAdapter = messageAdapter;
+
+        // Observe BLE manager LiveData
+        bleManager.getConnectionStatus().observeForever(bleConnectionStatusObserver);
+        bleManager.getMessageReceived().observeForever(messageReceivedObserver);
+        bleManager.getShowToast().observeForever(bleShowToastObserver);
+        bleManager.getConnected().observeForever(bleConnectedObserver);
+        bleManager.getLocationEnabled().observeForever(locationEnabledObserver);
     }
 
     public LiveData<String> getConnectionStatus() {
@@ -38,6 +60,10 @@ public class MessageViewModel extends ViewModel {
 
     public LiveData<String> getGpsDisplay() {
         return gpsDisplay;
+    }
+
+    public LiveData<String> getShowToast() {
+        return showToast;
     }
 
     public void updateConnectionStatus(String status) {
@@ -132,6 +158,19 @@ public class MessageViewModel extends ViewModel {
         } else if (message instanceof Protocol.AckMessage ackMsg) {
             Log.d(TAG, "ACK received for seq: " + ackMsg.seq);
             messageAdapter.updateAckStatus(ackMsg.seq, MessageAdapter.AckStatus.DELIVERED);
+            showToast.postValue("✓ Message delivered (seq " + ackMsg.seq + ")");
+        }
+    }
+
+    @Override
+    protected void onCleared() {
+        super.onCleared();
+        if (bleManager != null) {
+            bleManager.getConnectionStatus().removeObserver(bleConnectionStatusObserver);
+            bleManager.getMessageReceived().removeObserver(messageReceivedObserver);
+            bleManager.getShowToast().removeObserver(bleShowToastObserver);
+            bleManager.getConnected().removeObserver(bleConnectedObserver);
+            bleManager.getLocationEnabled().removeObserver(locationEnabledObserver);
         }
     }
 }
