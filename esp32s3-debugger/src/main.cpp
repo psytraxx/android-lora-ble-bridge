@@ -324,6 +324,9 @@ void loop()
                 displayText += String(msg.textData.text);
                 addMessageToDisplay(displayText, packet.rssi, packet.snr);
 
+                // Wait for sender to return to RX mode (allow time for TX->RX transition)
+                delay(500);
+
                 // Send ACK
                 Message ack = Message::createAck(msg.textData.seq);
                 uint8_t ackBuf[64];
@@ -369,6 +372,9 @@ void loop()
                 gpsDisplay += String(msg.gpsData.lon / 1000000.0, 5);
                 gpsDisplay += "°";
                 addMessageToDisplay(gpsDisplay, packet.rssi, packet.snr);
+
+                // Wait for sender to return to RX mode (allow time for TX->RX transition)
+                delay(500);
 
                 // Send ACK
                 Message ack = Message::createAck(msg.gpsData.seq);

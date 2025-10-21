@@ -264,6 +264,7 @@ void loop()
 
             // Return to RX mode after transmission (always, even on failure)
             loraManager.startReceiveMode();
+            delay(50); // Small delay to ensure radio is fully in RX mode
         }
         else
         {
