@@ -9,9 +9,11 @@ class DisplayManager
 public:
     DisplayManager(int dataPin0, int dataPin1, int dataPin2, int dataPin3, int dataPin4, int dataPin5, int dataPin6, int dataPin7,
                    int writePin, int readPin, int dataCommandPin, int chipSelectPin, int resetPin, int backlightPin)
+        : blPin(backlightPin), currentBrightness(255)
     {
-        pinMode(backlightPin, OUTPUT);
-        digitalWrite(backlightPin, HIGH);
+        // Configure PWM for backlight control (ESP32 Arduino 3.x API)
+        ledcAttach(backlightPin, 5000, 8); // Pin, 5kHz frequency, 8-bit resolution
+        ledcWrite(backlightPin, 255);      // Full brightness initially
 
         Arduino_DataBus *bus = new Arduino_ESP32PAR8Q(dataCommandPin, chipSelectPin, writePin, readPin,
                                                       dataPin0, dataPin1, dataPin2, dataPin3,
@@ -139,8 +141,29 @@ public:
         return gfx->height();
     }
 
+    /**
+     * @brief Sets the backlight brightness (0-255).
+     * @param brightness The brightness level (0 = off, 255 = full brightness).
+     */
+    void setBrightness(uint8_t brightness)
+    {
+        currentBrightness = brightness;
+        ledcWrite(blPin, brightness);
+    }
+
+    /**
+     * @brief Gets the current backlight brightness.
+     * @return Current brightness level (0-255).
+     */
+    uint8_t getBrightness()
+    {
+        return currentBrightness;
+    }
+
 private:
-    Arduino_GFX *gfx; // Pointer to Arduino_GFX object
+    Arduino_GFX *gfx;          // Pointer to Arduino_GFX object
+    int blPin;                 // Backlight pin
+    uint8_t currentBrightness; // Current brightness level
 };
 
 #endif // DISPLAY_MANAGER_H

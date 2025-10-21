@@ -37,20 +37,20 @@
 /**
  * @brief Define the pins used for the display.
  */
-#define LCD_BL 38 // Backlight pin
-#define LCD_D0 39 // Data pin 0
-#define LCD_D1 40 // Data pin 1
-#define LCD_D2 41 // Data pin 2
-#define LCD_D3 42 // Data pin 3
-#define LCD_D4 45 // Data pin 4
-#define LCD_D5 46 // Data pin 5
-#define LCD_D6 47 // Data pin 6
-#define LCD_D7 48 // Data pin 7
-#define LCD_WR 8  // Write pin
-#define LCD_RD 9  // Read pin
-#define LCD_DC 7  // Data/Command pin
-#define LCD_CS 6  // Chip Select pin
-#define LCD_RES 5 // Reset pin
+#define PIN_LCD_BL 38 // BackLight enable pin (see Dimming.txt)
+#define LCD_D0 39     // Data pin 0
+#define LCD_D1 40     // Data pin 1
+#define LCD_D2 41     // Data pin 2
+#define LCD_D3 42     // Data pin 3
+#define LCD_D4 45     // Data pin 4
+#define LCD_D5 46     // Data pin 5
+#define LCD_D6 47     // Data pin 6
+#define LCD_D7 48     // Data pin 7
+#define LCD_WR 8      // Write pin
+#define LCD_RD 9      // Read pin
+#define LCD_DC 7      // Data/Command pin
+#define LCD_CS 6      // Chip Select pin
+#define LCD_RES 5     // Reset pin
 
 #define POWER_ON 15 // Power on pin
 
@@ -75,7 +75,7 @@ struct LoRaPacket
 QueueHandle_t loRaQueue;
 
 DisplayManager display(LCD_D0, LCD_D1, LCD_D2, LCD_D3, LCD_D4, LCD_D5, LCD_D6, LCD_D7,
-                       LCD_WR, LCD_RD, LCD_DC, LCD_CS, LCD_RES, LCD_BL);
+                       LCD_WR, LCD_RD, LCD_DC, LCD_CS, LCD_RES, PIN_LCD_BL);
 
 // State tracking
 bool firstMessageReceived = false;
@@ -84,6 +84,13 @@ String messageHistory[20];        // Store message lines
 int messageCount = 0;
 int lastRssi = 0;    // Last received RSSI
 float lastSnr = 0.0; // Last received SNR
+
+// Display dimming settings
+const unsigned long DISPLAY_DIM_TIMEOUT = 30000; // 30 seconds
+const uint8_t DISPLAY_BRIGHT = 255;              // Full brightness
+const uint8_t DISPLAY_DIM = 10;                  // Dimmed brightness
+unsigned long lastActivityTime = 0;              // Track last activity
+bool displayDimmed = false;                      // Track dimming state
 
 /**
  * @brief LoRa receive callback - handles incoming LoRa packets event-driven
@@ -109,6 +116,14 @@ void onLoRaReceive(int packetSize)
  */
 void addMessageToDisplay(const String &message, int rssi, float snr)
 {
+    // Reset activity timer and restore brightness
+    lastActivityTime = millis();
+    if (displayDimmed)
+    {
+        display.setBrightness(DISPLAY_BRIGHT);
+        displayDimmed = false;
+    }
+
     // Clear screen on first message
     if (!firstMessageReceived)
     {
@@ -280,6 +295,9 @@ void setup()
     Serial.println("===================================\n");
 
     // Don't clear screen - keep init messages until first message arrives
+
+    // Initialize activity timer
+    lastActivityTime = millis();
 }
 
 /**
@@ -423,6 +441,14 @@ void loop()
             Serial.println("Failed to deserialize LoRa message");
             addMessageToDisplay("ERROR: Decode failed", packet.rssi, packet.snr);
         }
+    }
+
+    // Check for display dimming timeout
+    if (!displayDimmed && (millis() - lastActivityTime > DISPLAY_DIM_TIMEOUT))
+    {
+        display.setBrightness(DISPLAY_DIM);
+        displayDimmed = true;
+        Serial.println("Display dimmed due to inactivity");
     }
 
     // Small delay to prevent watchdog issues and allow task switching
