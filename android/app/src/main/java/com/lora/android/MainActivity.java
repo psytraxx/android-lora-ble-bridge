@@ -100,6 +100,19 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
             }
+
+            @Override
+            public void onShowToast(String message) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show());
+            }
+
+            @Override
+            public void onLocationEnabled() {
+                runOnUiThread(() -> {
+                    gpsManager.startLocationUpdates();
+                    messageViewModel.updateGps(); // Immediately update GPS display
+                });
+            }
         });
         gpsManager = new GpsManager(this);
 
@@ -183,6 +196,7 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_PERMISSIONS) {
             if (PermissionHelper.areAllPermissionsGranted(grantResults)) {
+                gpsManager.startLocationUpdates(); // Start GPS updates when permissions granted
                 startBleScan();
             } else {
                 Toast.makeText(this, "Permissions required", Toast.LENGTH_SHORT).show();
@@ -192,6 +206,14 @@ public class MainActivity extends AppCompatActivity {
 
     private void startBleScan() {
         bleManager.startScan();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (gpsManager != null) {
+            gpsManager.stopLocationUpdates();
+        }
     }
 
     private void dismissKeyboard() {

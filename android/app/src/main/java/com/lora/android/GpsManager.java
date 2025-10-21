@@ -5,7 +5,9 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.location.Location;
+import android.location.LocationListener;
 import android.location.LocationManager;
+import android.os.Bundle;
 import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
@@ -13,18 +15,89 @@ import androidx.core.app.ActivityCompat;
 public class GpsManager {
 
     private static final String TAG = "GpsManager";
+    private static final long MIN_TIME_BETWEEN_UPDATES = 5000; // 5 seconds
+    private static final float MIN_DISTANCE_CHANGE = 10; // 10 meters
 
     private final Context context;
     private final LocationManager locationManager;
+    private Location currentLocation = null;
+    private final LocationListener locationListener;
 
     public GpsManager(Context context) {
         this.context = context;
         this.locationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
+
+        this.locationListener = new LocationListener() {
+            @Override
+            public void onLocationChanged(Location location) {
+                Log.d(TAG, "Location updated: " + location.getLatitude() + ", " + location.getLongitude() +
+                        " from " + location.getProvider());
+                currentLocation = location;
+            }
+
+            @Override
+            public void onStatusChanged(String provider, int status, Bundle extras) {
+                Log.d(TAG, "Location provider status changed: " + provider + " status=" + status);
+            }
+
+            @Override
+            public void onProviderEnabled(String provider) {
+                Log.d(TAG, "Location provider enabled: " + provider);
+            }
+
+            @Override
+            public void onProviderDisabled(String provider) {
+                Log.d(TAG, "Location provider disabled: " + provider);
+            }
+        };
+
+        // Start listening for location updates
+        startLocationUpdates();
     }
 
     public boolean hasLocationPermission() {
         return ActivityCompat.checkSelfPermission(context,
                 Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @SuppressLint("MissingPermission")
+    public void startLocationUpdates() {
+        if (!hasLocationPermission()) {
+            Log.e(TAG, "Location permission not granted, cannot start updates");
+            return;
+        }
+
+        try {
+            // Request updates from both GPS and Network providers
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                        LocationManager.GPS_PROVIDER,
+                        MIN_TIME_BETWEEN_UPDATES,
+                        MIN_DISTANCE_CHANGE,
+                        locationListener);
+                Log.d(TAG, "Started GPS location updates");
+            }
+
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                        LocationManager.NETWORK_PROVIDER,
+                        MIN_TIME_BETWEEN_UPDATES,
+                        MIN_DISTANCE_CHANGE,
+                        locationListener);
+                Log.d(TAG, "Started Network location updates");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting location updates: " + e.getMessage());
+        }
+    }
+
+    public void stopLocationUpdates() {
+        try {
+            locationManager.removeUpdates(locationListener);
+            Log.d(TAG, "Stopped location updates");
+        } catch (Exception e) {
+            Log.e(TAG, "Error stopping location updates: " + e.getMessage());
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -34,7 +107,17 @@ public class GpsManager {
             return null;
         }
 
-        Location bestLocation = null;
+        // First check if we have a recent location from our listener
+        if (currentLocation != null) {
+            long age = System.currentTimeMillis() - currentLocation.getTime();
+            if (age < 60000) { // Less than 1 minute old
+                Log.d(TAG, "Using current location from listener: " + currentLocation.getLatitude() + ", " +
+                        currentLocation.getLongitude() + " (age: " + age + "ms)");
+                return currentLocation;
+            }
+        }
+
+        Location bestLocation = currentLocation; // Start with what we have
 
         // Try GPS provider first (most accurate)
         try {
@@ -42,7 +125,9 @@ public class GpsManager {
             if (gpsLocation != null) {
                 Log.d(TAG, "GPS location: " + gpsLocation.getLatitude() + ", " + gpsLocation.getLongitude() + " (age: "
                         + (System.currentTimeMillis() - gpsLocation.getTime()) + "ms)");
-                bestLocation = gpsLocation;
+                if (bestLocation == null || gpsLocation.getTime() > bestLocation.getTime()) {
+                    bestLocation = gpsLocation;
+                }
             } else {
                 Log.d(TAG, "GPS location is null");
             }
@@ -87,6 +172,7 @@ public class GpsManager {
         } else {
             Log.i(TAG, "Using location: " + bestLocation.getLatitude() + ", " + bestLocation.getLongitude()
                     + " from provider: " + bestLocation.getProvider());
+            currentLocation = bestLocation; // Update our cache
         }
 
         return bestLocation;

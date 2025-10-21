@@ -14,6 +14,7 @@ import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanResult;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.location.LocationManager;
 import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
@@ -30,6 +31,7 @@ public class BleManager {
     private static final UUID TX_CHAR_UUID = UUID.fromString("00005678-0000-1000-8000-00805F9B34FB");
     private static final UUID RX_CHAR_UUID = UUID.fromString("00005679-0000-1000-8000-00805F9B34FB");
     private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
+    private static final long LOCATION_CHECK_INTERVAL_MS = 3000; // Check every 3 seconds
     private final Context context;
     private final BleCallback callback;
     private BluetoothAdapter bluetoothAdapter;
@@ -38,6 +40,8 @@ public class BleManager {
     private BluetoothGattCharacteristic txCharacteristic;
     private BluetoothGattCharacteristic rxCharacteristic;
     private boolean isConnected = false;
+    private boolean isWaitingForLocation = false;
+    private final android.os.Handler locationCheckHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
     public BleManager(Context context, BleCallback callback) {
         this.context = context;
@@ -64,6 +68,15 @@ public class BleManager {
                         Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
     }
 
+    public boolean isLocationEnabled() {
+        LocationManager locationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
+        if (locationManager == null) {
+            return false;
+        }
+        return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+    }
+
     @SuppressLint("MissingPermission")
     public void startScan() {
         if (!hasPermissions()) {
@@ -75,6 +88,24 @@ public class BleManager {
             callback.onConnectionStatusChanged("❌ BT not enabled");
             return;
         }
+
+        if (!isLocationEnabled()) {
+            callback.onConnectionStatusChanged("❌ Location services disabled (required for BLE)");
+            callback.onShowToast("Please enable Location services to scan for BLE devices");
+            Log.w(TAG,
+                    "Location services are disabled. BLE scanning requires location services to be enabled on Android.");
+
+            // Start checking periodically for location services to be enabled
+            if (!isWaitingForLocation) {
+                isWaitingForLocation = true;
+                startLocationCheck();
+            }
+            return;
+        }
+
+        // Location is enabled, stop waiting
+        isWaitingForLocation = false;
+        locationCheckHandler.removeCallbacksAndMessages(null);
 
         Log.d(TAG, "Starting BLE scan for device: " + DEVICE_NAME);
         callback.onConnectionStatusChanged("🔍 Scanning...");
@@ -100,6 +131,25 @@ public class BleManager {
                 callback.onConnectionStatusChanged("❌ Scan failed (error " + errorCode + ")");
             }
         });
+    }
+
+    private void startLocationCheck() {
+        locationCheckHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (isWaitingForLocation && !isConnected) {
+                    if (isLocationEnabled()) {
+                        Log.d(TAG, "Location services now enabled! Retrying BLE scan...");
+                        callback.onShowToast("Location enabled! Scanning for device...");
+                        callback.onLocationEnabled(); // Notify that location is enabled
+                        startScan();
+                    } else {
+                        // Keep checking
+                        locationCheckHandler.postDelayed(this, LOCATION_CHECK_INTERVAL_MS);
+                    }
+                }
+            }
+        }, LOCATION_CHECK_INTERVAL_MS);
     }
 
     @SuppressLint("MissingPermission")
@@ -242,6 +292,8 @@ public class BleManager {
             bluetoothGatt = null;
         }
         isConnected = false;
+        isWaitingForLocation = false;
+        locationCheckHandler.removeCallbacksAndMessages(null);
     }
 
     public interface BleCallback {
@@ -252,5 +304,9 @@ public class BleManager {
         void onDisconnected();
 
         void onMessageReceived(Protocol.Message message);
+
+        void onShowToast(String message);
+
+        void onLocationEnabled();
     }
 }
