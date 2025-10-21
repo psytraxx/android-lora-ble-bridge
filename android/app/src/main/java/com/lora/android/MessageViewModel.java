@@ -101,7 +101,9 @@ public class MessageViewModel extends ViewModel {
                 final int lon = (int) (location.getLongitude() * 1_000_000);
                 final byte gpsSeq = seqCounter++;
 
-                // Small delay
+                // Delay to allow ACK for text message to be received first
+                // Text msg → LoRa TX → Debugger RX → 500ms delay → ACK TX → LoRa RX
+                // This typically takes ~800-1000ms total
                 new Handler(Looper.getMainLooper()).postDelayed(() -> {
                     Protocol.GpsMessage gpsMsg = new Protocol.GpsMessage(gpsSeq, lat, lon);
                     bleManager.sendMessage(gpsMsg);
@@ -110,7 +112,7 @@ public class MessageViewModel extends ViewModel {
                     double lonDisplay = lon / 1_000_000.0;
                     messageAdapter.addMessage(String.format(Locale.US, "📍 GPS: %.6f, %.6f", latDisplay, lonDisplay),
                             true, gpsSeq);
-                }, 100);
+                }, 1200); // Increased from 100ms to 1200ms
             }
 
         } catch (Exception e) {

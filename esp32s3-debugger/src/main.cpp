@@ -1,32 +1,60 @@
-//! ESP32 Firmware for LoRa-BLE Bridge
+//! ESP32 Firmware for LoRa Receiver with Display
 //!
-//! This firmware implements a BLE peripheral that communicates with Android devices
-//! and bridges BLE messages to LoRa transmission and reception.
+//! This firmware implements a LoRa receiver that:
+//! - Receives LoRa messages (GPS and Text)
+//! - Sends acknowledgments for received messages
+//! - Displays messages on TFT screen
 //!
 //! Features:
-//! - BLE GATT server with TX/RX characteristics for message exchange
 //! - LoRa radio for long-range communication (5-10 km typical)
-//! - Message queue for inter-task communication
-//! - Advertising as "ESP32S3-LoRa"
+//! - TFT display for visual feedback
+//! - LED indicator for received messages
 
 #include <Arduino.h>
 #include "lora_config.h"
 #include "LoRaManager.h"
-#include "BLEManager.h"
 #include "Protocol.h"
 #include "LEDManager.h"
 #include <freertos/queue.h>
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
 #include <LoRa.h>
+#include <DisplayManager.h>
 
-// --- Pin Definitions for LoRa Module ---
-#define LORA_SCK 18
-#define LORA_MISO 19
-#define LORA_MOSI 23
-#define LORA_SS 5
-#define LORA_RST 12
-#define LORA_DIO0 32
+// --- Pin Definitions ---
+/**
+ * @brief Define the pins used for SPI communication and peripherals.
+ * These pins are specific to the receiver device and should match the hardware setup.
+ */
+#define LORA_SCK 12  // SPI clock pin
+#define LORA_MISO 13 // SPI MISO pin
+#define LORA_MOSI 11 // SPI MOSI pin
+#define LORA_SS 10   // LoRa chip select pin
+#define LORA_RST 43  // LoRa reset pin
+#define LORA_DIO0 44 // LoRa DIO0 / IRQ pin
+
+// --- Display Pin Definitions ---
+/**
+ * @brief Define the pins used for the display.
+ */
+#define LCD_BL 38 // Backlight pin
+#define LCD_D0 39 // Data pin 0
+#define LCD_D1 40 // Data pin 1
+#define LCD_D2 41 // Data pin 2
+#define LCD_D3 42 // Data pin 3
+#define LCD_D4 45 // Data pin 4
+#define LCD_D5 46 // Data pin 5
+#define LCD_D6 47 // Data pin 6
+#define LCD_D7 48 // Data pin 7
+#define LCD_WR 8  // Write pin
+#define LCD_RD 9  // Read pin
+#define LCD_DC 7  // Data/Command pin
+#define LCD_CS 6  // Chip Select pin
+#define LCD_RES 5 // Reset pin
+
+#define POWER_ON 15 // Power on pin
+
+#define SERIAL_BAUD_RATE 115200
 
 // --- LED Pin Definition ---
 #define LED_PIN 2 // Built-in LED on ESP32 DevKit
@@ -34,13 +62,6 @@
 // Manager objects
 LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_FREQUENCY);
 LEDManager ledManager(LED_PIN);
-
-// Message queues using FreeRTOS
-const int BLE_TO_LORA_QUEUE_SIZE = 10;
-const int LORA_TO_BLE_QUEUE_SIZE = 15;
-
-QueueHandle_t bleToLoraQueue;
-QueueHandle_t loraToBleQueue;
 
 // Struct for LoRa packets with metadata
 struct LoRaPacket
@@ -53,8 +74,16 @@ struct LoRaPacket
 
 QueueHandle_t loRaQueue;
 
-// BLEManager declared after queues
-BLEManager *bleManager;
+DisplayManager display(LCD_D0, LCD_D1, LCD_D2, LCD_D3, LCD_D4, LCD_D5, LCD_D6, LCD_D7,
+                       LCD_WR, LCD_RD, LCD_DC, LCD_CS, LCD_RES, LCD_BL);
+
+// State tracking
+bool firstMessageReceived = false;
+const int MAX_DISPLAY_LINES = 20; // Maximum lines to keep in history
+String messageHistory[20];        // Store message lines
+int messageCount = 0;
+int lastRssi = 0;    // Last received RSSI
+float lastSnr = 0.0; // Last received SNR
 
 /**
  * @brief LoRa receive callback - handles incoming LoRa packets event-driven
@@ -76,12 +105,84 @@ void onLoRaReceive(int packetSize)
 }
 
 /**
- * @brief Setup routine for ESP32 LoRa-BLE Bridge
+ * @brief Adds a new message to the display, pushing down existing messages
+ */
+void addMessageToDisplay(const String &message, int rssi, float snr)
+{
+    // Clear screen on first message
+    if (!firstMessageReceived)
+    {
+        firstMessageReceived = true;
+        display.clearScreen();
+        messageCount = 0;
+    }
+
+    // Update RSSI/SNR values
+    lastRssi = rssi;
+    lastSnr = snr;
+
+    // Shift existing messages down
+    for (int i = MAX_DISPLAY_LINES - 1; i > 0; i--)
+    {
+        messageHistory[i] = messageHistory[i - 1];
+    }
+
+    // Add new message at top (without RSSI/SNR, will be shown at bottom)
+    messageHistory[0] = message;
+
+    if (messageCount < MAX_DISPLAY_LINES)
+    {
+        messageCount++;
+    }
+
+    // Redraw all messages
+    display.clearScreen();
+    display.setTextSize(2); // Bigger font
+    display.setCursor(0, 0);
+
+    int lineHeight = 18;   // Height per line for text size 2
+    int statusHeight = 20; // Reserve space for status line at bottom
+    int maxVisibleLines = (display.height() - statusHeight) / lineHeight;
+
+    // Display messages (limit to what fits on screen)
+    int linesToShow = min(messageCount, maxVisibleLines);
+    for (int i = 0; i < linesToShow; i++)
+    {
+        display.setCursor(0, i * lineHeight);
+        display.printLine(messageHistory[i]);
+    }
+
+    // Draw status line at bottom with RSSI/SNR
+    int statusY = display.height() - 16;                      // Position at bottom
+    display.fillRect(0, statusY, display.width(), 16, BLACK); // Clear status area
+    display.setCursor(0, statusY);
+    display.setTextSize(1); // Smaller font for status
+    display.setTextColor(GREEN, BLACK);
+
+    // Build status string to avoid overload ambiguity
+    char statusBuf[50];
+    sprintf(statusBuf, "RSSI: %d dBm | SNR: %.1f dB", lastRssi, (double)lastSnr);
+    display.print(statusBuf);
+
+    display.setTextColor(WHITE, BLACK); // Reset to default
+}
+
+/**
+ * @brief Setup routine for ESP32 LoRa Receiver
  */
 void setup()
 {
-    Serial.begin(115200);
+    Serial.begin(SERIAL_BAUD_RATE);
     delay(2000);
+
+    pinMode(POWER_ON, OUTPUT);
+    digitalWrite(POWER_ON, HIGH);
+
+    // Initialize the display for visual feedback
+    display.setup();
+    display.printLine("TFT Initialized.");
+    display.printLine("LoRa Receiver Starting...");
+    Serial.println("TFT Initialized.");
 
 // Set CPU frequency for power savings (configurable via build flag)
 #ifndef CPU_FREQ_MHZ
@@ -101,69 +202,26 @@ void setup()
     esp_task_wdt_add(xTaskGetCurrentTaskHandle());
 
     Serial.println("===================================");
-    Serial.println("ESP32 LoRa-BLE Bridge starting...");
+    Serial.println("ESP32 LoRa Receiver starting...");
     Serial.println("===================================");
 
-    // Create message queues
-    bleToLoraQueue = xQueueCreate(BLE_TO_LORA_QUEUE_SIZE, sizeof(Message));
-    loraToBleQueue = xQueueCreate(LORA_TO_BLE_QUEUE_SIZE, sizeof(Message));
+    // Create message queue for LoRa packets
     loRaQueue = xQueueCreate(15, sizeof(LoRaPacket));
 
-    if (bleToLoraQueue == nullptr || loraToBleQueue == nullptr || loRaQueue == nullptr)
+    if (loRaQueue == nullptr)
     {
-        Serial.println("Failed to create message queues. Halting execution.");
+        Serial.println("Failed to create message queue. Halting execution.");
+        display.printLine("Queue creation failed!");
         while (1)
         {
             delay(1000);
         }
     }
-
-    // Initialize BLE with queue
-    bleManager = new BLEManager(bleToLoraQueue);
-
-    // Initialize BLE with retry logic
-    const int BLE_RETRY_COUNT = 3;
-    int bleRetries = BLE_RETRY_COUNT;
-    bool bleSuccess = false;
-
-    while (bleRetries > 0 && !bleSuccess)
-    {
-        Serial.print("BLE setup attempt ");
-        Serial.print(BLE_RETRY_COUNT - bleRetries + 1);
-        Serial.print("/");
-        Serial.println(BLE_RETRY_COUNT);
-
-        if (bleManager->setup("ESP32S3-LoRa"))
-        {
-            bleSuccess = true;
-            Serial.println("BLE setup successful");
-        }
-        else
-        {
-            Serial.println("BLE setup failed");
-            if (bleRetries > 1)
-            {
-                Serial.println("Retrying in 2 seconds...");
-                delay(2000);
-            }
-            bleRetries--;
-        }
-    }
-
-    if (!bleSuccess)
-    {
-        Serial.println("BLE setup failed permanently. Halting execution.");
-        while (1)
-        {
-            delay(1000);
-        }
-    }
-
-    bleManager->startAdvertising();
 
     // Initialize LoRa
     Serial.println("\nInitializing LoRa radio...");
     Serial.println(loraManager.getConfigurationString());
+    display.printLine("Initializing LoRa...");
 
     const int LORA_RETRY_COUNT = 3;
     int loraRetries = LORA_RETRY_COUNT;
@@ -180,10 +238,12 @@ void setup()
         {
             loraSuccess = true;
             Serial.println("LoRa setup successful");
+            display.printLine("LoRa initialized!");
         }
         else
         {
             Serial.println("LoRa setup failed");
+            display.printLine("LoRa setup failed!");
             if (loraRetries > 1)
             {
                 Serial.println("Retrying in 1 second...");
@@ -196,6 +256,7 @@ void setup()
     if (!loraSuccess)
     {
         Serial.println("LoRa setup failed permanently. Halting execution.");
+        display.printLine("LoRa Init Failed!");
         while (1)
         {
             delay(1000);
@@ -207,71 +268,25 @@ void setup()
 
     // Start continuous receive mode
     loraManager.startReceiveMode();
+    display.printLine("LoRa Receiver ready.");
+    Serial.println("LoRa Receiver ready.");
 
     // Initialize LED
     ledManager.setup();
 
     Serial.println("\n===================================");
     Serial.println("All systems initialized successfully");
-    Serial.println("System running - waiting for connections...");
+    Serial.println("Waiting for LoRa messages...");
     Serial.println("===================================\n");
+
+    // Don't clear screen - keep init messages until first message arrives
 }
 
 /**
- * @brief Main loop - handles BLE<->LoRa message bridging
+ * @brief Main loop - handles LoRa message reception and display
  */
 void loop()
 {
-    // Process BLE events
-    bleManager->process();
-
-    // Check for messages from BLE to send via LoRa
-    Message bleMsg;
-    if (xQueueReceive(bleToLoraQueue, &bleMsg, 0) == pdTRUE)
-    {
-        Serial.print("Received message from BLE queue: type=");
-        Serial.println((int)bleMsg.type);
-
-        // Serialize and send via LoRa
-        uint8_t buf[64];
-        int len = bleMsg.serialize(buf, sizeof(buf));
-
-        if (len > 0)
-        {
-            Serial.print("Transmitting ");
-            Serial.print(len);
-            Serial.println(" bytes via LoRa");
-
-            bool sendSuccess = loraManager.sendPacket(buf, len);
-
-            if (!sendSuccess)
-            {
-                Serial.println("LoRa TX failed, retrying once...");
-                delay(100); // Brief delay before retry
-                sendSuccess = loraManager.sendPacket(buf, len);
-            }
-
-            if (sendSuccess)
-            {
-                Serial.println("LoRa TX successful");
-                // Blink twice for outgoing message
-                ledManager.blink(2);
-            }
-            else
-            {
-                Serial.println("LoRa TX failed permanently");
-            }
-
-            // Return to RX mode after transmission (always, even on failure)
-            loraManager.startReceiveMode();
-            delay(50); // Small delay to ensure radio is fully in RX mode
-        }
-        else
-        {
-            Serial.println("Failed to serialize message for LoRa TX");
-        }
-    }
-
     // Check for messages from LoRa (event-driven via callback)
     LoRaPacket packet;
     if (xQueueReceive(loRaQueue, &packet, 0) == pdTRUE)
@@ -302,6 +317,16 @@ void loop()
                 Serial.print(msg.textData.text);
                 Serial.println("\"");
 
+                // Display text message on screen
+                String displayText = "TXT #";
+                displayText += String(msg.textData.seq);
+                displayText += ": ";
+                displayText += String(msg.textData.text);
+                addMessageToDisplay(displayText, packet.rssi, packet.snr);
+
+                // Wait for sender to return to RX mode (allow time for TX->RX transition)
+                delay(500);
+
                 // Send ACK
                 Message ack = Message::createAck(msg.textData.seq);
                 uint8_t ackBuf[64];
@@ -323,16 +348,8 @@ void loop()
                     loraManager.startReceiveMode();
                 }
 
-                // Queue message for BLE forwarding
-                if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
-                {
-                    Serial.println("Warning: LoRa to BLE queue full, message dropped");
-                }
-                else
-                {
-                    // Blink once for incoming message (reduced frequency for power savings)
-                    ledManager.blink();
-                }
+                // Blink LED for incoming message
+                ledManager.blink();
                 break;
             }
 
@@ -345,6 +362,19 @@ void loop()
                 Serial.print("°, lon: ");
                 Serial.print(msg.gpsData.lon / 1000000.0, 6);
                 Serial.println("°");
+
+                // Display GPS coordinates on screen
+                String gpsDisplay = "GPS #";
+                gpsDisplay += String(msg.gpsData.seq);
+                gpsDisplay += ": ";
+                gpsDisplay += String(msg.gpsData.lat / 1000000.0, 5);
+                gpsDisplay += "° ";
+                gpsDisplay += String(msg.gpsData.lon / 1000000.0, 5);
+                gpsDisplay += "°";
+                addMessageToDisplay(gpsDisplay, packet.rssi, packet.snr);
+
+                // Wait for sender to return to RX mode (allow time for TX->RX transition)
+                delay(500);
 
                 // Send ACK
                 Message ack = Message::createAck(msg.gpsData.seq);
@@ -367,16 +397,8 @@ void loop()
                     loraManager.startReceiveMode();
                 }
 
-                // Queue message for BLE forwarding
-                if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
-                {
-                    Serial.println("Warning: LoRa to BLE queue full, message dropped");
-                }
-                else
-                {
-                    // Blink once for incoming message (reduced frequency for power savings)
-                    ledManager.blink();
-                }
+                // Blink LED for incoming message
+                ledManager.blink();
                 break;
             }
 
@@ -385,16 +407,13 @@ void loop()
                 Serial.print("Received ACK for seq: ");
                 Serial.println(msg.ackData.seq);
 
-                // Queue ACK for BLE forwarding
-                if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
-                {
-                    Serial.println("Warning: LoRa to BLE queue full, ACK dropped");
-                }
-                else
-                {
-                    // Blink once for incoming message (reduced frequency for power savings)
-                    ledManager.blink();
-                }
+                // Display ACK on screen (brief info)
+                String ackDisplay = "ACK #";
+                ackDisplay += String(msg.ackData.seq);
+                addMessageToDisplay(ackDisplay, packet.rssi, packet.snr);
+
+                // Blink LED for ACK
+                ledManager.blink();
                 break;
             }
             }
@@ -402,24 +421,12 @@ void loop()
         else
         {
             Serial.println("Failed to deserialize LoRa message");
-        }
-    }
-
-    // Forward queued messages from LoRa to BLE if connected
-    Message loraMsg;
-    if (bleManager->isConnected() && xQueueReceive(loraToBleQueue, &loraMsg, 0) == pdTRUE)
-    {
-        if (bleManager->sendMessage(loraMsg))
-        {
-            Serial.println("Message forwarded from LoRa to BLE");
+            addMessageToDisplay("ERROR: Decode failed", packet.rssi, packet.snr);
         }
     }
 
     // Small delay to prevent watchdog issues and allow task switching
     vTaskDelay(pdMS_TO_TICKS(10));
-
-    // Note: Light sleep could be used here for additional power savings, but would interfere with BLE advertising
-    // esp_light_sleep_start(); // Would need wakeup sources configured
 
     // Reset watchdog to prevent timeout
     esp_task_wdt_reset();

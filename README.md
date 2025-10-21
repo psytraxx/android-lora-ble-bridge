@@ -268,6 +268,207 @@ Also update function signatures in `esp32s3/src/ble.rs` and `esp32s3/src/lora.rs
 
 See **[protocol.md](protocol.md)** for detailed Time on Air calculations and duty cycle compliance.
 
+## Message Flow & ACK Timing
+
+Understanding the complete message flow and timing is crucial for reliable ACK delivery:
+
+### Complete Message Flow (Android → LoRa → Android)
+
+```mermaid
+sequenceDiagram
+    participant AS as Android Sender
+    participant ES as ESP32 Sender
+    participant ER as ESP32 Receiver
+    participant AR as Android Receiver
+
+    Note over AS,AR: Text Message + ACK Flow (~800-1000ms)
+    
+    AS->>ES: 1. Send Text (BLE)
+    Note right of AS: ~10-50ms
+    
+    ES->>ER: 2. Forward to LoRa
+    Note right of ES: ~100-200ms airtime
+    
+    ER->>AR: 3. Forward via BLE
+    Note right of ER: ~10-50ms
+    
+    Note over ER: 4. Wait 500ms (RX mode)
+    ER-->>ER: delay(500ms)
+    
+    ER->>ES: 5. Send ACK (LoRa)
+    Note left of ER: ~100-200ms airtime<br/>+ 50ms mode switch
+    
+    ES->>AS: 6. Receive ACK (BLE)
+    Note left of ES: ~10-50ms + notify
+    
+    Note over AS: ✓ Show checkmark
+    
+    Note over AS: 7. Wait 1200ms
+    AS-->>AS: delay(1200ms)
+    
+    AS->>ES: 8. Send GPS (BLE)
+    Note right of AS: Repeat steps 2-6
+    
+    Note over AS,AR: Total Time: Text + GPS + ACKs = ~2500-3000ms
+```
+
+### Timing Phases Breakdown
+
+```mermaid
+gantt
+    title Message Flow Timeline (Text + ACK)
+    dateFormat X
+    axisFormat %L ms
+
+    section Android→ESP32
+    BLE Transfer          :a1, 0, 50
+    
+    section LoRa TX
+    Text Transmission     :a2, 50, 400
+    
+    section Receiver
+    Process & Forward     :a3, 450, 100
+    ACK Delay (500ms)     :a4, 550, 500
+    
+    section LoRa RX
+    ACK Transmission      :a5, 1050, 200
+    Mode Switch Settle    :a6, 1250, 50
+    
+    section ESP32→Android
+    BLE Notify            :a7, 1300, 50
+    
+    section Result
+    Show Checkmark        :crit, a8, 1350, 50
+```
+
+### Critical Timing Parameters
+
+**1. ACK Delay on Receiver (500ms)**
+```cpp
+// esp32s3-debugger/src/main.cpp
+delay(500);  // Wait for sender to return to RX mode
+```
+- **Purpose**: Ensures ESP32 sender has switched from TX to RX mode
+- **Why 500ms**: 
+  - LoRa `endPacket()` completes transmission
+  - Radio mode switch (TX → RX) takes ~10-50ms
+  - ESP32 calls `startReceiveMode()` + 50ms settle time
+  - 500ms provides safe buffer for all timing variations
+
+**2. RX Mode Settle Time (50ms)**
+```cpp
+// esp32/src/main.cpp
+loraManager.startReceiveMode();
+delay(50);  // Ensure radio is fully in RX mode
+```
+- **Purpose**: Radio hardware needs time to stabilize in receive mode
+- **Why 50ms**: SX1276 mode transitions require 10-30ms, 50ms ensures stability
+
+**3. Text-to-GPS Delay (1200ms)**
+```java
+// android/app/src/main/java/com/lora/android/MessageViewModel.java
+new Handler(Looper.getMainLooper()).postDelayed(() -> {
+    // Send GPS message
+}, 1200);  // Increased from 100ms to 1200ms
+```
+- **Purpose**: Allow first ACK to complete before sending second message
+- **Why 1200ms**: Complete round-trip timing:
+  - Text sent: 0ms
+  - ESP32 receives via BLE: ~10-50ms
+  - LoRa TX (text): ~100-200ms
+  - Receiver gets text: ~200ms
+  - Receiver waits: +500ms = ~700ms
+  - LoRa TX (ACK): ~100-200ms = ~800-900ms
+  - ESP32 receives ACK: ~900ms
+  - Android gets ACK via BLE: ~950ms
+  - **1200ms buffer ensures ACK fully processed**
+
+### Timing Breakdown by Phase
+
+| Phase | Time | Description |
+|-------|------|-------------|
+| **BLE Transfer** | 10-50ms | Android ↔ ESP32 via Bluetooth LE |
+| **LoRa Airtime (10 bytes)** | ~380ms | GPS or ACK packet at SF10, BW125 |
+| **LoRa Airtime (Text)** | 350-550ms | Text (varies by length) at SF10 |
+| **Mode Switch (TX→RX)** | 10-50ms | SX1276 radio mode transition |
+| **RX Settle** | 50ms | Additional settle time in code |
+| **ACK Wait** | 500ms | Deliberate delay before ACK sent |
+| **Text→GPS Delay** | 1200ms | Delay between messages |
+
+### Why These Timings Matter
+
+**Problem Without Proper Timing:**
+1. Android sends text and GPS too close together (100ms apart)
+2. ESP32 transmits text via LoRa
+3. ESP32 switches to RX mode but not fully ready
+4. Receiver immediately sends ACK
+5. **ACK arrives before ESP32 is listening → Lost ACK ❌**
+6. GPS message interferes with ACK reception
+
+**Solution With Proper Timing:**
+1. Android sends text, waits 1200ms before GPS
+2. ESP32 transmits text, switches to RX mode + 50ms settle
+3. Receiver waits 500ms before sending ACK
+4. ESP32 is fully ready and receives ACK ✓
+5. Android displays checkmark
+6. After 1200ms total, GPS is sent (ACK fully processed)
+7. Process repeats for GPS message
+
+### Adjusting Timings
+
+If you need to modify timing for different hardware or conditions:
+
+**Increase ACK delay** (better reliability, slower):
+```cpp
+// esp32s3-debugger/src/main.cpp
+delay(1000);  // Increase from 500ms
+```
+
+**Increase message spacing** (avoid interference):
+```java
+// MessageViewModel.java
+}, 2000);  // Increase from 1200ms
+```
+
+**Decrease for faster operation** (requires testing):
+- Minimum ACK delay: ~200ms (theoretical, not recommended)
+- Minimum message spacing: ~800ms (if ACKs not critical)
+
+**Formula for safe message spacing:**
+```
+Spacing = LoRa_TX_Time + RX_Mode_Switch + ACK_Delay + LoRa_ACK_Time + Processing_Buffer
+        ≈ 400ms + 100ms + 500ms + 380ms + 200ms
+        ≈ 1580ms (round up to 1200ms with optimizations)
+```
+
+### Debugging Timing Issues
+
+**Symptoms of timing problems:**
+- ✗ First message never gets ACK
+- ✓ Second message always gets ACK
+- ✗ ACKs received out of order
+- ✗ Messages sent but receiver stays in TX mode
+
+**Log messages to watch:**
+```bash
+# ESP32 Sender
+"LoRa TX successful"
+"Packet sent successfully!"
+# Then should see within ~1 second:
+"LoRa RX: received 2 bytes"  # ACK received!
+
+# ESP32 Receiver
+"LoRa RX: received X bytes"
+"Sending ACK for seq: N"
+"ACK sent successfully"
+```
+
+**If ACKs are missing:**
+1. Increase ACK_DELAY in debugger (500ms → 1000ms)
+2. Increase RX settle time in sender (50ms → 100ms)
+3. Increase message spacing in Android (1200ms → 2000ms)
+4. Check serial logs for mode transition timing
+
 ## Troubleshooting
 
 ### ESP32 Issues
