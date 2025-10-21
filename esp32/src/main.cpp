@@ -15,6 +15,8 @@
 #include "BLEManager.h"
 #include "Protocol.h"
 #include <freertos/queue.h>
+#include <esp_task_wdt.h>
+#include <freertos/task.h>
 
 // --- Pin Definitions for LoRa Module ---
 #define LORA_SCK 18
@@ -45,6 +47,14 @@ void setup()
     Serial.begin(115200);
     delay(2000);
 
+    // Initialize watchdog for robustness (30 second timeout)
+    esp_task_wdt_config_t wdt_config = {
+        .timeout_ms = 30000, // 30 seconds
+        .trigger_panic = true,
+    };
+    esp_task_wdt_init(&wdt_config);
+    esp_task_wdt_add(xTaskGetCurrentTaskHandle());
+
     Serial.println("===================================");
     Serial.println("ESP32 LoRa-BLE Bridge starting...");
     Serial.println("===================================");
@@ -65,24 +75,81 @@ void setup()
     // Initialize BLE with queue
     bleManager = new BLEManager(bleToLoraQueue);
 
-    // Initialize BLE
-    if (!bleManager->setup("ESP32-LoRa"))
+    // Initialize BLE with retry logic
+    const int BLE_RETRY_COUNT = 3;
+    int bleRetries = BLE_RETRY_COUNT;
+    bool bleSuccess = false;
+
+    while (bleRetries > 0 && !bleSuccess)
     {
-        Serial.println("BLE setup failed. Halting execution.");
+        Serial.print("BLE setup attempt ");
+        Serial.print(BLE_RETRY_COUNT - bleRetries + 1);
+        Serial.print("/");
+        Serial.println(BLE_RETRY_COUNT);
+
+        if (bleManager->setup("ESP32-LoRa"))
+        {
+            bleSuccess = true;
+            Serial.println("BLE setup successful");
+        }
+        else
+        {
+            Serial.println("BLE setup failed");
+            if (bleRetries > 1)
+            {
+                Serial.println("Retrying in 2 seconds...");
+                delay(2000);
+            }
+            bleRetries--;
+        }
+    }
+
+    if (!bleSuccess)
+    {
+        Serial.println("BLE setup failed permanently. Halting execution.");
         while (1)
         {
             delay(1000);
         }
     }
+
     bleManager->startAdvertising();
 
     // Initialize LoRa
     Serial.println("\nInitializing LoRa radio...");
     Serial.println(loraManager.getConfigurationString());
 
-    if (!loraManager.setup())
+    const int LORA_RETRY_COUNT = 3;
+    int loraRetries = LORA_RETRY_COUNT;
+    bool loraSuccess = false;
+
+    while (loraRetries > 0 && !loraSuccess)
     {
-        Serial.println("LoRa setup failed. Halting execution.");
+        Serial.print("LoRa setup attempt ");
+        Serial.print(LORA_RETRY_COUNT - loraRetries + 1);
+        Serial.print("/");
+        Serial.println(LORA_RETRY_COUNT);
+
+        if (loraManager.setup())
+        {
+            loraSuccess = true;
+            Serial.println("LoRa setup successful");
+        }
+        else
+        {
+            Serial.println("LoRa setup failed");
+            if (loraRetries > 1)
+            {
+                Serial.println("Retrying in 1 second...");
+                delay(1000);
+            }
+            loraRetries--;
+        }
+    }
+
+    if (!loraSuccess)
+    {
+        Serial.println("LoRa setup failed permanently. Halting execution.");
         while (1)
         {
             delay(1000);
@@ -122,10 +189,26 @@ void loop()
             Serial.print("Transmitting ");
             Serial.print(len);
             Serial.println(" bytes via LoRa");
-            loraManager.sendPacket(buf, len);
-            Serial.println("LoRa TX successful");
 
-            // Return to RX mode after transmission
+            bool sendSuccess = loraManager.sendPacket(buf, len);
+
+            if (!sendSuccess)
+            {
+                Serial.println("LoRa TX failed, retrying once...");
+                delay(100); // Brief delay before retry
+                sendSuccess = loraManager.sendPacket(buf, len);
+            }
+
+            if (sendSuccess)
+            {
+                Serial.println("LoRa TX successful");
+            }
+            else
+            {
+                Serial.println("LoRa TX failed permanently");
+            }
+
+            // Return to RX mode after transmission (always, even on failure)
             loraManager.startReceiveMode();
         }
         else
@@ -178,9 +261,16 @@ void loop()
                 {
                     Serial.print("Sending ACK for seq: ");
                     Serial.println(msg.textData.seq);
-                    loraManager.sendPacket(ackBuf, ackLen);
+                    bool ackSent = loraManager.sendPacket(ackBuf, ackLen);
+                    if (ackSent)
+                    {
+                        Serial.println("ACK sent successfully");
+                    }
+                    else
+                    {
+                        Serial.println("ACK send failed");
+                    }
                     loraManager.startReceiveMode();
-                    Serial.println("ACK sent successfully");
                 }
 
                 // Queue message for BLE forwarding
@@ -210,9 +300,16 @@ void loop()
                 {
                     Serial.print("Sending ACK for GPS seq: ");
                     Serial.println(msg.gpsData.seq);
-                    loraManager.sendPacket(ackBuf, ackLen);
+                    bool ackSent = loraManager.sendPacket(ackBuf, ackLen);
+                    if (ackSent)
+                    {
+                        Serial.println("ACK sent successfully");
+                    }
+                    else
+                    {
+                        Serial.println("ACK send failed");
+                    }
                     loraManager.startReceiveMode();
-                    Serial.println("ACK sent successfully");
                 }
 
                 // Queue message for BLE forwarding
@@ -255,4 +352,7 @@ void loop()
 
     // Small delay to prevent watchdog issues
     delay(10);
+
+    // Reset watchdog to prevent timeout
+    esp_task_wdt_reset();
 }

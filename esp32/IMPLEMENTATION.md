@@ -291,11 +291,11 @@ A comprehensive code review was conducted on 21 October 2025, identifying areas 
 - **Solution**: Replace `String` with fixed-size char arrays; use static allocation.
 - **Status**: ✅ COMPLETED - Replaced `String` with `char text[MAX_TEXT_LENGTH + 1]` in `TextMessage`. Updated `pack_text`, `unpack_text`, `createText`, `serialize`, and `deserialize` to use char arrays. Added null-termination and bounds checking.
 
-#### 3. Error Recovery and Robustness (Medium Priority)
+#### 3. Error Recovery and Robustness (Medium Priority - COMPLETED)
 - **Issue**: Setup failures halt execution permanently; no retries or watchdog.
 - **Impact**: Device becomes unusable after initial failure.
 - **Solution**: Add retry logic, software watchdog, and retransmission.
-- **Status**: Planned.
+- **Status**: ✅ COMPLETED - Added 3-retry logic for BLE/LoRa setup with delays. Implemented ESP32 task watchdog (30s timeout). Added LoRa retransmission (retry once on failure). Enhanced ACK send logging.
 
 #### 4. Protocol Enhancements (Medium Priority)
 - **Issue**: No message integrity checks beyond LoRa CRC; ACKs sent but not used for reliability.
@@ -330,7 +330,7 @@ A comprehensive code review was conducted on 21 October 2025, identifying areas 
 ### Implementation Plan
 1. **Phase 1 (COMPLETED)**: Implement FreeRTOS queues for message buffering.
 2. **Phase 2 (COMPLETED)**: Fix memory management (String → char arrays).
-3. **Phase 3**: Add error recovery and robustness features.
+3. **Phase 3 (COMPLETED)**: Add error recovery and robustness features.
 4. **Phase 4**: Protocol enhancements (checksums, retransmission).
 5. **Phase 5**: Remaining improvements (config, LEDs, testing).
 

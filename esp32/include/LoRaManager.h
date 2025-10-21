@@ -40,8 +40,9 @@ public:
      * @brief Sends a packet with the given byte buffer.
      * @param buffer The byte buffer to send.
      * @param length The number of bytes to send from the buffer.
+     * @return True if the packet was sent successfully, false otherwise.
      */
-    void sendPacket(const byte *buffer, size_t length)
+    bool sendPacket(const byte *buffer, size_t length)
     {
         LoRa.beginPacket();
         LoRa.write(buffer, length);         // Use LoRa.write for byte arrays
@@ -54,6 +55,7 @@ public:
         {
             Serial.println("Failed to send packet.");
         }
+        return success > 0;
     }
 
     /**
