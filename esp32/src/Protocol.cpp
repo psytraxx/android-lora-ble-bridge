@@ -29,9 +29,9 @@ char sixbit_to_char(uint8_t val)
 /// Each character is encoded as 6 bits instead of 8 bits (UTF-8)
 /// Lowercase letters are automatically converted to uppercase
 /// 50 chars × 6 bits = 300 bits = 37.5 bytes → 38 bytes
-int pack_text(const String &text, uint8_t *output, size_t maxLen)
+int pack_text(const char *text, uint8_t *output, size_t maxLen)
 {
-    size_t charCount = text.length();
+    size_t charCount = strlen(text);
 
     // Calculate required bytes: (charCount * 6 + 7) / 8 (round up)
     size_t byteCount = (charCount * 6 + 7) / 8;
@@ -84,10 +84,12 @@ int pack_text(const String &text, uint8_t *output, size_t maxLen)
 
 /// Unpack 6-bit encoded bytes back to text using manual bit manipulation
 /// Reads 6 bits at a time and converts to characters (uppercase)
-bool unpack_text(const uint8_t *packed, size_t packedLen, uint8_t charCount, String &output)
+bool unpack_text(const uint8_t *packed, size_t packedLen, uint8_t charCount, char *output, size_t maxOutputLen)
 {
-    output = "";
-    output.reserve(charCount);
+    if (charCount >= maxOutputLen)
+    {
+        return false; // Output buffer too small
+    }
 
     size_t bitOffset = 0;
 
@@ -128,20 +130,28 @@ bool unpack_text(const uint8_t *packed, size_t packedLen, uint8_t charCount, Str
         }
 
         char ch = sixbit_to_char(value);
-        output += ch;
+        output[i] = ch;
 
         bitOffset += 6;
     }
 
+    output[charCount] = '\0'; // Null-terminate
     return true;
 }
 
-Message Message::createText(uint8_t seq, const String &text)
+Message Message::createText(uint8_t seq, const char *text)
 {
     Message msg;
     msg.type = MessageType::Text;
     msg.textData.seq = seq;
-    msg.textData.text = text;
+    // Copy text to fixed-size buffer, ensure null-termination
+    size_t len = strlen(text);
+    if (len > MAX_TEXT_LENGTH)
+    {
+        len = MAX_TEXT_LENGTH; // Truncate if too long
+    }
+    memcpy(msg.textData.text, text, len);
+    msg.textData.text[len] = '\0';
     return msg;
 }
 
@@ -171,7 +181,8 @@ int Message::serialize(uint8_t *buf, size_t bufSize) const
     {
     case MessageType::Text:
     {
-        if (textData.text.length() > MAX_TEXT_LENGTH)
+        size_t textLen = strlen(textData.text);
+        if (textLen > MAX_TEXT_LENGTH)
         {
             return -1; // Text too long
         }
@@ -191,8 +202,8 @@ int Message::serialize(uint8_t *buf, size_t bufSize) const
 
         buf[0] = static_cast<uint8_t>(MessageType::Text);
         buf[1] = textData.seq;
-        buf[2] = textData.text.length(); // Store original character count
-        buf[3] = packedLen;              // Store packed byte count
+        buf[2] = textLen;   // Store original character count
+        buf[3] = packedLen; // Store packed byte count
         memcpy(buf + 4, packedText, packedLen);
 
         return 4 + packedLen;
@@ -255,7 +266,7 @@ bool Message::deserialize(const uint8_t *buf, size_t len)
         }
 
         const uint8_t *packedBytes = buf + 4;
-        if (!unpack_text(packedBytes, packedLen, charCount, textData.text))
+        if (!unpack_text(packedBytes, packedLen, charCount, textData.text, sizeof(textData.text)))
         {
             return false;
         }

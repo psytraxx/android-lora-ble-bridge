@@ -285,11 +285,11 @@ A comprehensive code review was conducted on 21 October 2025, identifying areas 
 - **Solution**: Replace with FreeRTOS queues for FIFO buffering and thread-safety.
 - **Status**: ✅ COMPLETED - Implemented FreeRTOS queues with sizes 10 (BLE→LoRa) and 15 (LoRa→BLE). BLE callbacks now send to queue; main loop receives from queues. Added queue full warnings.
 
-#### 2. Memory Management and Stability (High Priority)
+#### 2. Memory Management and Stability (High Priority - COMPLETED)
 - **Issue**: Use of `String` objects in `Message` structs causes heap fragmentation. No bounds checking beyond constants.
 - **Impact**: Potential crashes in long-running applications due to ESP32's limited RAM.
 - **Solution**: Replace `String` with fixed-size char arrays; use static allocation.
-- **Status**: Planned - will implement after queue changes.
+- **Status**: ✅ COMPLETED - Replaced `String` with `char text[MAX_TEXT_LENGTH + 1]` in `TextMessage`. Updated `pack_text`, `unpack_text`, `createText`, `serialize`, and `deserialize` to use char arrays. Added null-termination and bounds checking.
 
 #### 3. Error Recovery and Robustness (Medium Priority)
 - **Issue**: Setup failures halt execution permanently; no retries or watchdog.
@@ -329,7 +329,7 @@ A comprehensive code review was conducted on 21 October 2025, identifying areas 
 
 ### Implementation Plan
 1. **Phase 1 (COMPLETED)**: Implement FreeRTOS queues for message buffering.
-2. **Phase 2**: Fix memory management (String → char arrays).
+2. **Phase 2 (COMPLETED)**: Fix memory management (String → char arrays).
 3. **Phase 3**: Add error recovery and robustness features.
 4. **Phase 4**: Protocol enhancements (checksums, retransmission).
 5. **Phase 5**: Remaining improvements (config, LEDs, testing).

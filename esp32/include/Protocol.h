@@ -55,7 +55,7 @@ public:
 
     Message() : type(MessageType::Text) {}
 
-    static Message createText(uint8_t seq, const String &text);
+    static Message createText(uint8_t seq, const char *text);
     static Message createGps(uint8_t seq, int32_t lat, int32_t lon);
     static Message createAck(uint8_t seq);
 
@@ -77,10 +77,10 @@ char sixbit_to_char(uint8_t val);
 
 /// Pack text into 6-bit encoded bytes
 /// Returns the number of bytes written, or -1 on error
-int pack_text(const String &text, uint8_t *output, size_t maxLen);
+int pack_text(const char *text, uint8_t *output, size_t maxLen);
 
 /// Unpack 6-bit encoded bytes back to text
 /// Returns true on success, false on error
-bool unpack_text(const uint8_t *packed, size_t packedLen, uint8_t charCount, String &output);
+bool unpack_text(const uint8_t *packed, size_t packedLen, uint8_t charCount, char *output, size_t maxOutputLen);
 
 #endif // PROTOCOL_H
