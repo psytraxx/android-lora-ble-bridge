@@ -25,7 +25,7 @@ enum class MessageType : uint8_t
 struct TextMessage
 {
     uint8_t seq;
-    String text; // Max 50 chars (optimized for long-range transmission)
+    char text[MAX_TEXT_LENGTH + 1]; // Fixed-size buffer for text (null-terminated)
 };
 
 /// GPS message containing only GPS coordinates (no text)

@@ -272,6 +272,73 @@ System running - waiting for connections...
 - ✅ Pin configuration documented
 - ✅ Build instructions documented
 
+## Code Review Findings and Planned Improvements
+
+### Review Summary
+A comprehensive code review was conducted on 21 October 2025, identifying areas for enhancement in reliability, performance, and maintainability. The code is well-structured but has opportunities for improvement, particularly in message buffering and memory management.
+
+### Key Findings
+
+#### 1. Message Queuing and Buffering (High Priority - COMPLETED)
+- **Issue**: Simple fixed-size arrays used as "queues" that only hold one message each, processed immediately. No true buffering for multiple messages or asynchronous handling.
+- **Impact**: Potential message loss during bursts; not thread-safe for BLE callbacks.
+- **Solution**: Replace with FreeRTOS queues for FIFO buffering and thread-safety.
+- **Status**: ✅ COMPLETED - Implemented FreeRTOS queues with sizes 10 (BLE→LoRa) and 15 (LoRa→BLE). BLE callbacks now send to queue; main loop receives from queues. Added queue full warnings.
+
+#### 2. Memory Management and Stability (High Priority)
+- **Issue**: Use of `String` objects in `Message` structs causes heap fragmentation. No bounds checking beyond constants.
+- **Impact**: Potential crashes in long-running applications due to ESP32's limited RAM.
+- **Solution**: Replace `String` with fixed-size char arrays; use static allocation.
+- **Status**: Planned - will implement after queue changes.
+
+#### 3. Error Recovery and Robustness (Medium Priority)
+- **Issue**: Setup failures halt execution permanently; no retries or watchdog.
+- **Impact**: Device becomes unusable after initial failure.
+- **Solution**: Add retry logic, software watchdog, and retransmission.
+- **Status**: Planned.
+
+#### 4. Protocol Enhancements (Medium Priority)
+- **Issue**: No message integrity checks beyond LoRa CRC; ACKs sent but not used for reliability.
+- **Impact**: Data corruption possible; no retransmission on failure.
+- **Solution**: Add checksums, sequence validation, and retransmission logic.
+- **Status**: Planned.
+
+#### 5. Configuration and Flexibility (Low Priority)
+- **Issue**: Pins hardcoded; settings not runtime-configurable.
+- **Impact**: Difficult to port to different hardware.
+- **Solution**: Move to build flags and runtime config via BLE.
+- **Status**: Planned.
+
+#### 6. User Feedback and Debugging (Low Priority)
+- **Issue**: No LED indicators; verbose logging without levels.
+- **Impact**: Hard to debug in field; no visual status.
+- **Solution**: Integrate LEDManager for status; add logging levels.
+- **Status**: Planned.
+
+#### 7. Code Quality and Testing (Low Priority)
+- **Issue**: Magic numbers; no unit tests despite test/ folder.
+- **Impact**: Maintainability; potential bugs.
+- **Solution**: Define constants; add unit tests.
+- **Status**: Planned.
+
+#### 8. Performance and Power (Low Priority)
+- **Issue**: No sleep modes; constant polling.
+- **Impact**: High power consumption.
+- **Solution**: Implement deep sleep and event-driven operation.
+- **Status**: Planned.
+
+### Implementation Plan
+1. **Phase 1 (COMPLETED)**: Implement FreeRTOS queues for message buffering.
+2. **Phase 2**: Fix memory management (String → char arrays).
+3. **Phase 3**: Add error recovery and robustness features.
+4. **Phase 4**: Protocol enhancements (checksums, retransmission).
+5. **Phase 5**: Remaining improvements (config, LEDs, testing).
+
+### Notes
+- All changes will maintain backward compatibility with existing protocol and Android app.
+- Testing will be done incrementally after each phase.
+- Documentation will be updated as features are added.
+
 ## Conclusion
 
 The ESP32 PlatformIO project is **complete and functional**, providing the same core functionality as the ESP32-S3 Rust firmware. The implementation uses C++ with the Arduino framework and PlatformIO build system, making it accessible to a wider audience while maintaining protocol compatibility.

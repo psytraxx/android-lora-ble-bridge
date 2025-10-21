@@ -14,6 +14,7 @@
 #include "LoRaManager.h"
 #include "BLEManager.h"
 #include "Protocol.h"
+#include <freertos/queue.h>
 
 // --- Pin Definitions for LoRa Module ---
 #define LORA_SCK 18
@@ -25,17 +26,16 @@
 
 // Manager objects
 LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_FREQUENCY);
-BLEManager bleManager;
 
-// Message queues (simple implementation using arrays)
-const int MAX_BLE_TO_LORA_QUEUE = 5;
-const int MAX_LORA_TO_BLE_QUEUE = 10;
+// Message queues using FreeRTOS
+const int BLE_TO_LORA_QUEUE_SIZE = 10;
+const int LORA_TO_BLE_QUEUE_SIZE = 15;
 
-Message bleToLoraQueue[MAX_BLE_TO_LORA_QUEUE];
-int bleToLoraQueueSize = 0;
+QueueHandle_t bleToLoraQueue;
+QueueHandle_t loraToBleQueue;
 
-Message loraTobleQueue[MAX_LORA_TO_BLE_QUEUE];
-int loraTobleQueueSize = 0;
+// BLEManager declared after queues
+BLEManager *bleManager;
 
 /**
  * @brief Setup routine for ESP32 LoRa-BLE Bridge
@@ -49,8 +49,24 @@ void setup()
     Serial.println("ESP32 LoRa-BLE Bridge starting...");
     Serial.println("===================================");
 
+    // Create message queues
+    bleToLoraQueue = xQueueCreate(BLE_TO_LORA_QUEUE_SIZE, sizeof(Message));
+    loraToBleQueue = xQueueCreate(LORA_TO_BLE_QUEUE_SIZE, sizeof(Message));
+
+    if (bleToLoraQueue == nullptr || loraToBleQueue == nullptr)
+    {
+        Serial.println("Failed to create message queues. Halting execution.");
+        while (1)
+        {
+            delay(1000);
+        }
+    }
+
+    // Initialize BLE with queue
+    bleManager = new BLEManager(bleToLoraQueue);
+
     // Initialize BLE
-    if (!bleManager.setup("ESP32-LoRa"))
+    if (!bleManager->setup("ESP32-LoRa"))
     {
         Serial.println("BLE setup failed. Halting execution.");
         while (1)
@@ -58,7 +74,7 @@ void setup()
             delay(1000);
         }
     }
-    bleManager.startAdvertising();
+    bleManager->startAdvertising();
 
     // Initialize LoRa
     Serial.println("\nInitializing LoRa radio...");
@@ -88,19 +104,18 @@ void setup()
 void loop()
 {
     // Process BLE events
-    bleManager.process();
+    bleManager->process();
 
     // Check for messages from BLE to send via LoRa
-    if (bleManager.hasMessage())
+    Message bleMsg;
+    if (xQueueReceive(bleToLoraQueue, &bleMsg, 0) == pdTRUE)
     {
-        Message msg = bleManager.getMessage();
-
-        Serial.print("Received message from BLE: type=");
-        Serial.println((int)msg.type);
+        Serial.print("Received message from BLE queue: type=");
+        Serial.println((int)bleMsg.type);
 
         // Serialize and send via LoRa
         uint8_t buf[64];
-        int len = msg.serialize(buf, sizeof(buf));
+        int len = bleMsg.serialize(buf, sizeof(buf));
 
         if (len > 0)
         {
@@ -168,17 +183,10 @@ void loop()
                     Serial.println("ACK sent successfully");
                 }
 
-                // Forward to BLE if connected
-                if (bleManager.isConnected())
+                // Queue message for BLE forwarding
+                if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
                 {
-                    if (bleManager.sendMessage(msg))
-                    {
-                        Serial.println("Text message forwarded from LoRa to BLE");
-                    }
-                }
-                else
-                {
-                    Serial.println("BLE not connected - message buffered (not implemented in simple version)");
+                    Serial.println("Warning: LoRa to BLE queue full, message dropped");
                 }
                 break;
             }
@@ -207,17 +215,10 @@ void loop()
                     Serial.println("ACK sent successfully");
                 }
 
-                // Forward to BLE if connected
-                if (bleManager.isConnected())
+                // Queue message for BLE forwarding
+                if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
                 {
-                    if (bleManager.sendMessage(msg))
-                    {
-                        Serial.println("GPS message forwarded from LoRa to BLE");
-                    }
-                }
-                else
-                {
-                    Serial.println("BLE not connected - GPS message buffered (not implemented in simple version)");
+                    Serial.println("Warning: LoRa to BLE queue full, message dropped");
                 }
                 break;
             }
@@ -227,13 +228,10 @@ void loop()
                 Serial.print("Received ACK for seq: ");
                 Serial.println(msg.ackData.seq);
 
-                // Forward to BLE if connected
-                if (bleManager.isConnected())
+                // Queue ACK for BLE forwarding
+                if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
                 {
-                    if (bleManager.sendMessage(msg))
-                    {
-                        Serial.println("ACK forwarded to BLE");
-                    }
+                    Serial.println("Warning: LoRa to BLE queue full, ACK dropped");
                 }
                 break;
             }
@@ -242,6 +240,16 @@ void loop()
         else
         {
             Serial.println("Failed to deserialize LoRa message");
+        }
+    }
+
+    // Forward queued messages from LoRa to BLE if connected
+    Message loraMsg;
+    if (bleManager->isConnected() && xQueueReceive(loraToBleQueue, &loraMsg, 0) == pdTRUE)
+    {
+        if (bleManager->sendMessage(loraMsg))
+        {
+            Serial.println("Message forwarded from LoRa to BLE");
         }
     }
 

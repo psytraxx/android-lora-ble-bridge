@@ -27,14 +27,14 @@ void MyCharacteristicCallbacks::onWrite(NimBLECharacteristic *pCharacteristic, N
 }
 
 // BLEManager implementation
-BLEManager::BLEManager()
+BLEManager::BLEManager(QueueHandle_t queue)
     : pServer(nullptr),
       pTxCharacteristic(nullptr),
       pRxCharacteristic(nullptr),
       pAdvertising(nullptr),
       deviceConnected(false),
       oldDeviceConnected(false),
-      messageAvailable(false),
+      bleToLoraQueue(queue),
       serverCallbacks(nullptr),
       rxCallbacks(nullptr)
 {
@@ -127,12 +127,6 @@ bool BLEManager::sendMessage(const Message &msg)
     return true;
 }
 
-Message BLEManager::getMessage()
-{
-    messageAvailable = false;
-    return receivedMessage;
-}
-
 void BLEManager::process()
 {
     // Handle disconnection/reconnection
@@ -157,12 +151,20 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
     Serial.print("Parsing BLE message, length: ");
     Serial.println(length);
 
-    if (receivedMessage.deserialize(data, length))
+    Message msg;
+    if (msg.deserialize(data, length))
     {
         Serial.print("Deserialized message type: ");
-        Serial.println((int)receivedMessage.type);
-        messageAvailable = true;
-        Serial.println("Message forwarded from BLE to LoRa queue");
+        Serial.println((int)msg.type);
+        // Send to queue instead of storing internally
+        if (xQueueSend(bleToLoraQueue, &msg, 0) != pdTRUE)
+        {
+            Serial.println("Warning: BLE to LoRa queue full, message dropped");
+        }
+        else
+        {
+            Serial.println("Message forwarded from BLE to LoRa queue");
+        }
     }
     else
     {

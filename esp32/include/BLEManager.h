@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <NimBLEDevice.h>
+#include <freertos/queue.h>
 #include "Protocol.h"
 
 // Service and Characteristic UUIDs
@@ -38,7 +39,7 @@ private:
 class BLEManager
 {
 public:
-    BLEManager();
+    BLEManager(QueueHandle_t bleToLoraQueue);
 
     /// Initialize BLE with device name
     bool setup(const char *deviceName = "ESP32-LoRa");
@@ -51,12 +52,6 @@ public:
 
     /// Send a message to the connected BLE client via notification
     bool sendMessage(const Message &msg);
-
-    /// Check if there's a message received from BLE
-    bool hasMessage() const { return messageAvailable; }
-
-    /// Get the received message (clears the internal buffer)
-    Message getMessage();
 
     /// Process BLE events (call in main loop)
     void process();
@@ -76,9 +71,8 @@ private:
 
     bool deviceConnected;
     bool oldDeviceConnected;
-    bool messageAvailable;
 
-    Message receivedMessage;
+    QueueHandle_t bleToLoraQueue;
 
     MyServerCallbacks *serverCallbacks;
     MyCharacteristicCallbacks *rxCallbacks;
