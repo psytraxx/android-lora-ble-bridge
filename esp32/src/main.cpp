@@ -14,6 +14,7 @@
 #include "LoRaManager.h"
 #include "BLEManager.h"
 #include "Protocol.h"
+#include "LEDManager.h"
 #include <freertos/queue.h>
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
@@ -26,8 +27,12 @@
 #define LORA_RST 12
 #define LORA_DIO0 32
 
+// --- LED Pin Definition ---
+#define LED_PIN 2 // Built-in LED on ESP32 DevKit
+
 // Manager objects
 LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_FREQUENCY);
+LEDManager ledManager(LED_PIN);
 
 // Message queues using FreeRTOS
 const int BLE_TO_LORA_QUEUE_SIZE = 10;
@@ -159,6 +164,9 @@ void setup()
     // Start continuous receive mode
     loraManager.startReceiveMode();
 
+    // Initialize LED
+    ledManager.setup();
+
     Serial.println("\n===================================");
     Serial.println("All systems initialized successfully");
     Serial.println("System running - waiting for connections...");
@@ -202,6 +210,8 @@ void loop()
             if (sendSuccess)
             {
                 Serial.println("LoRa TX successful");
+                // Blink twice for outgoing message
+                ledManager.blinkMultiple(2);
             }
             else
             {
@@ -278,6 +288,11 @@ void loop()
                 {
                     Serial.println("Warning: LoRa to BLE queue full, message dropped");
                 }
+                else
+                {
+                    // Blink once for incoming message
+                    ledManager.blink();
+                }
                 break;
             }
 
@@ -317,6 +332,11 @@ void loop()
                 {
                     Serial.println("Warning: LoRa to BLE queue full, message dropped");
                 }
+                else
+                {
+                    // Blink once for incoming message
+                    ledManager.blink();
+                }
                 break;
             }
 
@@ -329,6 +349,11 @@ void loop()
                 if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
                 {
                     Serial.println("Warning: LoRa to BLE queue full, ACK dropped");
+                }
+                else
+                {
+                    // Blink once for incoming message
+                    ledManager.blink();
                 }
                 break;
             }

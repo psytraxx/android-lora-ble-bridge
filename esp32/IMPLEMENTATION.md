@@ -309,11 +309,11 @@ A comprehensive code review was conducted on 21 October 2025, identifying areas 
 - **Solution**: Move to build flags and runtime config via BLE.
 - **Status**: Planned.
 
-#### 6. User Feedback and Debugging (Low Priority)
+#### 6. User Feedback and Debugging (Low Priority - COMPLETED)
 - **Issue**: No LED indicators; verbose logging without levels.
 - **Impact**: Hard to debug in field; no visual status.
 - **Solution**: Integrate LEDManager for status; add logging levels.
-- **Status**: Planned.
+- **Status**: ✅ COMPLETED - Added LEDManager with blink patterns: single blink for incoming messages (LoRa→BLE), double blink for outgoing messages (BLE→LoRa). Added blinkMultiple() method. LED on GPIO 2 (built-in).
 
 #### 7. Code Quality and Testing (Low Priority)
 - **Issue**: Magic numbers; no unit tests despite test/ folder.
