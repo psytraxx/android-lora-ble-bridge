@@ -34,22 +34,26 @@ public class BleManager {
     private static final UUID RX_CHAR_UUID = UUID.fromString("00005679-0000-1000-8000-00805F9B34FB");
     private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private static final long LOCATION_CHECK_INTERVAL_MS = 3000; // Check every 3 seconds
+    private static final long RECONNECT_DELAY_MS = 30000; // 30 seconds between reconnect attempts
+    private static final long SCAN_TIMEOUT_MS = 5000; // 5 seconds scan timeout
+
     private final Context context;
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner bluetoothLeScanner;
     private BluetoothGatt bluetoothGatt;
     private BluetoothGattCharacteristic txCharacteristic;
     private BluetoothGattCharacteristic rxCharacteristic;
-    private boolean isConnected = false;
     private boolean isWaitingForLocation = false;
+    private boolean isScanning = false;
+    private ScanCallback currentScanCallback = null;
     private final android.os.Handler locationCheckHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
 
     // LiveData for state changes
     private final MutableLiveData<String> connectionStatus = new MutableLiveData<>();
     private final MutableLiveData<Protocol.Message> messageReceived = new MutableLiveData<>();
     private final MutableLiveData<String> showToast = new MutableLiveData<>();
     private final MutableLiveData<Boolean> connected = new MutableLiveData<>();
-    private final MutableLiveData<Void> locationEnabled = new MutableLiveData<>();
 
     public BleManager(Context context) {
         this.context = context;
@@ -71,10 +75,6 @@ public class BleManager {
 
     public LiveData<Boolean> getConnected() {
         return connected;
-    }
-
-    public LiveData<Void> getLocationEnabled() {
-        return locationEnabled;
     }
 
     private void initializeBluetooth() {
@@ -135,10 +135,14 @@ public class BleManager {
         isWaitingForLocation = false;
         locationCheckHandler.removeCallbacksAndMessages(null);
 
+        // Stop any existing scan
+        stopScan();
+
         Log.d(TAG, "Starting BLE scan for device: " + DEVICE_NAME);
         connectionStatus.postValue("🔍 Scanning...");
+        isScanning = true;
 
-        bluetoothLeScanner.startScan(new ScanCallback() {
+        currentScanCallback = new ScanCallback() {
             @Override
             public void onScanResult(int callbackType, ScanResult result) {
                 BluetoothDevice device = result.getDevice();
@@ -148,7 +152,7 @@ public class BleManager {
                 if (DEVICE_NAME.equals(deviceName)) {
                     Log.d(TAG, "Target device found! Connecting...");
                     connectionStatus.postValue("📡 Connecting...");
-                    bluetoothLeScanner.stopScan(this);
+                    stopScan();
                     connectToDevice(device);
                 }
             }
@@ -157,19 +161,49 @@ public class BleManager {
             public void onScanFailed(int errorCode) {
                 Log.e(TAG, "BLE scan failed with error code: " + errorCode);
                 connectionStatus.postValue("❌ Scan failed (error " + errorCode + ")");
+                isScanning = false;
+                currentScanCallback = null;
+                // Retry after delay
+                mainHandler.postDelayed(() -> startScan(), RECONNECT_DELAY_MS);
             }
-        });
+        };
+
+        bluetoothLeScanner.startScan(currentScanCallback);
+
+        // Set scan timeout
+        mainHandler.postDelayed(() -> {
+            if (isScanning) {
+                Log.w(TAG, "Scan timeout - device not found");
+                stopScan();
+                connectionStatus.postValue("❌ Device not found (retrying in " + (RECONNECT_DELAY_MS / 1000) + "s)");
+                // Retry scan after delay
+                mainHandler.postDelayed(() -> startScan(), RECONNECT_DELAY_MS);
+            }
+        }, SCAN_TIMEOUT_MS);
+    }
+
+    @SuppressLint("MissingPermission")
+    private void stopScan() {
+        if (isScanning && currentScanCallback != null) {
+            try {
+                bluetoothLeScanner.stopScan(currentScanCallback);
+                Log.d(TAG, "Scan stopped");
+            } catch (Exception e) {
+                Log.e(TAG, "Error stopping scan: " + e.getMessage());
+            }
+            isScanning = false;
+            currentScanCallback = null;
+        }
     }
 
     private void startLocationCheck() {
         locationCheckHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                if (isWaitingForLocation && !isConnected) {
+                if (isWaitingForLocation && !isConnected()) {
                     if (isLocationEnabled()) {
                         Log.d(TAG, "Location services now enabled! Retrying BLE scan...");
                         showToast.postValue("Location enabled! Scanning for device...");
-                        locationEnabled.postValue(null); // Notify that location is enabled
                         startScan();
                     } else {
                         // Keep checking
@@ -189,16 +223,20 @@ public class BleManager {
                 Log.d(TAG, "Connection state changed: status=" + status + ", newState=" + newState);
 
                 if (newState == BluetoothGatt.STATE_CONNECTED) {
+                    connected.postValue(true);
                     Log.d(TAG, "Connected! Requesting MTU...");
                     connectionStatus.postValue("🔗 Negotiating...");
                     gatt.requestMtu(512);
                 } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
-                    Log.d(TAG, "Disconnected from device");
-                    isConnected = false;
                     connected.postValue(false);
-                    connectionStatus.postValue("❌ Disconnected");
-                    // Retry scan after disconnect
-                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> startScan(), 2000);
+                    connectionStatus.postValue("❌ Disconnected (reconnecting in " + (RECONNECT_DELAY_MS / 1000) + "s)");
+                    Log.d(TAG, "Disconnected. Will retry in " + (RECONNECT_DELAY_MS / 1000) + " seconds");
+                    
+                    // Retry indefinitely with 30 second delay
+                    mainHandler.postDelayed(() -> {
+                        Log.d(TAG, "Attempting reconnection...");
+                        startScan();
+                    }, RECONNECT_DELAY_MS);
                 }
             }
 
@@ -247,7 +285,6 @@ public class BleManager {
                                 Log.e(TAG, "CCCD descriptor not found on TX characteristic!");
                             }
 
-                            isConnected = true;
                             connected.postValue(true);
                             connectionStatus.postValue("✅ Ready to send!");
                         } else {
@@ -294,12 +331,18 @@ public class BleManager {
 
     @SuppressLint("MissingPermission")
     public boolean sendMessage(Protocol.Message message) {
-        if (!isConnected || bluetoothGatt == null || rxCharacteristic == null) {
-            Log.e(TAG, "Cannot send: not connected");
+        if (message == null) {
+            Log.e(TAG, "Cannot send null message");
             return false;
         }
 
         byte[] data = message.serialize();
+        if (data == null || data.length == 0) {
+            Log.e(TAG, "Cannot send empty message");
+            showToast.postValue("Error: Empty message");
+            return false;
+        }
+
         Log.d(TAG, "Sending message: " + data.length + " bytes");
 
         rxCharacteristic.setValue(data);
@@ -309,18 +352,25 @@ public class BleManager {
     }
 
     public boolean isConnected() {
-        return isConnected;
+        Boolean connectedValue = connected.getValue();
+        return connectedValue != null && connectedValue;
     }
 
     @SuppressLint("MissingPermission")
     public void disconnect() {
+        // Stop scanning if in progress
+        stopScan();
+        
+        // Cancel any pending reconnect attempts
+        mainHandler.removeCallbacksAndMessages(null);
+        locationCheckHandler.removeCallbacksAndMessages(null);
+        
         if (bluetoothGatt != null) {
             bluetoothGatt.disconnect();
             bluetoothGatt.close();
             bluetoothGatt = null;
         }
-        isConnected = false;
+        connected.postValue(false);
         isWaitingForLocation = false;
-        locationCheckHandler.removeCallbacksAndMessages(null);
     }
 }

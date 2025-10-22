@@ -17,9 +17,13 @@ import lora.Protocol;
 public class MessageViewModel extends ViewModel {
 
     private static final String TAG = "MessageViewModel";
-    private static final int MAX_TEXT_LENGTH = 50;
+    /**
+     * Delay between sending text message and GPS message.
+     * Rationale: Text msg → LoRa TX → Debugger RX → 500ms delay → ACK TX → LoRa RX
+     * This typically takes ~800-1000ms total, using 1200ms for safety margin.
+     */
+    private static final long GPS_MESSAGE_DELAY_MS = 1200;
 
-    private final MutableLiveData<String> connectionStatus = new MutableLiveData<>("Initializing...");
     private final MutableLiveData<String> gpsDisplay = new MutableLiveData<>();
     private final MutableLiveData<String> showToast = new MutableLiveData<>();
 
@@ -27,35 +31,31 @@ public class MessageViewModel extends ViewModel {
     private GpsManager gpsManager;
     private MessageAdapter messageAdapter;
     private byte seqCounter = 0;
+    private boolean observersRegistered = false;
 
     // Observers for BLE manager
-    private final Observer<String> bleConnectionStatusObserver = status -> connectionStatus.postValue(status);
     private final Observer<Protocol.Message> messageReceivedObserver = this::handleReceivedMessage;
-    private final Observer<String> bleShowToastObserver = message -> showToast.postValue(message);
-    private final Observer<Boolean> bleConnectedObserver = connected -> {
-        // Handle connection state changes if needed
-        Log.d(TAG, "BLE connection state changed: " + connected);
-    };
-    private final Observer<Void> locationEnabledObserver = unused -> {
-        gpsManager.startLocationUpdates();
-        updateGps(); // Immediately update GPS display
-    };
+    private final Observer<String> bleShowToastObserver = showToast::postValue;
 
     public void setManagers(BleManager bleManager, GpsManager gpsManager, MessageAdapter messageAdapter) {
+        // Prevent multiple registrations
+        if (observersRegistered) {
+            Log.w(TAG, "Observers already registered, skipping duplicate registration");
+            return;
+        }
+
         this.bleManager = bleManager;
         this.gpsManager = gpsManager;
         this.messageAdapter = messageAdapter;
 
         // Observe BLE manager LiveData
-        bleManager.getConnectionStatus().observeForever(bleConnectionStatusObserver);
-        bleManager.getMessageReceived().observeForever(messageReceivedObserver);
-        bleManager.getShowToast().observeForever(bleShowToastObserver);
-        bleManager.getConnected().observeForever(bleConnectedObserver);
-        bleManager.getLocationEnabled().observeForever(locationEnabledObserver);
-    }
-
-    public LiveData<String> getConnectionStatus() {
-        return connectionStatus;
+        if (bleManager != null) {
+            bleManager.getMessageReceived().observeForever(messageReceivedObserver);
+            bleManager.getShowToast().observeForever(bleShowToastObserver);
+            observersRegistered = true;
+        } else {
+            Log.e(TAG, "BleManager is null, cannot register observers");
+        }
     }
 
     public LiveData<String> getGpsDisplay() {
@@ -64,10 +64,6 @@ public class MessageViewModel extends ViewModel {
 
     public LiveData<String> getShowToast() {
         return showToast;
-    }
-
-    public void updateConnectionStatus(String status) {
-        connectionStatus.postValue(status);
     }
 
     public void updateGps() {
@@ -98,8 +94,8 @@ public class MessageViewModel extends ViewModel {
         }
 
         // Enforce maximum text length
-        if (text.length() > MAX_TEXT_LENGTH) {
-            text = text.substring(0, MAX_TEXT_LENGTH);
+        if (text.length() > Protocol.MAX_TEXT_LENGTH) {
+            text = text.substring(0, Protocol.MAX_TEXT_LENGTH);
         }
 
         // Validate characters
@@ -128,8 +124,6 @@ public class MessageViewModel extends ViewModel {
                 final byte gpsSeq = seqCounter++;
 
                 // Delay to allow ACK for text message to be received first
-                // Text msg → LoRa TX → Debugger RX → 500ms delay → ACK TX → LoRa RX
-                // This typically takes ~800-1000ms total
                 new Handler(Looper.getMainLooper()).postDelayed(() -> {
                     Protocol.GpsMessage gpsMsg = new Protocol.GpsMessage(gpsSeq, lat, lon);
                     bleManager.sendMessage(gpsMsg);
@@ -138,7 +132,7 @@ public class MessageViewModel extends ViewModel {
                     double lonDisplay = lon / 1_000_000.0;
                     messageAdapter.addMessage(String.format(Locale.US, "📍 GPS: %.6f, %.6f", latDisplay, lonDisplay),
                             true, gpsSeq);
-                }, 1200); // Increased from 100ms to 1200ms
+                }, GPS_MESSAGE_DELAY_MS);
             }
 
         } catch (Exception e) {
@@ -165,12 +159,16 @@ public class MessageViewModel extends ViewModel {
     @Override
     protected void onCleared() {
         super.onCleared();
-        if (bleManager != null) {
-            bleManager.getConnectionStatus().removeObserver(bleConnectionStatusObserver);
-            bleManager.getMessageReceived().removeObserver(messageReceivedObserver);
-            bleManager.getShowToast().removeObserver(bleShowToastObserver);
-            bleManager.getConnected().removeObserver(bleConnectedObserver);
-            bleManager.getLocationEnabled().removeObserver(locationEnabledObserver);
+        // Safe cleanup with null checks
+        if (bleManager != null && observersRegistered) {
+            try {
+                bleManager.getMessageReceived().removeObserver(messageReceivedObserver);
+                bleManager.getShowToast().removeObserver(bleShowToastObserver);
+                observersRegistered = false;
+                Log.d(TAG, "Observers successfully removed");
+            } catch (Exception e) {
+                Log.e(TAG, "Error removing observers: " + e.getMessage());
+            }
         }
     }
 }

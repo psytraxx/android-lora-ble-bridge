@@ -22,7 +22,8 @@ import lora.Protocol;
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_PERMISSIONS = 1;
-    private static final int MAX_TEXT_LENGTH = 50; // Maximum text length for optimal LoRa range
+    private static final long GPS_UPDATE_INTERVAL_MS = 5000; // 5 seconds
+    private static final double CHAR_COUNT_WARNING_THRESHOLD = 0.9; // 90% of max
 
     private EditText messageEditText;
     private Button sendButton;
@@ -35,6 +36,9 @@ public class MainActivity extends AppCompatActivity {
     private MessageViewModel messageViewModel;
     private BleManager bleManager;
     private GpsManager gpsManager;
+    
+    private android.os.Handler gpsHandler;
+    private Runnable gpsUpdateRunnable;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,13 +61,11 @@ public class MainActivity extends AppCompatActivity {
         messageAdapter = new MessageAdapter();
 
         // Set scroll callback to auto-scroll when messages are added
-        messageAdapter.setScrollCallback(() -> {
-            messagesRecyclerView.post(() -> {
-                if (messageAdapter.getItemCount() > 0) {
-                    messagesRecyclerView.smoothScrollToPosition(messageAdapter.getItemCount() - 1);
-                }
-            });
-        });
+        messageAdapter.setScrollCallback(() -> messagesRecyclerView.post(() -> {
+            if (messageAdapter.getItemCount() > 0) {
+                messagesRecyclerView.smoothScrollToPosition(messageAdapter.getItemCount() - 1);
+            }
+        }));
 
         messageViewModel = new ViewModelProvider(this).get(MessageViewModel.class);
         bleManager = new BleManager(this);
@@ -76,7 +78,6 @@ public class MainActivity extends AppCompatActivity {
         messagesRecyclerView.setAdapter(messageAdapter);
 
         // Observe ViewModel
-        messageViewModel.getConnectionStatus().observe(this, status -> connectionStatusTextView.setText(status));
         messageViewModel.getGpsDisplay().observe(this, gps -> gpsTextView.setText(gps));
         messageViewModel.getShowToast().observe(this, message -> {
             if (message != null) {
@@ -84,7 +85,8 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Observe BLE connection state for send button
+        // Observe BLE connection state for send button and status
+        bleManager.getConnectionStatus().observe(this, status -> connectionStatusTextView.setText(status));
         bleManager.getConnected().observe(this,
                 connected -> sendButton.setEnabled(connected != null ? connected : false));
 
@@ -131,7 +133,6 @@ public class MainActivity extends AppCompatActivity {
 
         messageViewModel.updateGps();
         updateCharCount(""); // Initialize counter
-        messageViewModel.updateConnectionStatus("Initializing...");
 
         startGpsPeriodicUpdates();
     }
@@ -165,8 +166,30 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (gpsHandler != null && gpsUpdateRunnable != null) {
+            gpsHandler.removeCallbacks(gpsUpdateRunnable);
+        }
         if (gpsManager != null) {
             gpsManager.stopLocationUpdates();
+        }
+        if (bleManager != null) {
+            bleManager.disconnect();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (gpsHandler != null && gpsUpdateRunnable != null) {
+            gpsHandler.removeCallbacks(gpsUpdateRunnable);
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (gpsHandler != null && gpsUpdateRunnable != null) {
+            gpsHandler.postDelayed(gpsUpdateRunnable, GPS_UPDATE_INTERVAL_MS);
         }
     }
 
@@ -181,17 +204,18 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateCharCount(String text) {
+        if (text == null) text = "";
         int charCount = text.length();
         int packedBytes = Protocol.calculatePackedSize(text);
         int totalMessageSize = 12 + packedBytes; // 12 byte header + packed text
 
-        String countText = charCount + "/" + MAX_TEXT_LENGTH + " chars (" + totalMessageSize + " bytes)";
+        String countText = charCount + "/" + Protocol.MAX_TEXT_LENGTH + " chars (" + totalMessageSize + " bytes)";
         charCountTextView.setText(countText);
 
         // Change color if approaching limit
-        if (charCount >= MAX_TEXT_LENGTH) {
+        if (charCount >= Protocol.MAX_TEXT_LENGTH) {
             charCountTextView.setTextColor(0xFFFF0000); // Red
-        } else if (charCount >= MAX_TEXT_LENGTH * 0.9) {
+        } else if (charCount >= Protocol.MAX_TEXT_LENGTH * CHAR_COUNT_WARNING_THRESHOLD) {
             charCountTextView.setTextColor(0xFFFF6600); // Orange
         } else {
             charCountTextView.setTextColor(0xFF666666); // Gray
@@ -199,14 +223,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startGpsPeriodicUpdates() {
-        final android.os.Handler gpsHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-        Runnable gpsUpdateRunnable = new Runnable() {
+        gpsHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        gpsUpdateRunnable = new Runnable() {
             @Override
             public void run() {
                 messageViewModel.updateGps();
-                gpsHandler.postDelayed(this, 5000); // Update every 5 seconds
+                gpsHandler.postDelayed(this, GPS_UPDATE_INTERVAL_MS);
             }
         };
-        gpsHandler.postDelayed(gpsUpdateRunnable, 5000);
+        gpsHandler.postDelayed(gpsUpdateRunnable, GPS_UPDATE_INTERVAL_MS);
     }
 }
