@@ -37,8 +37,8 @@ public:
     void updateActivity();
 
     /**
-     * @brief Check if it's time to enter light sleep
-     * @return true if should enter light sleep
+     * @brief Check if it's time to enter sleep
+     * @return true if should enter sleep
      */
     bool shouldEnterLightSleep();
 
@@ -68,7 +68,7 @@ public:
     void clearMessages();
 
     /**
-     * @brief Enter light sleep mode
+     * @brief Enter light sleep mode (ESP32-S3 only)
      * Will configure wake sources and print debug info before sleeping
      */
     void enterLightSleep();
@@ -90,6 +90,11 @@ public:
      * @return Wake-up count
      */
     uint32_t getWakeupCount();
+
+    /**
+     * @brief Enable BLE wakeup (ESP32-S3 only)
+     */
+    void enableBleWakeup();
 
 private:
     int loraIntPin;

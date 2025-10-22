@@ -1,4 +1,5 @@
 #include "SleepManager.h"
+#include <esp_sleep.h>
 
 // Magic number to identify valid RTC data
 #define RTC_MAGIC 0xDEADBEEF
@@ -48,16 +49,25 @@ void SleepManager::setup()
     // Configure LoRa interrupt pin for wake-up (active HIGH when packet received)
     pinMode(loraIntPin, INPUT);
 
+    enableBleWakeup();
     // Configure EXT1 for LoRa interrupt wake-up
     // EXT1 wakes when LoRa DIO0 goes HIGH (packet received)
     esp_sleep_enable_ext1_wakeup(1ULL << loraIntPin, ESP_EXT1_WAKEUP_ANY_HIGH);
 
     Serial.println("Sleep wake-up sources configured:");
+    Serial.println("  - BLE events (S3 only)");
     Serial.print("  - LoRa interrupt on GPIO ");
     Serial.println(loraIntPin);
 
     // Initialize activity timer
     updateActivity();
+}
+
+void SleepManager::enableBleWakeup()
+{
+    // Enable BLE wakeup (ESP32-S3 only, ESP-IDF required)
+    esp_sleep_enable_bt_wakeup();
+    Serial.println("BLE wakeup enabled (S3 only)");
 }
 
 void SleepManager::updateActivity()
@@ -69,7 +79,6 @@ bool SleepManager::shouldEnterLightSleep()
 {
     unsigned long currentMillis = millis();
     unsigned long inactiveTime = currentMillis - lastActivityMillis;
-
     return inactiveTime >= LIGHT_SLEEP_TIMEOUT_MS;
 }
 
@@ -132,13 +141,14 @@ void SleepManager::clearMessages()
 void SleepManager::enterLightSleep()
 {
     Serial.println("\n===================================");
-    Serial.println("ENTERING LIGHT SLEEP");
+    Serial.println("ENTERING LIGHT SLEEP (S3)");
     Serial.println("===================================");
     Serial.print("Stored messages: ");
     Serial.println(rtcData.messageCount);
     Serial.print("Wake-up count: ");
     Serial.println(rtcData.wakeupCount);
     Serial.println("Wake-up sources:");
+    Serial.println("  - BLE events (S3 only)");
     Serial.print("  - LoRa interrupt on GPIO ");
     Serial.println(loraIntPin);
     Serial.println("===================================\n");
@@ -146,8 +156,7 @@ void SleepManager::enterLightSleep()
     // Small delay to ensure serial output is flushed
     delay(100);
 
-    // Enter light sleep (instead of deep sleep)
-    // Light sleep maintains more system state and wakes faster
+    // Light sleep for S3
     esp_light_sleep_start();
 }
 
