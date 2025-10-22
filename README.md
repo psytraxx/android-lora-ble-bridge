@@ -275,11 +275,12 @@ Also update function signatures in `esp32s3/src/ble.rs` and `esp32s3/src/lora.rs
    - Press "Send"
    - App sends text message first, then GPS (if available) 100ms later
 5. **Receive message**: Messages appear automatically on receiving device
-6. **View GPS location**: Coordinates displayed if GPS message received
+6. **View GPS location**: Coordinates displayed if GPS coordinates received
 
 ### Message Behavior
 - **Text message**: Always sent when you press Send
-- **GPS message**: Only sent if GPS is enabled and has a fix
+- **GPS coordinates**: Automatically included if GPS is enabled and location available
+- **Single message**: Text and GPS sent together in one unified message
 - **No GPS?**: App shows "Sent text only (X bytes) - No GPS"
 - **With GPS**: App shows "Sent text (X bytes) + GPS (Y bytes)"
 
@@ -291,14 +292,14 @@ Also update function signatures in `esp32s3/src/ble.rs` and `esp32s3/src/lora.rs
 ## Performance
 
 - **Max text**: 50 characters (42 bytes with 6-bit packing)
-- **GPS message**: 10 bytes (fixed size)
+- **GPS data**: 8 bytes when included (fixed size)
 - **Range**: 5-10 km typical (up to 15+ km ideal conditions)
 - **Latency**: 1-2 seconds end-to-end
 - **Battery**: 70-100 hours on 2500 mAh
 - **Time on Air**: 
   - Text only: ~350-550ms (empty to 50 chars) at SF10
-  - GPS only: ~380ms at SF10
-  - Text + GPS: Combined + 100ms delay (~850-930ms)
+  - Text + GPS: ~420-600ms (varies by text length)
+  - ACK: ~330ms at SF10
 - **LoRa Config**: SF10, BW125kHz, CR4/5, 433.92 MHz default, 14 dBm
 - **Duty Cycle**: ~38-100 messages/hour depending on message type (EU 1% compliance)
 
@@ -317,13 +318,13 @@ sequenceDiagram
     participant ER as ESP32 Receiver
     participant AR as Android Receiver
 
-    Note over AS,AR: Text Message + ACK Flow (~800-1000ms)
+    Note over AS,AR: Unified Text + GPS Message Flow (~800-1000ms)
     
-    AS->>ES: 1. Send Text (BLE)
+    AS->>ES: 1. Send Text + GPS (BLE)
     Note right of AS: ~10-50ms
     
     ES->>ER: 2. Forward to LoRa
-    Note right of ES: ~100-200ms airtime
+    Note right of ES: ~400-600ms airtime
     
     ER->>AR: 3. Forward via BLE
     Note right of ER: ~10-50ms
@@ -332,27 +333,21 @@ sequenceDiagram
     ER-->>ER: delay(500ms)
     
     ER->>ES: 5. Send ACK (LoRa)
-    Note left of ER: ~100-200ms airtime<br/>+ 50ms mode switch
+    Note left of ER: ~330ms airtime<br/>+ 50ms mode switch
     
     ES->>AS: 6. Receive ACK (BLE)
     Note left of ES: ~10-50ms + notify
     
     Note over AS: ✓ Show checkmark
     
-    Note over AS: 7. Wait 1200ms
-    AS-->>AS: delay(1200ms)
-    
-    AS->>ES: 8. Send GPS (BLE)
-    Note right of AS: Repeat steps 2-6
-    
-    Note over AS,AR: Total Time: Text + GPS + ACKs = ~2500-3000ms
+    Note over AS,AR: Total Time: ~1300-1500ms
 ```
 
 ### Timing Phases Breakdown
 
 ```mermaid
 gantt
-    title Message Flow Timeline (Text + ACK)
+    title Unified Message Flow Timeline (~1300-1500ms)
     dateFormat X
     axisFormat %L ms
 
@@ -360,21 +355,21 @@ gantt
     BLE Transfer          :a1, 0, 50
     
     section LoRa TX
-    Text Transmission     :a2, 50, 400
+    Text+GPS Transmission :a2, 50, 550
     
     section Receiver
-    Process & Forward     :a3, 450, 100
-    ACK Delay (500ms)     :a4, 550, 500
+    Process & Forward     :a3, 600, 100
+    ACK Delay (500ms)     :a4, 700, 500
     
     section LoRa RX
-    ACK Transmission      :a5, 1050, 200
-    Mode Switch Settle    :a6, 1250, 50
+    ACK Transmission      :a5, 1200, 200
+    Mode Switch Settle    :a6, 1400, 50
     
     section ESP32→Android
-    BLE Notify            :a7, 1300, 50
+    BLE Notify            :a7, 1450, 50
     
     section Result
-    Show Checkmark        :crit, a8, 1350, 50
+    Show Checkmark        :crit, a8, 1500, 50
 ```
 
 ### Critical Timing Parameters
@@ -400,55 +395,32 @@ delay(50);  // Ensure radio is fully in RX mode
 - **Purpose**: Radio hardware needs time to stabilize in receive mode
 - **Why 50ms**: SX1276 mode transitions require 10-30ms, 50ms ensures stability
 
-**3. Text-to-GPS Delay (1200ms)**
-```java
-// android/app/src/main/java/com/lora/android/MessageViewModel.java
-new Handler(Looper.getMainLooper()).postDelayed(() -> {
-    // Send GPS message
-}, 1200);  // Increased from 100ms to 1200ms
-```
-- **Purpose**: Allow first ACK to complete before sending second message
-- **Why 1200ms**: Complete round-trip timing:
-  - Text sent: 0ms
-  - ESP32 receives via BLE: ~10-50ms
-  - LoRa TX (text): ~100-200ms
-  - Receiver gets text: ~200ms
-  - Receiver waits: +500ms = ~700ms
-  - LoRa TX (ACK): ~100-200ms = ~800-900ms
-  - ESP32 receives ACK: ~900ms
-  - Android gets ACK via BLE: ~950ms
-  - **1200ms buffer ensures ACK fully processed**
-
 ### Timing Breakdown by Phase
 
 | Phase | Time | Description |
 |-------|------|-------------|
 | **BLE Transfer** | 10-50ms | Android ↔ ESP32 via Bluetooth LE |
-| **LoRa Airtime (10 bytes)** | ~380ms | GPS or ACK packet at SF10, BW125 |
-| **LoRa Airtime (Text)** | 350-550ms | Text (varies by length) at SF10 |
+| **LoRa Airtime** | 350-600ms | Text+GPS packet at SF10, BW125 (varies by length) |
 | **Mode Switch (TX→RX)** | 10-50ms | SX1276 radio mode transition |
 | **RX Settle** | 50ms | Additional settle time in code |
 | **ACK Wait** | 500ms | Deliberate delay before ACK sent |
-| **Text→GPS Delay** | 1200ms | Delay between messages |
+| **ACK Airtime** | ~330ms | ACK packet (2 bytes) at SF10 |
 
 ### Why These Timings Matter
 
 **Problem Without Proper Timing:**
-1. Android sends text and GPS too close together (100ms apart)
-2. ESP32 transmits text via LoRa
+1. Android sends unified text+GPS message via BLE
+2. ESP32 transmits via LoRa
 3. ESP32 switches to RX mode but not fully ready
 4. Receiver immediately sends ACK
 5. **ACK arrives before ESP32 is listening → Lost ACK ❌**
-6. GPS message interferes with ACK reception
 
 **Solution With Proper Timing:**
-1. Android sends text, waits 1200ms before GPS
-2. ESP32 transmits text, switches to RX mode + 50ms settle
+1. Android sends unified message, ESP32 transmits via LoRa
+2. ESP32 switches to RX mode + 50ms settle
 3. Receiver waits 500ms before sending ACK
 4. ESP32 is fully ready and receives ACK ✓
 5. Android displays checkmark
-6. After 1200ms total, GPS is sent (ACK fully processed)
-7. Process repeats for GPS message
 
 ### Adjusting Timings
 
@@ -460,29 +432,22 @@ If you need to modify timing for different hardware or conditions:
 delay(1000);  // Increase from 500ms
 ```
 
-**Increase message spacing** (avoid interference):
-```java
-// MessageViewModel.java
-}, 2000);  // Increase from 1200ms
-```
-
 **Decrease for faster operation** (requires testing):
 - Minimum ACK delay: ~200ms (theoretical, not recommended)
-- Minimum message spacing: ~800ms (if ACKs not critical)
+- Reduced RX settle time: 25ms (if hardware allows)
 
-**Formula for safe message spacing:**
+**Formula for safe ACK timing:**
 ```
-Spacing = LoRa_TX_Time + RX_Mode_Switch + ACK_Delay + LoRa_ACK_Time + Processing_Buffer
-        ≈ 400ms + 100ms + 500ms + 380ms + 200ms
-        ≈ 1580ms (round up to 1200ms with optimizations)
+ACK_Delay = LoRa_TX_Time + RX_Mode_Switch + Processing_Buffer
+         ≈ 600ms + 100ms + 200ms
+         ≈ 900ms (round up to 500ms with optimizations)
 ```
 
 ### Debugging Timing Issues
 
 **Symptoms of timing problems:**
-- ✗ First message never gets ACK
-- ✓ Second message always gets ACK
-- ✗ ACKs received out of order
+- ✗ Message never gets ACK
+- ✓ ACKs received inconsistently
 - ✗ Messages sent but receiver stays in TX mode
 
 **Log messages to watch:**
@@ -502,8 +467,7 @@ Spacing = LoRa_TX_Time + RX_Mode_Switch + ACK_Delay + LoRa_ACK_Time + Processing
 **If ACKs are missing:**
 1. Increase ACK_DELAY in debugger (500ms → 1000ms)
 2. Increase RX settle time in sender (50ms → 100ms)
-3. Increase message spacing in Android (1200ms → 2000ms)
-4. Check serial logs for mode transition timing
+3. Check serial logs for mode transition timing
 
 ## Troubleshooting
 
@@ -536,7 +500,7 @@ Spacing = LoRa_TX_Time + RX_Mode_Switch + ACK_Delay + LoRa_ACK_Time + Processing
 
 **No GPS fix:**
 - Text messages can still be sent without GPS
-- GPS message only sent when location is available
+- GPS coordinates only included when location is available
 - Check app shows "Sent text only - No GPS" when GPS unavailable
 - For GPS-required scenarios:
   - Go outdoors or near window
@@ -553,12 +517,13 @@ Spacing = LoRa_TX_Time + RX_Mode_Switch + ACK_Delay + LoRa_ACK_Time + Processing
 ### Debug Tips
 
 **Protocol Version Compatibility:**
-- ⚠️ Protocol v2.0 is **not backward compatible** with v1.0
+- ⚠️ Protocol v3.0 is **not backward compatible** with v2.0 or v1.0
 - All devices must run same protocol version
-- v2.0 changes:
-  - Message types: TEXT (0x01), GPS (0x02), ACK (0x03)
+- v3.0 changes:
+  - Unified TextMessage with optional GPS coordinates
   - 6-bit character encoding (not UTF-8)
-  - GPS sent separately from text
+  - ACK message type changed to 0x02
+  - Single message transmission (no separate GPS message)
 
 **ESP32 Serial Monitor:**
 ```bash

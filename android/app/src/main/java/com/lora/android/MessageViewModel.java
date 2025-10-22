@@ -15,12 +15,6 @@ import lora.Protocol;
 public class MessageViewModel extends ViewModel {
 
     private static final String TAG = "MessageViewModel";
-    /**
-     * Delay between sending text message and GPS message.
-     * Rationale: Text msg → LoRa TX → Debugger RX → 500ms delay → ACK TX → LoRa RX
-     * This typically takes ~800-1000ms total, using 1200ms for safety margin.
-     */
-    private static final long GPS_MESSAGE_DELAY_MS = 1200;
 
     private final MutableLiveData<String> gpsDisplay = new MutableLiveData<>();
     private final MutableLiveData<String> showToast = new MutableLiveData<>();
