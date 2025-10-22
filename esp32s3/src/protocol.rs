@@ -118,23 +118,17 @@ fn unpack_text(packed: &[u8], char_count: usize) -> Result<String<64>, &'static 
 #[repr(u8)]
 pub enum MessageType {
     Text = 0x01,
-    Gps = 0x02,
-    Ack = 0x03,
+    Ack = 0x02,
 }
 
-/// Text message containing only text
+/// Text message with optional GPS coordinates
 #[derive(Debug, Clone, PartialEq, Format)]
 pub struct TextMessage {
     pub seq: u8,
     pub text: String<64>, // Max 50 chars (optimized for long-range transmission)
-}
-
-/// GPS message containing only GPS coordinates (no text)
-#[derive(Debug, Clone, Copy, PartialEq, Format)]
-pub struct GpsMessage {
-    pub seq: u8,
-    pub lat: i32, // latitude * 1_000_000
-    pub lon: i32, // longitude * 1_000_000
+    pub has_gps: bool,    // Whether GPS coordinates are included
+    pub lat: i32,         // latitude * 1_000_000 (only valid if has_gps=true)
+    pub lon: i32,         // longitude * 1_000_000 (only valid if has_gps=true)
 }
 
 /// Acknowledgment message
@@ -147,7 +141,6 @@ pub struct AckMessage {
 #[derive(Debug, Clone, PartialEq, Format)]
 pub enum Message {
     Text(TextMessage),
-    Gps(GpsMessage),
     Ack(AckMessage),
 }
 
@@ -166,7 +159,13 @@ impl Message {
                 let packed_text = pack_text(&text_msg.text)?;
                 let packed_len = packed_text.len();
 
-                if buf.len() < 4 + packed_len {
+                let total_size = if text_msg.has_gps {
+                    5 + packed_len + 8 // type + seq + charCount + packedLen + hasGps + packed + lat + lon
+                } else {
+                    5 + packed_len // type + seq + charCount + packedLen + hasGps + packed
+                };
+
+                if buf.len() < total_size {
                     return Err("Buffer too small");
                 }
 
@@ -175,18 +174,16 @@ impl Message {
                 buf[2] = text_msg.text.len() as u8; // Store original character count
                 buf[3] = packed_len as u8; // Store packed byte count
                 buf[4..4 + packed_len].copy_from_slice(&packed_text);
+                buf[4 + packed_len] = if text_msg.has_gps { 1 } else { 0 };
 
-                Ok(4 + packed_len)
-            }
-            Message::Gps(gps) => {
-                if buf.len() < 10 {
-                    return Err("Buffer too small");
+                if text_msg.has_gps {
+                    buf[5 + packed_len..9 + packed_len]
+                        .copy_from_slice(&text_msg.lat.to_le_bytes());
+                    buf[9 + packed_len..13 + packed_len]
+                        .copy_from_slice(&text_msg.lon.to_le_bytes());
                 }
-                buf[0] = MessageType::Gps as u8;
-                buf[1] = gps.seq;
-                buf[2..6].copy_from_slice(&gps.lat.to_le_bytes());
-                buf[6..10].copy_from_slice(&gps.lon.to_le_bytes());
-                Ok(10)
+
+                Ok(total_size)
             }
             Message::Ack(ack) => {
                 if buf.len() < 2 {
@@ -209,34 +206,44 @@ impl Message {
         match buf[0] {
             0x01 => {
                 // Text message
-                if buf.len() < 4 {
+                if buf.len() < 5 {
                     return Err("Buffer too small for text message header");
                 }
                 let seq = buf[1];
                 let char_count = buf[2] as usize;
                 let packed_len = buf[3] as usize;
 
-                if buf.len() < 4 + packed_len {
-                    return Err("Buffer too small for packed text");
+                if buf.len() < 5 + packed_len {
+                    return Err("Buffer too small for packed text + hasGps flag");
                 }
 
                 let packed_bytes = &buf[4..4 + packed_len];
                 let text = unpack_text(packed_bytes, char_count)?;
+                let has_gps = buf[4 + packed_len] != 0;
 
-                Ok(Message::Text(TextMessage { seq, text }))
+                let (lat, lon) = if has_gps {
+                    if buf.len() < 5 + packed_len + 8 {
+                        return Err("Buffer too small for GPS data");
+                    }
+                    let lat =
+                        i32::from_le_bytes(buf[5 + packed_len..9 + packed_len].try_into().unwrap());
+                    let lon = i32::from_le_bytes(
+                        buf[9 + packed_len..13 + packed_len].try_into().unwrap(),
+                    );
+                    (lat, lon)
+                } else {
+                    (0, 0)
+                };
+
+                Ok(Message::Text(TextMessage {
+                    seq,
+                    text,
+                    has_gps,
+                    lat,
+                    lon,
+                }))
             }
             0x02 => {
-                // GPS message
-                if buf.len() < 10 {
-                    return Err("Buffer too small for GPS message");
-                }
-                let seq = buf[1];
-                let lat = i32::from_le_bytes(buf[2..6].try_into().unwrap());
-                let lon = i32::from_le_bytes(buf[6..10].try_into().unwrap());
-
-                Ok(Message::Gps(GpsMessage { seq, lat, lon }))
-            }
-            0x03 => {
                 // ACK message
                 if buf.len() < 2 {
                     return Err("Buffer too small for ack");

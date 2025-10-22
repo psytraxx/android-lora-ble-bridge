@@ -109,31 +109,23 @@ public class MessageViewModel extends ViewModel {
         Location location = gpsManager.getLastKnownLocation();
 
         try {
-            // Send text message
+            // Send unified text message with optional GPS
             final byte textSeq = seqCounter++;
-            Protocol.TextMessage textMsg = new Protocol.TextMessage(textSeq, text);
-            bleManager.sendMessage(textMsg);
-
-            // Add to message adapter
-            messageAdapter.addMessage(text, true, textSeq);
-
-            // Send GPS if available
+            Protocol.TextMessage textMsg;
+            
             if (location != null) {
                 final int lat = (int) (location.getLatitude() * 1_000_000);
                 final int lon = (int) (location.getLongitude() * 1_000_000);
-                final byte gpsSeq = seqCounter++;
-
-                // Delay to allow ACK for text message to be received first
-                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                    Protocol.GpsMessage gpsMsg = new Protocol.GpsMessage(gpsSeq, lat, lon);
-                    bleManager.sendMessage(gpsMsg);
-
-                    double latDisplay = lat / 1_000_000.0;
-                    double lonDisplay = lon / 1_000_000.0;
-                    messageAdapter.addMessage(String.format(Locale.US, "📍 GPS: %.6f, %.6f", latDisplay, lonDisplay),
-                            true, gpsSeq);
-                }, GPS_MESSAGE_DELAY_MS);
+                textMsg = new Protocol.TextMessage(textSeq, text, lat, lon);
+                // Display text without GPS coordinates, but store GPS data for Maps click
+                messageAdapter.addMessage(text, true, textSeq, true, 
+                    location.getLatitude(), location.getLongitude());
+            } else {
+                textMsg = new Protocol.TextMessage(textSeq, text);
+                messageAdapter.addMessage(text, true, textSeq);
             }
+            
+            bleManager.sendMessage(textMsg);
 
         } catch (Exception e) {
             Log.e(TAG, "Error sending message: " + e.getMessage());
@@ -143,12 +135,14 @@ public class MessageViewModel extends ViewModel {
     private void handleReceivedMessage(Protocol.Message message) {
         if (message instanceof Protocol.TextMessage textMsg) {
             Log.d(TAG, "Text message received: " + textMsg.text);
-            messageAdapter.addMessage(textMsg.text, false, textMsg.seq);
-        } else if (message instanceof Protocol.GpsMessage gpsMsg) {
-            Log.d(TAG, "GPS message received: lat=" + gpsMsg.lat + ", lon=" + gpsMsg.lon);
-            double lat = gpsMsg.lat / 1_000_000.0;
-            double lon = gpsMsg.lon / 1_000_000.0;
-            messageAdapter.addMessage(String.format(Locale.US, "📍 GPS: %.6f, %.6f", lat, lon), false, gpsMsg.seq);
+            // Display text without GPS coordinates, but store GPS data for Maps click
+            if (textMsg.hasGps) {
+                double lat = textMsg.lat / 1_000_000.0;
+                double lon = textMsg.lon / 1_000_000.0;
+                messageAdapter.addMessage(textMsg.text, false, textMsg.seq, true, lat, lon);
+            } else {
+                messageAdapter.addMessage(textMsg.text, false, textMsg.seq);
+            }
         } else if (message instanceof Protocol.AckMessage ackMsg) {
             Log.d(TAG, "ACK received for seq: " + ackMsg.seq);
             messageAdapter.updateAckStatus(ackMsg.seq, MessageAdapter.AckStatus.DELIVERED);

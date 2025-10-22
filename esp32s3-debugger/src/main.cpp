@@ -325,13 +325,34 @@ void loop()
                 Serial.print(msg.textData.seq);
                 Serial.print(", text: \"");
                 Serial.print(msg.textData.text);
-                Serial.println("\"");
+                Serial.print("\"");
+
+                if (msg.textData.hasGps)
+                {
+                    Serial.print(", GPS: ");
+                    Serial.print(msg.textData.lat / 1000000.0, 6);
+                    Serial.print("°, ");
+                    Serial.print(msg.textData.lon / 1000000.0, 6);
+                    Serial.print("°");
+                }
+                Serial.println();
 
                 // Display text message on screen
                 String displayText = "TXT #";
                 displayText += String(msg.textData.seq);
                 displayText += ": ";
                 displayText += String(msg.textData.text);
+
+                // Add GPS info if available
+                if (msg.textData.hasGps)
+                {
+                    displayText += " [";
+                    displayText += String(msg.textData.lat / 1000000.0, 5);
+                    displayText += "°,";
+                    displayText += String(msg.textData.lon / 1000000.0, 5);
+                    displayText += "°]";
+                }
+
                 addMessageToDisplay(displayText, packet.rssi, packet.snr);
 
                 // Wait for sender to return to RX mode (allow time for TX->RX transition)
@@ -346,53 +367,6 @@ void loop()
                 {
                     Serial.print("Sending ACK for seq: ");
                     Serial.println(msg.textData.seq);
-                    bool ackSent = loraManager.sendPacket(ackBuf, ackLen);
-                    if (ackSent)
-                    {
-                        Serial.println("ACK sent successfully");
-                    }
-                    else
-                    {
-                        Serial.println("ACK send failed");
-                    }
-                    loraManager.startReceiveMode();
-                }
-
-                break;
-            }
-
-            case MessageType::Gps:
-            {
-                Serial.print("GPS message - seq: ");
-                Serial.print(msg.gpsData.seq);
-                Serial.print(", lat: ");
-                Serial.print(msg.gpsData.lat / 1000000.0, 6);
-                Serial.print("°, lon: ");
-                Serial.print(msg.gpsData.lon / 1000000.0, 6);
-                Serial.println("°");
-
-                // Display GPS coordinates on screen
-                String gpsDisplay = "GPS #";
-                gpsDisplay += String(msg.gpsData.seq);
-                gpsDisplay += ": ";
-                gpsDisplay += String(msg.gpsData.lat / 1000000.0, 5);
-                gpsDisplay += "° ";
-                gpsDisplay += String(msg.gpsData.lon / 1000000.0, 5);
-                gpsDisplay += "°";
-                addMessageToDisplay(gpsDisplay, packet.rssi, packet.snr);
-
-                // Wait for sender to return to RX mode (allow time for TX->RX transition)
-                delay(500);
-
-                // Send ACK
-                Message ack = Message::createAck(msg.gpsData.seq);
-                uint8_t ackBuf[64];
-                int ackLen = ack.serialize(ackBuf, sizeof(ackBuf));
-
-                if (ackLen > 0)
-                {
-                    Serial.print("Sending ACK for GPS seq: ");
-                    Serial.println(msg.gpsData.seq);
                     bool ackSent = loraManager.sendPacket(ackBuf, ackLen);
                     if (ackSent)
                     {

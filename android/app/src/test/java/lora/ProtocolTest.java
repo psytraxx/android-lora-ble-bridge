@@ -16,7 +16,7 @@ public class ProtocolTest {
     public void testTextMessageSerialization_Empty() {
         Protocol.TextMessage msg = new Protocol.TextMessage((byte) 0, "");
         byte[] data = msg.serialize();
-        assertEquals(4, data.length);
+        assertEquals(5, data.length);
 
         Protocol.Message deserialized = Protocol.Message.deserialize(data);
         assertTrue(deserialized instanceof Protocol.TextMessage);
@@ -30,7 +30,7 @@ public class ProtocolTest {
     public void testTextMessageSerialization_Short() {
         Protocol.TextMessage msg = new Protocol.TextMessage((byte) 1, "HELLO");
         byte[] data = msg.serialize();
-        assertEquals(8, data.length);
+        assertEquals(9, data.length);
 
         Protocol.Message deserialized = Protocol.Message.deserialize(data);
         assertTrue(deserialized instanceof Protocol.TextMessage);
@@ -41,21 +41,40 @@ public class ProtocolTest {
     }
 
     @Test
-    public void testGpsMessageSerialization() {
+    public void testTextMessageWithGpsSerialization() {
         int lat = 37774200;
         int lon = -122419200;
-        Protocol.GpsMessage msg = new Protocol.GpsMessage((byte) 5, lat, lon);
+        Protocol.TextMessage msg = new Protocol.TextMessage((byte) 5, "AT CHECKPOINT", lat, lon);
         byte[] data = msg.serialize();
 
-        assertEquals(10, data.length);
+        // Verify it has GPS data
+        assertTrue(data.length > 10); // Should be longer than text-only
 
         Protocol.Message deserialized = Protocol.Message.deserialize(data);
-        assertTrue(deserialized instanceof Protocol.GpsMessage);
-        Protocol.GpsMessage result = (Protocol.GpsMessage) deserialized;
+        assertTrue(deserialized instanceof Protocol.TextMessage);
+        Protocol.TextMessage result = (Protocol.TextMessage) deserialized;
 
+        assertEquals("AT CHECKPOINT", result.text);
+        assertTrue(result.hasGps);
         assertEquals(lat, result.lat);
         assertEquals(lon, result.lon);
         assertEquals((byte) 5, result.seq);
+    }
+
+    @Test
+    public void testTextMessageWithoutGpsSerialization() {
+        Protocol.TextMessage msg = new Protocol.TextMessage((byte) 3, "NO GPS HERE");
+        byte[] data = msg.serialize();
+
+        Protocol.Message deserialized = Protocol.Message.deserialize(data);
+        assertTrue(deserialized instanceof Protocol.TextMessage);
+        Protocol.TextMessage result = (Protocol.TextMessage) deserialized;
+
+        assertEquals("NO GPS HERE", result.text);
+        assertFalse(result.hasGps);
+        assertEquals(0, result.lat);
+        assertEquals(0, result.lon);
+        assertEquals((byte) 3, result.seq);
     }
 
     @Test

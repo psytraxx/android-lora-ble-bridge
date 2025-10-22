@@ -152,16 +152,28 @@ Message Message::createText(uint8_t seq, const char *text)
     }
     memcpy(msg.textData.text, text, len);
     msg.textData.text[len] = '\0';
+    msg.textData.hasGps = false;
+    msg.textData.lat = 0;
+    msg.textData.lon = 0;
     return msg;
 }
 
-Message Message::createGps(uint8_t seq, int32_t lat, int32_t lon)
+Message Message::createTextWithGps(uint8_t seq, const char *text, int32_t lat, int32_t lon)
 {
     Message msg;
-    msg.type = MessageType::Gps;
-    msg.gpsData.seq = seq;
-    msg.gpsData.lat = lat;
-    msg.gpsData.lon = lon;
+    msg.type = MessageType::Text;
+    msg.textData.seq = seq;
+    // Copy text to fixed-size buffer, ensure null-termination
+    size_t len = strlen(text);
+    if (len > MAX_TEXT_LENGTH)
+    {
+        len = MAX_TEXT_LENGTH; // Truncate if too long
+    }
+    memcpy(msg.textData.text, text, len);
+    msg.textData.text[len] = '\0';
+    msg.textData.hasGps = true;
+    msg.textData.lat = lat;
+    msg.textData.lon = lon;
     return msg;
 }
 
@@ -195,7 +207,13 @@ int Message::serialize(uint8_t *buf, size_t bufSize) const
             return -1; // Packing failed
         }
 
-        if (bufSize < 4 + packedLen)
+        size_t totalSize = 5 + packedLen; // type + seq + charCount + packedLen + hasGps + packed text
+        if (textData.hasGps)
+        {
+            totalSize += 8; // lat + lon
+        }
+
+        if (bufSize < totalSize)
         {
             return -1; // Buffer too small
         }
@@ -205,21 +223,15 @@ int Message::serialize(uint8_t *buf, size_t bufSize) const
         buf[2] = textLen;   // Store original character count
         buf[3] = packedLen; // Store packed byte count
         memcpy(buf + 4, packedText, packedLen);
+        buf[4 + packedLen] = textData.hasGps ? 1 : 0;
 
-        return 4 + packedLen;
-    }
-
-    case MessageType::Gps:
-    {
-        if (bufSize < 10)
+        if (textData.hasGps)
         {
-            return -1; // Buffer too small
+            memcpy(buf + 5 + packedLen, &textData.lat, 4); // Little-endian
+            memcpy(buf + 9 + packedLen, &textData.lon, 4); // Little-endian
         }
-        buf[0] = static_cast<uint8_t>(MessageType::Gps);
-        buf[1] = gpsData.seq;
-        memcpy(buf + 2, &gpsData.lat, 4); // Little-endian
-        memcpy(buf + 6, &gpsData.lon, 4); // Little-endian
-        return 10;
+
+        return totalSize;
     }
 
     case MessageType::Ack:
@@ -250,7 +262,7 @@ bool Message::deserialize(const uint8_t *buf, size_t len)
     {
     case 0x01:
     { // Text message
-        if (len < 4)
+        if (len < 5)
         {
             return false; // Buffer too small for text message header
         }
@@ -260,9 +272,9 @@ bool Message::deserialize(const uint8_t *buf, size_t len)
         uint8_t charCount = buf[2];
         uint8_t packedLen = buf[3];
 
-        if (len < 4 + packedLen)
+        if (len < 5 + packedLen)
         {
-            return false; // Buffer too small for packed text
+            return false; // Buffer too small for packed text + hasGps flag
         }
 
         const uint8_t *packedBytes = buf + 4;
@@ -271,25 +283,27 @@ bool Message::deserialize(const uint8_t *buf, size_t len)
             return false;
         }
 
+        textData.hasGps = (buf[4 + packedLen] != 0);
+
+        if (textData.hasGps)
+        {
+            if (len < 5 + packedLen + 8)
+            {
+                return false; // Buffer too small for GPS data
+            }
+            memcpy(&textData.lat, buf + 5 + packedLen, 4); // Little-endian
+            memcpy(&textData.lon, buf + 9 + packedLen, 4); // Little-endian
+        }
+        else
+        {
+            textData.lat = 0;
+            textData.lon = 0;
+        }
+
         return true;
     }
 
     case 0x02:
-    { // GPS message
-        if (len < 10)
-        {
-            return false; // Buffer too small for GPS message
-        }
-
-        type = MessageType::Gps;
-        gpsData.seq = buf[1];
-        memcpy(&gpsData.lat, buf + 2, 4); // Little-endian
-        memcpy(&gpsData.lon, buf + 6, 4); // Little-endian
-
-        return true;
-    }
-
-    case 0x03:
     { // ACK message
         if (len < 2)
         {
