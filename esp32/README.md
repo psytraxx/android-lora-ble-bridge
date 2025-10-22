@@ -49,7 +49,7 @@ LoRa Module Pins:
 Service UUID:              00001234-0000-1000-8000-00805f9b34fb
 TX Characteristic UUID:    00005678-0000-1000-8000-00805f9b34fb  (for notifications to phone)
 RX Characteristic UUID:    00005679-0000-1000-8000-00805f9b34fb  (for writes from phone)
-Device Name:               ESP32-LoRa
+Device Name:               ESP32S3-LoRa
 ```
 
 ## Building and Uploading
@@ -106,7 +106,7 @@ esp32/
 
 ## Usage
 
-1. **Power on the ESP32**: The device will start advertising as "ESP32-LoRa"
+1. **Power on the ESP32**: The device will start advertising as "ESP32S3-LoRa"
 2. **Connect via Android app**: Use the companion Android app to connect via BLE
 3. **Send messages**: Messages sent from the app are transmitted via LoRa
 4. **Receive messages**: Incoming LoRa messages are forwarded to the connected phone via BLE
