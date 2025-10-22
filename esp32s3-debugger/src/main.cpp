@@ -30,7 +30,7 @@
 #define LORA_MOSI 11 // SPI MOSI pin
 #define LORA_SS 10   // LoRa chip select pin
 #define LORA_RST 43  // LoRa reset pin
-#define LORA_DIO0 44 // LoRa DIO0 / IRQ pin
+#define LORA_DIO0 3  // LoRa DIO0 / IRQ pin (RTC GPIO for wake-up)
 
 // --- Display Pin Definitions ---
 /**
@@ -54,8 +54,7 @@
 #define POWER_ON 15 // Power on pin
 
 // --- Button Pin Definitions (LilyGo T-Display-S3) ---
-#define BUTTON_1 0  // Boot button (left)
-#define BUTTON_2 14 // User button (right)
+#define WAKE_BUTTON 14 // User button (right) - used for wake-up from deep sleep
 
 #define SERIAL_BAUD_RATE 115200
 
@@ -84,16 +83,23 @@ int messageCount = 0;
 int lastRssi = 0;    // Last received RSSI
 float lastSnr = 0.0; // Last received SNR
 
+// Button debouncing and long press detection
+unsigned long lastButtonPressTime = 0;
+const unsigned long BUTTON_DEBOUNCE = 50;       // 50ms debounce
+const unsigned long LONG_PRESS_DURATION = 2000; // 2 seconds for deep sleep
+bool buttonPressed = false;
+unsigned long buttonPressStartTime = 0;
+
 // Display dimming settings
-const unsigned long DISPLAY_DIM_TIMEOUT = 30000; // 30 seconds
+const unsigned long DISPLAY_DIM_TIMEOUT = 10000; // 10 seconds
 const uint8_t DISPLAY_BRIGHT = 255;              // Full brightness
 const uint8_t DISPLAY_DIM = 10;                  // Dimmed brightness
 unsigned long lastActivityTime = 0;              // Track last activity
 bool displayDimmed = false;                      // Track dimming state
 
 // Sleep mode settings
-const unsigned long SLEEP_TIMEOUT = 120000; // 2 minutes (120 seconds)
-RTC_DATA_ATTR int bootCount = 0;            // Persistent across deep sleep
+const unsigned long SLEEP_TIMEOUT = 30000; // 30 seconds
+RTC_DATA_ATTR int bootCount = 0;           // Persistent across deep sleep
 
 /**
  * @brief LoRa receive callback - handles incoming LoRa packets event-driven
@@ -117,48 +123,43 @@ void onLoRaReceive(int packetSize)
 /**
  * @brief Configure wake-up sources for deep sleep
  */
-void configureSleepWakeup()
+void configureDeepSleepWakeup()
 {
     // Configure button wake-up (active LOW - pressed when connected to GND)
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)BUTTON_1, 0); // Wake on button press
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON, 0); // Wake on button press
 
-    // Configure LoRa DIO0 wake-up (active HIGH when packet received)
-    esp_sleep_enable_ext1_wakeup(1ULL << LORA_DIO0, ESP_EXT1_WAKEUP_ANY_HIGH);
-
-    Serial.println("Configured wake-up sources:");
-    Serial.println("  - Button 1 (GPIO 0) - active LOW");
-    Serial.println("  - LoRa DIO0 (GPIO 44) - active HIGH");
+    Serial.println("Configured deep sleep wake-up sources:");
+    Serial.println("  - Wake Button (GPIO 14) - active LOW");
 }
 
 /**
- * @brief Enter deep sleep mode
+ * @brief Enter deep sleep mode (triggered by long button press)
  */
 void enterDeepSleep()
 {
     Serial.println("\n===================================");
-    Serial.println("Entering deep sleep mode...");
-    Serial.println("Wake-up sources:");
-    Serial.println("  - Button press (GPIO 0)");
-    Serial.println("  - LoRa message (GPIO 44)");
+    Serial.println("Entering DEEP SLEEP mode...");
+    Serial.println("Wake-up source:");
+    Serial.println("  - Button press (GPIO 14)");
     Serial.println("===================================\n");
 
     // Show sleep message on display
     display.clearScreen();
     display.setTextSize(2);
-    display.setCursor(10, 60);
-    display.printLine("Entering Sleep Mode");
-    display.setCursor(10, 90);
+    display.setCursor(10, 40);
+    display.printLine("DEEP SLEEP");
+    display.setCursor(10, 70);
     display.setTextSize(1);
-    display.printLine("Press button or send");
-    display.printLine("LoRa message to wake");
+    display.printLine("Manual sleep activated");
+    display.printLine("Press button to wake");
 
     delay(2000); // Show message for 2 seconds
 
     // Turn off display backlight
     display.setBrightness(0);
 
-    // Configure wake-up sources
-    configureSleepWakeup();
+    // Configure wake-up sources (button only for deep sleep)
+    configureDeepSleepWakeup();
 
     // Flush serial
     Serial.flush();
@@ -168,33 +169,93 @@ void enterDeepSleep()
 }
 
 /**
- * @brief Check and handle wake-up reason
+ * @brief Configure wake-up sources for light sleep
+ */
+void configureLightSleepWakeup()
+{
+    // Configure LoRa DIO0 wake-up only (active HIGH when packet received)
+    esp_sleep_enable_ext1_wakeup(1ULL << LORA_DIO0, ESP_EXT1_WAKEUP_ANY_HIGH);
+
+    Serial.println("Configured light sleep wake-up sources:");
+    Serial.println("  - LoRa DIO0 (GPIO 3) - active HIGH only");
+}
+
+/**
+ * @brief Enter light sleep mode
+ * Light sleep preserves RAM and peripheral states (including SPI and LoRa module)
+ * This allows us to receive the packet that triggered the wake-up
+ */
+void enterLightSleep()
+{
+    Serial.println("\n===================================");
+    Serial.println("Entering LIGHT SLEEP mode...");
+    Serial.println("Wake-up source:");
+    Serial.println("  - LoRa message only (GPIO 3)");
+    Serial.println("===================================\n");
+
+    // Show sleep message on display
+    display.clearScreen();
+    display.setTextSize(2);
+    display.setCursor(10, 60);
+    display.printLine("Light Sleep Mode");
+    display.setCursor(10, 90);
+    display.setTextSize(1);
+    display.printLine("Send LoRa message");
+    display.printLine("to wake up");
+
+    delay(2000); // Show message for 2 seconds
+
+    // Turn off display backlight
+    display.setBrightness(0);
+
+    // Configure wake-up sources (LoRa only)
+    configureLightSleepWakeup();
+
+    // Flush serial
+    Serial.flush();
+
+    // Enter light sleep (preserves RAM and peripherals)
+    esp_light_sleep_start();
+
+    // Execution continues here after wake-up
+    Serial.println("\n===================================");
+    Serial.println("Woke up from light sleep!");
+    Serial.println("===================================\n");
+
+    // Restore display brightness
+    display.setBrightness(DISPLAY_BRIGHT);
+    displayDimmed = false;
+    lastActivityTime = millis();
+
+    // Wake-up reason (only LoRa is configured)
+    Serial.println("Woke up from LoRa message (EXT1)");
+    display.clearScreen();
+    display.printLine("Woke: LoRa Message");
+    // LoRa callback will process the packet automatically
+}
+
+/**
+ * @brief Check and handle wake-up reason on initial boot
  */
 void printWakeupReason()
 {
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
-    bootCount++;
     Serial.print("Boot count: ");
     Serial.println(bootCount);
 
     switch (wakeup_reason)
     {
     case ESP_SLEEP_WAKEUP_EXT0:
-        Serial.println("Woke up from button press (EXT0)");
-        display.printLine("Woke: Button");
+        Serial.println("Woke up from deep sleep via button press (EXT0)");
+        display.printLine("Woke: Button (Deep Sleep)");
         break;
-    case ESP_SLEEP_WAKEUP_EXT1:
-        Serial.println("Woke up from LoRa message (EXT1)");
-        display.printLine("Woke: LoRa Message");
-        break;
-    case ESP_SLEEP_WAKEUP_TIMER:
-        Serial.println("Woke up from timer");
-        display.printLine("Woke: Timer");
+    case ESP_SLEEP_WAKEUP_UNDEFINED:
+        Serial.println("Power-on or reset");
+        display.printLine("Power On / Reset");
         break;
     default:
-        Serial.println("Not woken from deep sleep (power-on or reset)");
-        display.printLine("Power On / Reset");
+        Serial.println("Woke from other source");
         break;
     }
 }
@@ -278,18 +339,19 @@ void setup()
     Serial.begin(SERIAL_BAUD_RATE);
     delay(2000);
 
+    bootCount++; // Increment boot counter (persists in RTC memory)
+
     pinMode(POWER_ON, OUTPUT);
     digitalWrite(POWER_ON, HIGH);
 
     // Configure buttons as input with pull-up
-    pinMode(BUTTON_1, INPUT_PULLUP);
-    pinMode(BUTTON_2, INPUT_PULLUP);
+    pinMode(WAKE_BUTTON, INPUT_PULLUP);
 
     // Initialize the display for visual feedback
     display.setup();
     display.printLine("TFT Initialized.");
 
-    // Print wake-up reason
+    // Print wake-up reason (only relevant on first boot, not after light sleep)
     printWakeupReason();
 
     display.printLine("LoRa Receiver Starting...");
@@ -385,6 +447,8 @@ void setup()
     Serial.println("\n===================================");
     Serial.println("All systems initialized successfully");
     Serial.println("Waiting for LoRa messages...");
+    Serial.println("Using light sleep (preserves LoRa state)");
+    Serial.println("Long press button (2s) for deep sleep");
     Serial.println("===================================\n");
 
     // Don't clear screen - keep init messages until first message arrives
@@ -398,6 +462,60 @@ void setup()
  */
 void loop()
 {
+    // Check for button press (long press = deep sleep, short press = activity reset)
+    bool currentButtonState = digitalRead(WAKE_BUTTON) == LOW;
+
+    if (currentButtonState && !buttonPressed && (millis() - lastButtonPressTime > BUTTON_DEBOUNCE))
+    {
+        // Button just pressed (after debounce)
+        buttonPressed = true;
+        buttonPressStartTime = millis();
+        Serial.println("Button pressed - hold for 2s for deep sleep");
+
+        // Show indicator on display
+        display.setCursor(0, display.height() - 32);
+        display.setTextSize(1);
+        display.setTextColor(YELLOW, BLACK);
+        display.print("Hold for deep sleep...");
+        display.setTextColor(WHITE, BLACK);
+    }
+    else if (buttonPressed)
+    {
+        unsigned long pressDuration = millis() - buttonPressStartTime;
+
+        if (!currentButtonState)
+        {
+            // Button released
+            buttonPressed = false;
+            lastButtonPressTime = millis();
+
+            if (pressDuration >= LONG_PRESS_DURATION)
+            {
+                Serial.println("Long press detected - entering deep sleep");
+                enterDeepSleep();
+                // Never returns (device resets on wake)
+            }
+            else
+            {
+                // Short press - reset activity timer and restore brightness
+                Serial.println("Button short press - activity reset");
+                lastActivityTime = millis();
+                if (displayDimmed)
+                {
+                    display.setBrightness(DISPLAY_BRIGHT);
+                    displayDimmed = false;
+                }
+            }
+        }
+        else if (pressDuration >= LONG_PRESS_DURATION)
+        {
+            // Long press threshold reached while still held - enter deep sleep immediately
+            Serial.println("Long press threshold reached - entering deep sleep");
+            enterDeepSleep();
+            // Never returns (device resets on wake)
+        }
+    }
+
     // Check for messages from LoRa (event-driven via callback)
     LoRaPacket packet;
     if (xQueueReceive(loRaQueue, &packet, 0) == pdTRUE)
@@ -503,19 +621,6 @@ void loop()
         }
     }
 
-    // Check for button press to reset activity timer
-    if (digitalRead(BUTTON_1) == LOW || digitalRead(BUTTON_2) == LOW)
-    {
-        lastActivityTime = millis();
-        if (displayDimmed)
-        {
-            display.setBrightness(DISPLAY_BRIGHT);
-            displayDimmed = false;
-            Serial.println("Display brightness restored by button press");
-        }
-        delay(50); // Debounce
-    }
-
     // Check for display dimming timeout
     if (!displayDimmed && (millis() - lastActivityTime > DISPLAY_DIM_TIMEOUT))
     {
@@ -527,8 +632,10 @@ void loop()
     // Check for sleep timeout
     if (millis() - lastActivityTime > SLEEP_TIMEOUT)
     {
-        Serial.println("Inactivity timeout - entering sleep mode");
-        enterDeepSleep();
+        Serial.println("Inactivity timeout - entering light sleep mode");
+        enterLightSleep();
+        // After wake-up, execution continues here
+        // Reset the dimming flag since we restored brightness in enterLightSleep()
     }
 
     // Small delay to prevent watchdog issues and allow task switching
