@@ -47,62 +47,9 @@ graph TD
 ```
 android-lora-ble-bridge/
 ├── esp32/                # ESP32 firmware (C++/Arduino) - Transceiver with BLE
-│   ├── src/
-│   │   ├── main.cpp          # Main firmware with BLE and LoRa
-│   │   ├── BLEManager.cpp    # BLE GATT server implementation
-│   │   ├── Protocol.cpp      # Binary protocol implementation
-│   │   └── SleepManager.cpp  # Power management and deep sleep
-│   ├── include/
-│   │   ├── BLEManager.h
-│   │   ├── LEDManager.h
-│   │   ├── LoRaManager.h
-│   │   ├── Protocol.h
-│   │   ├── SleepManager.h
-│   │   └── lora_config.h
-│   ├── platformio.ini        # PlatformIO configuration
-│   └── CHANGELOG.md
 ├── esp32s3/              # ESP32-S3 firmware (Rust/Embassy) - Alternative implementation
-│   ├── src/
-│   │   ├── bin/
-│   │   │   └── main.rs       # Main entry point and task spawning
-│   │   ├── ble.rs            # BLE GATT server (advertises as "ESP32S3-LoRa")
-│   │   ├── lora.rs           # LoRa radio driver and message handling
-│   │   ├── protocol.rs       # Binary protocol implementation
-│   │   └── lib.rs            # Library root
-│   ├── Cargo.toml            # Dependencies and build config
-│   ├── build.rs              # Build script
-│   └── rust-toolchain.toml   # Rust toolchain specification
 ├── esp32s3-debugger/     # ESP32-S3 LoRa receiver with display (C++/Arduino)
-│   ├── src/
-│   │   ├── main.cpp          # Receiver firmware with TFT display
-│   │   └── Protocol.cpp      # Protocol implementation
-│   ├── include/
-│   │   ├── DisplayManager.h  # TFT display management
-│   │   ├── LoRaManager.h
-│   │   ├── Protocol.h
-│   │   └── lora_config.h
-│   ├── platformio.ini        # PlatformIO configuration
-│   └── CHANGELOG.md
 ├── android/              # Android application (Java)
-│   ├── app/src/main/
-│   │   ├── java/com/lora/android/
-│   │   │   ├── MainActivity.java
-│   │   │   ├── MessageAdapter.java
-│   │   │   ├── MessageViewModel.java
-│   │   │   ├── BleManager.java
-│   │   │   ├── GpsManager.java
-│   │   │   ├── PermissionHelper.java
-│   │   │   └── Protocol.java
-│   │   └── res/
-│   │       ├── layout/
-│   │       │   ├── activity_main.xml
-│   │       │   └── message_item.xml
-│   │       └── drawable/
-│   │           ├── message_bubble_sent.xml
-│   │           ├── message_bubble_received.xml
-│   │           ├── ic_launcher_background.xml
-│   │           └── ic_launcher_foreground.xml
-│   └── build.gradle
 ├── protocol.md           # Protocol specification
 ├── CHANGELOG.md          # Project changelog
 └── README.md            # This file (you are here)
