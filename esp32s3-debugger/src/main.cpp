@@ -14,7 +14,6 @@
 #include "lora_config.h"
 #include "LoRaManager.h"
 #include "Protocol.h"
-#include "LEDManager.h"
 #include <freertos/queue.h>
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
@@ -56,12 +55,8 @@
 
 #define SERIAL_BAUD_RATE 115200
 
-// --- LED Pin Definition ---
-#define LED_PIN 2 // Built-in LED on ESP32 DevKit
-
 // Manager objects
 LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_FREQUENCY);
-LEDManager ledManager(LED_PIN);
 
 // Struct for LoRa packets with metadata
 struct LoRaPacket
@@ -286,9 +281,6 @@ void setup()
     display.printLine("LoRa Receiver ready.");
     Serial.println("LoRa Receiver ready.");
 
-    // Initialize LED
-    ledManager.setup();
-
     Serial.println("\n===================================");
     Serial.println("All systems initialized successfully");
     Serial.println("Waiting for LoRa messages...");
@@ -366,8 +358,6 @@ void loop()
                     loraManager.startReceiveMode();
                 }
 
-                // Blink LED for incoming message
-                ledManager.blink();
                 break;
             }
 
@@ -415,8 +405,6 @@ void loop()
                     loraManager.startReceiveMode();
                 }
 
-                // Blink LED for incoming message
-                ledManager.blink();
                 break;
             }
 
@@ -429,9 +417,6 @@ void loop()
                 String ackDisplay = "ACK #";
                 ackDisplay += String(msg.ackData.seq);
                 addMessageToDisplay(ackDisplay, packet.rssi, packet.snr);
-
-                // Blink LED for ACK
-                ledManager.blink();
                 break;
             }
             }
