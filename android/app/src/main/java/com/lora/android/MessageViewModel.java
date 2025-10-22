@@ -1,8 +1,6 @@
 package com.lora.android;
 
 import android.location.Location;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.Log;
 
 import androidx.lifecycle.LiveData;
@@ -26,16 +24,14 @@ public class MessageViewModel extends ViewModel {
 
     private final MutableLiveData<String> gpsDisplay = new MutableLiveData<>();
     private final MutableLiveData<String> showToast = new MutableLiveData<>();
-
+    private final Observer<String> bleShowToastObserver = showToast::postValue;
     private BleManager bleManager;
     private GpsManager gpsManager;
     private MessageAdapter messageAdapter;
-    private byte seqCounter = 0;
-    private boolean observersRegistered = false;
-
     // Observers for BLE manager
     private final Observer<Protocol.Message> messageReceivedObserver = this::handleReceivedMessage;
-    private final Observer<String> bleShowToastObserver = showToast::postValue;
+    private byte seqCounter = 0;
+    private boolean observersRegistered = false;
 
     public void setManagers(BleManager bleManager, GpsManager gpsManager, MessageAdapter messageAdapter) {
         // Prevent multiple registrations
@@ -112,19 +108,19 @@ public class MessageViewModel extends ViewModel {
             // Send unified text message with optional GPS
             final byte textSeq = seqCounter++;
             Protocol.TextMessage textMsg;
-            
+
             if (location != null) {
                 final int lat = (int) (location.getLatitude() * 1_000_000);
                 final int lon = (int) (location.getLongitude() * 1_000_000);
                 textMsg = new Protocol.TextMessage(textSeq, text, lat, lon);
                 // Display text without GPS coordinates, but store GPS data for Maps click
-                messageAdapter.addMessage(text, true, textSeq, true, 
-                    location.getLatitude(), location.getLongitude());
+                messageAdapter.addMessage(text, true, textSeq, true,
+                        location.getLatitude(), location.getLongitude());
             } else {
                 textMsg = new Protocol.TextMessage(textSeq, text);
                 messageAdapter.addMessage(text, true, textSeq);
             }
-            
+
             bleManager.sendMessage(textMsg);
 
         } catch (Exception e) {

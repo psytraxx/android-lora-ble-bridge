@@ -27,10 +27,6 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private ScrollCallback scrollCallback;
 
-    public interface ScrollCallback {
-        void onMessageAdded();
-    }
-
     public void setScrollCallback(ScrollCallback callback) {
         this.scrollCallback = callback;
     }
@@ -141,7 +137,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
             Uri gmmIntentUri = Uri.parse("geo:" + latitude + "," + longitude + "?q=" + latitude + "," + longitude);
             Intent mapIntent = new Intent(Intent.ACTION_VIEW, gmmIntentUri);
             mapIntent.setPackage("com.google.android.apps.maps");
-            
+
             // Check if Google Maps is installed
             if (mapIntent.resolveActivity(context.getPackageManager()) != null) {
                 context.startActivity(mapIntent);
@@ -162,15 +158,19 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
         DELIVERED // ACK received
     }
 
+    public interface ScrollCallback {
+        void onMessageAdded();
+    }
+
     public static class ChatMessage {
         public final String text;
         public final boolean isSent; // true = sent by user, false = received
         public final long timestamp;
         public final byte seq; // Sequence number for matching ACKs
-        public AckStatus ackStatus;
         public final boolean hasGps;
         public final double latitude;
         public final double longitude;
+        public AckStatus ackStatus;
 
         public ChatMessage(String text, boolean isSent, byte seq) {
             this(text, isSent, seq, false, 0.0, 0.0);

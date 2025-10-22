@@ -15,8 +15,6 @@ import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import java.util.Locale;
-
 import lora.Protocol;
 
 public class MainActivity extends AppCompatActivity {
@@ -36,7 +34,7 @@ public class MainActivity extends AppCompatActivity {
     private MessageViewModel messageViewModel;
     private BleManager bleManager;
     private GpsManager gpsManager;
-    
+
     private android.os.Handler gpsHandler;
     private Runnable gpsUpdateRunnable;
 
@@ -89,6 +87,14 @@ public class MainActivity extends AppCompatActivity {
         bleManager.getConnectionStatus().observe(this, status -> connectionStatusTextView.setText(status));
         bleManager.getConnected().observe(this,
                 connected -> sendButton.setEnabled(connected != null ? connected : false));
+
+        // Add click listener for reconnect functionality
+        connectionStatusTextView.setOnClickListener(v -> {
+            String currentStatus = connectionStatusTextView.getText().toString();
+            if (currentStatus.contains("Tap here to reconnect")) {
+                bleManager.reconnect();
+            }
+        });
 
         checkPermissions();
 
@@ -147,7 +153,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-            @NonNull int[] grantResults) {
+                                           @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_PERMISSIONS) {
             if (PermissionHelper.areAllPermissionsGranted(grantResults)) {
@@ -204,7 +210,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateCharCount(String text) {
-        if (text == null) text = "";
+        if (text == null)
+            text = "";
         int charCount = text.length();
         int packedBytes = Protocol.calculatePackedSize(text);
         int totalMessageSize = 12 + packedBytes; // 12 byte header + packed text
