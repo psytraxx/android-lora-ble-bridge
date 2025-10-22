@@ -15,6 +15,7 @@
 #include "BLEManager.h"
 #include "Protocol.h"
 #include "LEDManager.h"
+#include "SleepManager.h"
 #include <freertos/queue.h>
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
@@ -25,6 +26,7 @@ LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_
 #ifdef LED_PIN
 LEDManager ledManager(LED_PIN);
 #endif
+SleepManager sleepManager(LORA_DIO0); // Initialize sleep manager with LoRa interrupt pin
 
 // Message queues using FreeRTOS
 const int BLE_TO_LORA_QUEUE_SIZE = 10;
@@ -46,6 +48,14 @@ QueueHandle_t loRaQueue;
 
 // BLEManager declared after queues
 BLEManager *bleManager;
+
+/**
+ * @brief Helper function to update sleep activity timer from any context
+ */
+void updateSleepActivity()
+{
+    sleepManager.updateActivity();
+}
 
 /**
  * @brief LoRa receive callback - handles incoming LoRa packets event-driven
@@ -111,6 +121,9 @@ void setup()
 
     // Initialize BLE with queue
     bleManager = new BLEManager(bleToLoraQueue);
+
+    // Set activity callback for sleep management
+    bleManager->setActivityCallback(updateSleepActivity);
 
     // Initialize BLE with retry logic
     const int BLE_RETRY_COUNT = 3;
@@ -204,6 +217,21 @@ void setup()
     ledManager.setup();
 #endif
 
+    // Initialize Sleep Manager
+    sleepManager.setup();
+
+    // Check if we woke from deep sleep and deliver any stored messages
+    if (sleepManager.wasWokenFromSleep())
+    {
+        Serial.print("Woke from deep sleep - ");
+        Serial.print(sleepManager.getStoredMessageCount());
+        Serial.println(" messages in RTC memory");
+        Serial.println(sleepManager.getWakeupReason());
+
+        // Visual confirmation: 3 LED blinks on wake-up
+        ledManager.blink(3, 150, 100);
+    }
+
     Serial.println("\n===================================");
     Serial.println("All systems initialized successfully");
     Serial.println("System running - waiting for connections...");
@@ -211,12 +239,32 @@ void setup()
 }
 
 /**
- * @brief Main loop - handles BLE<->LoRa message bridging
+ * @brief Main loop - handles BLE<->LoRa message bridging and deep sleep management
  */
 void loop()
 {
     // Process BLE events
     bleManager->process();
+
+    // Deliver stored messages from RTC memory when BLE is connected
+    if (bleManager->isConnected() && sleepManager.getStoredMessageCount() > 0)
+    {
+        Message storedMsg;
+        if (sleepManager.retrieveMessage(storedMsg))
+        {
+            if (bleManager->sendMessage(storedMsg))
+            {
+                Serial.println("Delivered stored message from RTC memory to BLE");
+                sleepManager.updateActivity(); // Activity: message delivered
+            }
+            else
+            {
+                // Failed to send, put it back
+                sleepManager.storeMessage(storedMsg);
+                Serial.println("Failed to deliver stored message, will retry");
+            }
+        }
+    }
 
     // Check for messages from BLE to send via LoRa
     Message bleMsg;
@@ -224,6 +272,8 @@ void loop()
     {
         Serial.print("Received message from BLE queue: type=");
         Serial.println((int)bleMsg.type);
+
+        sleepManager.updateActivity(); // Activity: BLE message received
 
         // Serialize and send via LoRa
         uint8_t buf[64];
@@ -251,6 +301,7 @@ void loop()
 #ifdef LED_PIN
                 ledManager.blink(2);
 #endif
+                sleepManager.updateActivity(); // Activity: LoRa transmission
             }
             else
             {
@@ -278,6 +329,8 @@ void loop()
         Serial.print(" dBm, SNR: ");
         Serial.print(packet.snr);
         Serial.println(" dB");
+
+        sleepManager.updateActivity(); // Activity: LoRa packet received
 
         // Deserialize message
         Message msg;
@@ -328,14 +381,25 @@ void loop()
                     loraManager.startReceiveMode();
                 }
 
-                // Queue message for BLE forwarding
-                if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
+                // Try to send via BLE if connected, otherwise store in RTC memory
+                if (bleManager->isConnected())
                 {
-                    Serial.println("Warning: LoRa to BLE queue full, message dropped");
+                    if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
+                    {
+                        Serial.println("Warning: LoRa to BLE queue full, storing in RTC memory");
+                        sleepManager.storeMessage(msg);
+                    }
+                    else
+                    {
+                        // Blink once for incoming message (reduced frequency for power savings)
+                        ledManager.blink();
+                    }
                 }
                 else
                 {
-                    // Blink once for incoming message (reduced frequency for power savings)
+                    // No BLE connection - store message for later delivery
+                    Serial.println("No BLE connection - storing message in RTC memory");
+                    sleepManager.storeMessage(msg);
 #ifdef LED_PIN
                     ledManager.blink();
 #endif
@@ -348,14 +412,25 @@ void loop()
                 Serial.print("Received ACK for seq: ");
                 Serial.println(msg.ackData.seq);
 
-                // Queue ACK for BLE forwarding
-                if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
+                // Try to send via BLE if connected, otherwise store in RTC memory
+                if (bleManager->isConnected())
                 {
-                    Serial.println("Warning: LoRa to BLE queue full, ACK dropped");
+                    if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
+                    {
+                        Serial.println("Warning: LoRa to BLE queue full, storing in RTC memory");
+                        sleepManager.storeMessage(msg);
+                    }
+                    else
+                    {
+                        // Blink once for incoming message (reduced frequency for power savings)
+                        ledManager.blink();
+                    }
                 }
                 else
                 {
-                    // Blink once for incoming message (reduced frequency for power savings)
+                    // No BLE connection - store message for later delivery
+                    Serial.println("No BLE connection - storing message in RTC memory");
+                    sleepManager.storeMessage(msg);
 #ifdef LED_PIN
                     ledManager.blink();
 #endif
@@ -377,7 +452,25 @@ void loop()
         if (bleManager->sendMessage(loraMsg))
         {
             Serial.println("Message forwarded from LoRa to BLE");
+            sleepManager.updateActivity(); // Activity: message forwarded to BLE
         }
+    }
+
+    // Check if we should enter deep sleep (2 minutes of inactivity)
+    if (sleepManager.shouldEnterDeepSleep())
+    {
+        Serial.println("\n>>> 2 minutes of inactivity detected <<<");
+
+        // Store any pending messages from the LoRa-to-BLE queue
+        while (xQueueReceive(loraToBleQueue, &loraMsg, 0) == pdTRUE)
+        {
+            Serial.println("Storing pending message before sleep");
+            sleepManager.storeMessage(loraMsg);
+        }
+
+        sleepManager.enterDeepSleep();
+        // Execution stops here - device enters deep sleep
+        // Will wake on button press or LoRa interrupt
     }
 
     // Small delay to prevent watchdog issues and allow task switching

@@ -13,6 +13,11 @@ This firmware implements a BLE peripheral that communicates with Android devices
 - **Message Protocol**: Implements the 6-bit text encoding protocol for bandwidth optimization
 - **Automatic ACK**: Sends acknowledgments for received Text and GPS messages
 - **Real-time Bridging**: Forwards messages between BLE and LoRa in real-time
+- **Deep Sleep Mode**: Automatically enters ultra-low power mode after 2 minutes of inactivity
+- **Wake-up Sources**: Wakes on button press or LoRa signal reception
+- **Message Persistence**: Stores up to 10 messages in RTC memory across sleep cycles
+- **Automatic Delivery**: Delivers stored messages when BLE reconnects
+- **LED Feedback**: Visual confirmation with 3 blinks on wake-up from sleep
 
 ### Supported Message Types
 
@@ -51,6 +56,16 @@ TX Characteristic UUID:    00005678-0000-1000-8000-00805f9b34fb  (for notificati
 RX Characteristic UUID:    00005679-0000-1000-8000-00805f9b34fb  (for writes from phone)
 Device Name:               ESP32S3-LoRa
 ```
+
+## LED Status Indicators
+
+The built-in LED provides visual feedback:
+
+| Pattern | Meaning |
+|---------|---------|
+| 3 rapid blinks | Wake-up from deep sleep |
+| 1 blink | LoRa message received |
+| 2 blinks | LoRa message transmitted |
 
 ## Building and Uploading
 
