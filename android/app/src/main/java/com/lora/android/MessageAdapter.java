@@ -20,13 +20,8 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageViewHolder> {
-
-    private static final Pattern GPS_PATTERN = Pattern.compile("📍 GPS: (-?\\d+\\.\\d+), (-?\\d+\\.\\d+)");
-    
     private final List<ChatMessage> messages = new ArrayList<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -55,11 +50,9 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
         holder.messageText.setText(message.text);
         holder.messageTime.setText(timeFormat.format(new Date(message.timestamp)));
 
-        // Check if this is a GPS message and make it clickable
-        Matcher gpsMatcher = GPS_PATTERN.matcher(message.text);
-        if (gpsMatcher.find()) {
-            String messageText = message.text; // Capture for lambda
-            holder.messageContainer.setOnClickListener(v -> openGoogleMaps(v.getContext(), messageText));
+        // Make message clickable if it has GPS coordinates
+        if (message.hasGps) {
+            holder.messageContainer.setOnClickListener(v -> openGoogleMaps(v.getContext(), message.latitude, message.longitude));
             holder.messageContainer.setClickable(true);
             holder.messageContainer.setFocusable(true);
         } else {
@@ -109,7 +102,11 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
     }
 
     public void addMessage(String text, boolean isSent, byte seq) {
-        messages.add(new ChatMessage(text, isSent, seq));
+        addMessage(text, isSent, seq, false, 0.0, 0.0);
+    }
+
+    public void addMessage(String text, boolean isSent, byte seq, boolean hasGps, double latitude, double longitude) {
+        messages.add(new ChatMessage(text, isSent, seq, hasGps, latitude, longitude));
         notifyItemInserted(messages.size() - 1);
         if (scrollCallback != null) {
             scrollCallback.onMessageAdded();
@@ -138,27 +135,21 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
         notifyDataSetChanged();
     }
 
-    private void openGoogleMaps(Context context, String messageText) {
+    private void openGoogleMaps(Context context, double latitude, double longitude) {
         try {
-            Matcher matcher = GPS_PATTERN.matcher(messageText);
-            if (matcher.find()) {
-                double latitude = Double.parseDouble(matcher.group(1));
-                double longitude = Double.parseDouble(matcher.group(2));
-                
-                // Create Google Maps intent with marker
-                Uri gmmIntentUri = Uri.parse("geo:" + latitude + "," + longitude + "?q=" + latitude + "," + longitude);
-                Intent mapIntent = new Intent(Intent.ACTION_VIEW, gmmIntentUri);
-                mapIntent.setPackage("com.google.android.apps.maps");
-                
-                // Check if Google Maps is installed
-                if (mapIntent.resolveActivity(context.getPackageManager()) != null) {
-                    context.startActivity(mapIntent);
-                } else {
-                    // Fallback to browser if Google Maps not installed
-                    Uri browserUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=" + latitude + "," + longitude);
-                    Intent browserIntent = new Intent(Intent.ACTION_VIEW, browserUri);
-                    context.startActivity(browserIntent);
-                }
+            // Create Google Maps intent with marker
+            Uri gmmIntentUri = Uri.parse("geo:" + latitude + "," + longitude + "?q=" + latitude + "," + longitude);
+            Intent mapIntent = new Intent(Intent.ACTION_VIEW, gmmIntentUri);
+            mapIntent.setPackage("com.google.android.apps.maps");
+            
+            // Check if Google Maps is installed
+            if (mapIntent.resolveActivity(context.getPackageManager()) != null) {
+                context.startActivity(mapIntent);
+            } else {
+                // Fallback to browser if Google Maps not installed
+                Uri browserUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=" + latitude + "," + longitude);
+                Intent browserIntent = new Intent(Intent.ACTION_VIEW, browserUri);
+                context.startActivity(browserIntent);
             }
         } catch (Exception e) {
             Toast.makeText(context, "Error opening location: " + e.getMessage(), Toast.LENGTH_SHORT).show();
@@ -177,13 +168,23 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
         public final long timestamp;
         public final byte seq; // Sequence number for matching ACKs
         public AckStatus ackStatus;
+        public final boolean hasGps;
+        public final double latitude;
+        public final double longitude;
 
         public ChatMessage(String text, boolean isSent, byte seq) {
+            this(text, isSent, seq, false, 0.0, 0.0);
+        }
+
+        public ChatMessage(String text, boolean isSent, byte seq, boolean hasGps, double latitude, double longitude) {
             this.text = text;
             this.isSent = isSent;
             this.timestamp = System.currentTimeMillis();
             this.seq = seq;
             this.ackStatus = isSent ? AckStatus.PENDING : AckStatus.NONE;
+            this.hasGps = hasGps;
+            this.latitude = latitude;
+            this.longitude = longitude;
         }
     }
 

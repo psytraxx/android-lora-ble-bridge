@@ -317,54 +317,6 @@ pub async fn lora_task(
                                             }
                                         }
                                     }
-                                    Message::Gps(ref gps_msg) => {
-                                        // Send ACK
-                                        let ack = Message::Ack(AckMessage { seq: gps_msg.seq });
-                                        info!("Sending ACK for GPS seq: {}", gps_msg.seq);
-                                        let mut buf = [0u8; 64];
-                                        if let Ok(ack_len) = ack.serialize(&mut buf) {
-                                            if let Err(e) = lora
-                                                .prepare_for_tx(
-                                                    &modulation_params,
-                                                    &mut tx_packet_params,
-                                                    output_power,
-                                                    &buf[..ack_len],
-                                                )
-                                                .await
-                                            {
-                                                error!("Failed to prepare ACK TX: {:?}", e);
-                                            } else if let Err(e) = lora.tx().await {
-                                                error!("Failed to send ACK: {:?}", e);
-                                            } else {
-                                                info!("ACK sent successfully");
-                                                // Return to RX mode after ACK transmission
-                                                if let Err(e) = lora
-                                                    .prepare_for_rx(
-                                                        RxMode::Continuous,
-                                                        &modulation_params,
-                                                        &rx_packet_params,
-                                                    )
-                                                    .await
-                                                {
-                                                    error!(
-                                                        "Failed to return to RX mode after ACK TX: {:?}",
-                                                        e
-                                                    );
-                                                }
-                                            }
-                                        }
-                                        // Forward GPS data to BLE
-                                        match lora_to_ble.try_send(msg) {
-                                            Ok(_) => {
-                                                info!("GPS message forwarded from LoRa to BLE")
-                                            }
-                                            Err(_) => {
-                                                warn!(
-                                                    "BLE message buffer full - GPS message dropped"
-                                                );
-                                            }
-                                        }
-                                    }
                                     Message::Ack(ref ack) => {
                                         info!("Received ACK for seq: {}", ack.seq);
                                         // Forward ACK to BLE (non-blocking)

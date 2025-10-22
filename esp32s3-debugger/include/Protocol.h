@@ -17,23 +17,17 @@ const char CHARSET[65] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'\"@#$%&*(
 enum class MessageType : uint8_t
 {
     Text = 0x01,
-    Gps = 0x02,
-    Ack = 0x03
+    Ack = 0x02
 };
 
-/// Text message containing only text
+/// Text message with optional GPS coordinates
 struct TextMessage
 {
     uint8_t seq;
     char text[MAX_TEXT_LENGTH + 1]; // Fixed-size buffer for text (null-terminated)
-};
-
-/// GPS message containing only GPS coordinates (no text)
-struct GpsMessage
-{
-    uint8_t seq;
-    int32_t lat; // latitude * 1_000_000
-    int32_t lon; // longitude * 1_000_000
+    bool hasGps;                    // Whether GPS coordinates are included
+    int32_t lat;                    // latitude * 1_000_000 (only valid if hasGps=true)
+    int32_t lon;                    // longitude * 1_000_000 (only valid if hasGps=true)
 };
 
 /// Acknowledgment message
@@ -50,13 +44,12 @@ public:
 
     // Store all message data separately (only one will be used based on type)
     TextMessage textData;
-    GpsMessage gpsData;
     AckMessage ackData;
 
     Message() : type(MessageType::Text) {}
 
     static Message createText(uint8_t seq, const char *text);
-    static Message createGps(uint8_t seq, int32_t lat, int32_t lon);
+    static Message createTextWithGps(uint8_t seq, const char *text, int32_t lat, int32_t lon);
     static Message createAck(uint8_t seq);
 
     /// Serializes the message into the provided buffer.

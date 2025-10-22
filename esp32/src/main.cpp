@@ -295,7 +295,17 @@ void loop()
                 Serial.print(msg.textData.seq);
                 Serial.print(", text: \"");
                 Serial.print(msg.textData.text);
-                Serial.println("\"");
+                Serial.print("\"");
+
+                if (msg.textData.hasGps)
+                {
+                    Serial.print(", GPS: ");
+                    Serial.print(msg.textData.lat / 1000000.0, 6);
+                    Serial.print("°, ");
+                    Serial.print(msg.textData.lon / 1000000.0, 6);
+                    Serial.print("°");
+                }
+                Serial.println();
 
                 // Send ACK
                 Message ack = Message::createAck(msg.textData.seq);
@@ -306,52 +316,6 @@ void loop()
                 {
                     Serial.print("Sending ACK for seq: ");
                     Serial.println(msg.textData.seq);
-                    bool ackSent = loraManager.sendPacket(ackBuf, ackLen);
-                    if (ackSent)
-                    {
-                        Serial.println("ACK sent successfully");
-                    }
-                    else
-                    {
-                        Serial.println("ACK send failed");
-                    }
-                    loraManager.startReceiveMode();
-                }
-
-                // Queue message for BLE forwarding
-                if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
-                {
-                    Serial.println("Warning: LoRa to BLE queue full, message dropped");
-                }
-                else
-                {
-                    // Blink once for incoming message (reduced frequency for power savings)
-#ifdef LED_PIN
-                    ledManager.blink();
-#endif
-                }
-                break;
-            }
-
-            case MessageType::Gps:
-            {
-                Serial.print("GPS message - seq: ");
-                Serial.print(msg.gpsData.seq);
-                Serial.print(", lat: ");
-                Serial.print(msg.gpsData.lat / 1000000.0, 6);
-                Serial.print("°, lon: ");
-                Serial.print(msg.gpsData.lon / 1000000.0, 6);
-                Serial.println("°");
-
-                // Send ACK
-                Message ack = Message::createAck(msg.gpsData.seq);
-                uint8_t ackBuf[64];
-                int ackLen = ack.serialize(ackBuf, sizeof(ackBuf));
-
-                if (ackLen > 0)
-                {
-                    Serial.print("Sending ACK for GPS seq: ");
-                    Serial.println(msg.gpsData.seq);
                     bool ackSent = loraManager.sendPacket(ackBuf, ackLen);
                     if (ackSent)
                     {

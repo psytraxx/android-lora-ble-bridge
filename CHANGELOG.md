@@ -1,5 +1,16 @@
 ## Recent Improvements
 
+### Protocol v3.0 - Unified Text and GPS Messages (October 2025)
+- **Unified Message Type**: Text messages now include optional GPS coordinates (single message instead of two)
+- **Message Types Reduced**: From 3 types (Text 0x01, GPS 0x02, ACK 0x03) to 2 types (Text 0x01, ACK 0x02)
+- **Click to Navigate**: Tap any message with GPS to open Google Maps (no GPS text shown in bubble)
+- **Wire Format**: Text + HasGPS flag + optional Lat/Lon fields
+- **Performance Benefits**:
+  - One message instead of two (no 1200ms inter-message delay)
+  - Faster transmission and lower latency
+  - Simplified message handling across all platforms
+- **Breaking Change**: Not backward compatible - all devices must update simultaneously
+
 ### Android App Refactoring (October 2025)
 - **Separation of Concerns**: Completely refactored MainActivity (~600 lines → ~150 lines) by extracting business logic into dedicated managers
 - **BleManager**: New class handling all Bluetooth LE operations (scanning, connection, GATT services, message sending/receiving)

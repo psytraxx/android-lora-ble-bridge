@@ -160,8 +160,7 @@ public class Protocol {
 
     public enum MessageType {
         TEXT((byte) 0x01),
-        GPS((byte) 0x02),
-        ACK((byte) 0x03);
+        ACK((byte) 0x02);
 
         private final byte value;
 
@@ -186,6 +185,9 @@ public class Protocol {
     public static class TextMessage extends Message {
         public final byte seq;
         public final String text;
+        public final boolean hasGps;
+        public final int lat; // latitude * 1_000_000 (only valid if hasGps=true)
+        public final int lon; // longitude * 1_000_000 (only valid if hasGps=true)
 
         public TextMessage(byte seq, String text) {
             super(MessageType.TEXT);
@@ -194,17 +196,42 @@ public class Protocol {
             }
             this.seq = seq;
             this.text = text;
+            this.hasGps = false;
+            this.lat = 0;
+            this.lon = 0;
+        }
+
+        public TextMessage(byte seq, String text, int lat, int lon) {
+            super(MessageType.TEXT);
+            if (text.length() > MAX_TEXT_LENGTH) {
+                throw new IllegalArgumentException("Text too long (max " + MAX_TEXT_LENGTH + " chars)");
+            }
+            this.seq = seq;
+            this.text = text;
+            this.hasGps = true;
+            this.lat = lat;
+            this.lon = lon;
         }
 
         @Override
         public byte[] serialize() {
             byte[] packedText = packText(text);
-            byte[] data = new byte[1 + 1 + 1 + 1 + packedText.length];
+            int totalSize = 1 + 1 + 1 + 1 + 1 + packedText.length; // type + seq + charCount + packedLen + hasGps + packed
+            if (hasGps) {
+                totalSize += 8; // lat + lon
+            }
+            byte[] data = new byte[totalSize];
             data[0] = MessageType.TEXT.getValue();
             data[1] = seq;
             data[2] = (byte) text.length(); // Original character count
             data[3] = (byte) packedText.length; // Packed byte count
             System.arraycopy(packedText, 0, data, 4, packedText.length);
+            data[4 + packedText.length] = (byte) (hasGps ? 1 : 0);
+            if (hasGps) {
+                ByteBuffer buf = ByteBuffer.wrap(data, 5 + packedText.length, 8).order(ByteOrder.LITTLE_ENDIAN);
+                buf.putInt(lat);
+                buf.putInt(lon);
+            }
             return data;
         }
 
@@ -215,63 +242,22 @@ public class Protocol {
             if (obj == null || getClass() != obj.getClass())
                 return false;
             TextMessage that = (TextMessage) obj;
-            return seq == that.seq && text.equals(that.text);
+            return seq == that.seq && text.equals(that.text) && hasGps == that.hasGps && lat == that.lat
+                    && lon == that.lon;
         }
 
         @Override
         public int hashCode() {
-            return java.util.Objects.hash(seq, text);
+            return java.util.Objects.hash(seq, text, hasGps, lat, lon);
         }
 
         @NonNull
         @Override
         public String toString() {
+            if (hasGps) {
+                return "TextMessage{seq=" + seq + ", text='" + text + "', lat=" + lat + ", lon=" + lon + "}";
+            }
             return "TextMessage{seq=" + seq + ", text='" + text + "'}";
-        }
-    }
-
-    public static class GpsMessage extends Message {
-        public final byte seq;
-        public final int lat; // latitude * 1_000_000
-        public final int lon; // longitude * 1_000_000
-
-        public GpsMessage(byte seq, int lat, int lon) {
-            super(MessageType.GPS);
-            this.seq = seq;
-            this.lat = lat;
-            this.lon = lon;
-        }
-
-        @Override
-        public byte[] serialize() {
-            byte[] data = new byte[10];
-            data[0] = MessageType.GPS.getValue();
-            data[1] = seq;
-            ByteBuffer buf = ByteBuffer.wrap(data, 2, 8).order(ByteOrder.LITTLE_ENDIAN);
-            buf.putInt(lat);
-            buf.putInt(lon);
-            return data;
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (this == obj)
-                return true;
-            if (obj == null || getClass() != obj.getClass())
-                return false;
-            GpsMessage that = (GpsMessage) obj;
-            return seq == that.seq && lat == that.lat && lon == that.lon;
-        }
-
-        @Override
-        public int hashCode() {
-            return java.util.Objects.hash(seq, lat, lon);
-        }
-
-        @NonNull
-        @Override
-        public String toString() {
-            return "GpsMessage{seq=" + seq + ", lat=" + lat + ", lon=" + lon + "}";
         }
     }
 
@@ -327,36 +313,36 @@ public class Protocol {
             MessageType type = MessageType.fromByte(data[0]);
             return switch (type) {
                 case TEXT -> deserializeText(data);
-                case GPS -> deserializeGps(data);
                 case ACK -> deserializeAck(data);
             };
         }
 
         private static TextMessage deserializeText(byte[] data) {
-            if (data.length < 4) {
+            if (data.length < 5) {
                 throw new IllegalArgumentException("Data too short for TextMessage header");
             }
             byte seq = data[1];
             int charCount = data[2] & 0xFF; // Original character count
             int packedLen = data[3] & 0xFF; // Packed byte count
-            if (data.length < 4 + packedLen) {
-                throw new IllegalArgumentException("Data too short for packed text");
+            if (data.length < 5 + packedLen) {
+                throw new IllegalArgumentException("Data too short for packed text + hasGps flag");
             }
             byte[] packedBytes = new byte[packedLen];
             System.arraycopy(data, 4, packedBytes, 0, packedLen);
             String text = unpackText(packedBytes, charCount);
-            return new TextMessage(seq, text);
-        }
-
-        private static GpsMessage deserializeGps(byte[] data) {
-            if (data.length < 10) {
-                throw new IllegalArgumentException("Data too short for GpsMessage");
+            boolean hasGps = data[4 + packedLen] != 0;
+            
+            if (hasGps) {
+                if (data.length < 5 + packedLen + 8) {
+                    throw new IllegalArgumentException("Data too short for GPS data");
+                }
+                ByteBuffer buf = ByteBuffer.wrap(data, 5 + packedLen, 8).order(ByteOrder.LITTLE_ENDIAN);
+                int lat = buf.getInt();
+                int lon = buf.getInt();
+                return new TextMessage(seq, text, lat, lon);
+            } else {
+                return new TextMessage(seq, text);
             }
-            byte seq = data[1];
-            ByteBuffer buf = ByteBuffer.wrap(data, 2, 8).order(ByteOrder.LITTLE_ENDIAN);
-            int lat = buf.getInt();
-            int lon = buf.getInt();
-            return new GpsMessage(seq, lat, lon);
         }
 
         private static AckMessage deserializeAck(byte[] data) {
