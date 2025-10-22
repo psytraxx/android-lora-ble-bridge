@@ -1,5 +1,8 @@
 package com.lora.android;
 
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -7,6 +10,7 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
@@ -16,11 +20,16 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageViewHolder> {
 
+    private static final Pattern GPS_PATTERN = Pattern.compile("📍 GPS: (-?\\d+\\.\\d+), (-?\\d+\\.\\d+)");
+    
     private final List<ChatMessage> messages = new ArrayList<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", Locale.getDefault());
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private ScrollCallback scrollCallback;
 
     public interface ScrollCallback {
@@ -45,6 +54,19 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
 
         holder.messageText.setText(message.text);
         holder.messageTime.setText(timeFormat.format(new Date(message.timestamp)));
+
+        // Check if this is a GPS message and make it clickable
+        Matcher gpsMatcher = GPS_PATTERN.matcher(message.text);
+        if (gpsMatcher.find()) {
+            String messageText = message.text; // Capture for lambda
+            holder.messageContainer.setOnClickListener(v -> openGoogleMaps(v.getContext(), messageText));
+            holder.messageContainer.setClickable(true);
+            holder.messageContainer.setFocusable(true);
+        } else {
+            holder.messageContainer.setOnClickListener(null);
+            holder.messageContainer.setClickable(false);
+            holder.messageContainer.setFocusable(false);
+        }
 
         // Align message bubble based on sender
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) holder.messageContainer.getLayoutParams();
@@ -97,8 +119,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
     public void updateAckStatus(byte seq, AckStatus status) {
         // Ensure we're on main thread
         if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
-            new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
-                    updateAckStatus(seq, status));
+            mainHandler.post(() -> updateAckStatus(seq, status));
             return;
         }
 
@@ -115,6 +136,33 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
     public void clear() {
         messages.clear();
         notifyDataSetChanged();
+    }
+
+    private void openGoogleMaps(Context context, String messageText) {
+        try {
+            Matcher matcher = GPS_PATTERN.matcher(messageText);
+            if (matcher.find()) {
+                double latitude = Double.parseDouble(matcher.group(1));
+                double longitude = Double.parseDouble(matcher.group(2));
+                
+                // Create Google Maps intent with marker
+                Uri gmmIntentUri = Uri.parse("geo:" + latitude + "," + longitude + "?q=" + latitude + "," + longitude);
+                Intent mapIntent = new Intent(Intent.ACTION_VIEW, gmmIntentUri);
+                mapIntent.setPackage("com.google.android.apps.maps");
+                
+                // Check if Google Maps is installed
+                if (mapIntent.resolveActivity(context.getPackageManager()) != null) {
+                    context.startActivity(mapIntent);
+                } else {
+                    // Fallback to browser if Google Maps not installed
+                    Uri browserUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=" + latitude + "," + longitude);
+                    Intent browserIntent = new Intent(Intent.ACTION_VIEW, browserUri);
+                    context.startActivity(browserIntent);
+                }
+            }
+        } catch (Exception e) {
+            Toast.makeText(context, "Error opening location: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 
     public enum AckStatus {

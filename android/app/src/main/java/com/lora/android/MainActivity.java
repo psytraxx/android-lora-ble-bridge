@@ -22,7 +22,6 @@ import lora.Protocol;
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_PERMISSIONS = 1;
-    private static final int MAX_TEXT_LENGTH = 50; // Maximum text length for optimal LoRa range
     private static final long GPS_UPDATE_INTERVAL_MS = 5000; // 5 seconds
     private static final double CHAR_COUNT_WARNING_THRESHOLD = 0.9; // 90% of max
 
@@ -79,7 +78,6 @@ public class MainActivity extends AppCompatActivity {
         messagesRecyclerView.setAdapter(messageAdapter);
 
         // Observe ViewModel
-        messageViewModel.getConnectionStatus().observe(this, status -> connectionStatusTextView.setText(status));
         messageViewModel.getGpsDisplay().observe(this, gps -> gpsTextView.setText(gps));
         messageViewModel.getShowToast().observe(this, message -> {
             if (message != null) {
@@ -87,16 +85,10 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Observe BLE connection state for send button
+        // Observe BLE connection state for send button and status
+        bleManager.getConnectionStatus().observe(this, status -> connectionStatusTextView.setText(status));
         bleManager.getConnected().observe(this,
                 connected -> sendButton.setEnabled(connected != null ? connected : false));
-        
-        // Observe BLE toast messages
-        bleManager.getShowToast().observe(this, message -> {
-            if (message != null && !message.isEmpty()) {
-                Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show();
-            }
-        });
 
         checkPermissions();
 
@@ -141,7 +133,6 @@ public class MainActivity extends AppCompatActivity {
 
         messageViewModel.updateGps();
         updateCharCount(""); // Initialize counter
-        messageViewModel.updateConnectionStatus("Initializing...");
 
         startGpsPeriodicUpdates();
     }
@@ -218,13 +209,13 @@ public class MainActivity extends AppCompatActivity {
         int packedBytes = Protocol.calculatePackedSize(text);
         int totalMessageSize = 12 + packedBytes; // 12 byte header + packed text
 
-        String countText = charCount + "/" + MAX_TEXT_LENGTH + " chars (" + totalMessageSize + " bytes)";
+        String countText = charCount + "/" + Protocol.MAX_TEXT_LENGTH + " chars (" + totalMessageSize + " bytes)";
         charCountTextView.setText(countText);
 
         // Change color if approaching limit
-        if (charCount >= MAX_TEXT_LENGTH) {
+        if (charCount >= Protocol.MAX_TEXT_LENGTH) {
             charCountTextView.setTextColor(0xFFFF0000); // Red
-        } else if (charCount >= MAX_TEXT_LENGTH * CHAR_COUNT_WARNING_THRESHOLD) {
+        } else if (charCount >= Protocol.MAX_TEXT_LENGTH * CHAR_COUNT_WARNING_THRESHOLD) {
             charCountTextView.setTextColor(0xFFFF6600); // Orange
         } else {
             charCountTextView.setTextColor(0xFF666666); // Gray
