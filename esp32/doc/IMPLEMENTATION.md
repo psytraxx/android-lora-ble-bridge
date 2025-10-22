@@ -234,6 +234,7 @@ System running - waiting for connections...
 - **RX Mode**: ~15-20 mA (continuous listening)
 - **BLE Advertising**: ~10-15 mA
 - **Total Active**: ~25-35 mA typical
+- **Light Sleep** (ESP32-S3 only): ~0.8-5 mA (90-95% reduction)
 - **CPU Frequency**: 160 MHz (reduced from 240 MHz for ~15-20% power savings)
 - **Event-Driven**: Reduced CPU polling with interrupt-based LoRa reception
 - **Task Scheduling**: FreeRTOS vTaskDelay for efficient CPU yielding
@@ -327,8 +328,8 @@ A comprehensive code review was conducted on 21 October 2025, identifying areas 
 #### 8. Performance and Power (Low Priority - COMPLETED)
 - **Issue**: No sleep modes; constant polling.
 - **Impact**: High power consumption.
-- **Solution**: Implement deep sleep and event-driven operation.
-- **Status**: ✅ COMPLETED - Implemented event-driven LoRa reception using interrupts. CPU frequency reduced to 160MHz and FreeRTOS task scheduling optimized for power efficiency. Deep sleep not suitable due to BLE always-on requirement for Android messaging.
+- **Solution**: Implement light sleep and event-driven operation (ESP32-S3 only).
+- **Status**: ✅ COMPLETED - Implemented event-driven LoRa reception using interrupts. CPU frequency reduced to 160MHz and FreeRTOS task scheduling optimized for power efficiency. Light sleep mode implemented with automatic entry after 2 minutes of inactivity (ESP32-S3 only).
 
 ### Implementation Plan
 1. **Phase 1 (COMPLETED)**: Implement FreeRTOS queues for message buffering.

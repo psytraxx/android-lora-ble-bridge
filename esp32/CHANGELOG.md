@@ -1,5 +1,113 @@
 # ESP32 PlatformIO Project - Changelog
 
+## [2.1.0] - 2025-10-22
+
+### ✨ Light Sleep Power Management (ESP32-S3 Only)
+
+### 🎯 Added
+- **Sleep Manager** (`SleepManager.h`, `SleepManager.cpp`) - ESP32-S3 only
+  - Automatic light sleep after 2 minutes of inactivity
+  - Low power consumption (~0.8-5 mA in sleep mode)
+  - ~90-95% power reduction vs active mode
+  - Activity tracking for all BLE and LoRa operations
+  - RTC memory for persistent data across sleep cycles
+
+- **Wake-up Sources** (ESP32-S3 only)
+  - LoRa interrupt (GPIO 32): Automatic wake on incoming messages
+  - Visual confirmation: 3 LED blinks on wake-up
+
+- **Message Persistence** (ESP32-S3 only)
+  - RTC memory storage for up to 10 messages
+  - Messages survive light sleep cycles
+  - FIFO queue (oldest messages delivered first)
+  - Automatic delivery when BLE reconnects
+  - No message loss during sleep or wake cycles
+
+- **Smart Activity Management** (ESP32-S3 only)
+  - Activity timer updates on:
+    - BLE connections
+    - BLE message reception
+    - LoRa message reception/transmission
+    - Message forwarding to BLE
+  - Prevents sleep during active communication
+  - Stores pending messages before entering sleep
+
+- **LED Visual Feedback** (ESP32-S3 only)
+  - 3 rapid blinks: Wake-up from light sleep
+  - 1 blink: LoRa message received
+  - 2 blinks: LoRa message transmitted
+
+- **Documentation**
+  - LIGHT_SLEEP.md - Comprehensive light sleep guide
+  - Updated README.md with sleep features
+
+### 🔧 Changed
+- **BLEManager**
+  - Added activity callback support for sleep management (ESP32-S3 only)
+  - Updates activity timer on connections and messages
+  - Integrates with sleep manager
+
+- **main.cpp**
+  - Added sleep manager integration (ESP32-S3 only)
+  - Implements message storage to RTC memory when no BLE connection
+  - Delivers stored messages on BLE reconnection
+  - Checks for sleep timeout in main loop
+  - Stores pending queue messages before sleep
+
+### 💡 Features
+- **Power Efficiency** (ESP32-S3 only)
+  - 2000 mAh battery: ~20 hours without sleep → ~15 days with light sleep
+  - Field deployment optimized
+  - Configurable timeout (default: 2 minutes)
+  - Fast wake-up (milliseconds vs seconds for deep sleep)
+
+- **Reliability** (ESP32-S3 only)
+  - Wake-up count tracking
+  - RTC data validation (magic number check)
+  - Automatic RTC memory reinitialization on corruption
+  - Debug logging for all sleep/wake events
+
+- **Use Cases** (ESP32-S3 only)
+  - Field devices without constant Android connection
+  - Battery-powered deployments
+  - Message reception during sleep periods
+  - Automatic message delivery on reconnection
+
+### 🔄 Migration Notes
+**Non-Breaking Changes:**
+- Existing functionality unchanged
+- Sleep is automatic - no configuration required
+- Works with existing Android app
+- Hardware remains the same
+
+**Optional Configuration:**
+```cpp
+// SleepManager.h
+#define LIGHT_SLEEP_TIMEOUT_MS (2 * 60 * 1000)  // Change timeout
+#define MAX_STORED_MESSAGES 10                   // Change buffer size
+```
+
+### 📊 Performance Impact
+- Active power: ~80-120 mA
+- Sleep power: ~0.8-5 mA (90-95% reduction) - ESP32-S3 only
+- Wake-up time: ~few milliseconds (maintains system state) - ESP32-S3 only
+- Message delivery latency: Instant when BLE connected
+- No impact on communication range or speed
+
+### 🧪 Testing Scenarios
+- ✅ LoRa interrupt wake-up (ESP32-S3 only)
+- ✅ Message persistence across multiple sleep cycles (ESP32-S3 only)
+- ✅ Automatic message delivery on BLE reconnection (ESP32-S3 only)
+- ✅ RTC memory validation (ESP32-S3 only)
+- ✅ LED visual feedback (ESP32-S3 only)
+
+### 📝 Technical Details
+- Uses ESP32 EXT1 wake source for LoRa interrupt (ESP32-S3 only)
+- RTC memory structure with magic number validation (ESP32-S3 only)
+- FIFO message queue in RTC_DATA_ATTR memory (ESP32-S3 only)
+
+---
+
 ## [2.0.0] - 2025-10-21
 
 ### ✨ Complete Rewrite

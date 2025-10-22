@@ -44,6 +44,9 @@ public:
     /// Initialize BLE with device name
     bool setup(const char *deviceName = DEVICE_NAME);
 
+    /// Set activity callback (called on BLE events)
+    void setActivityCallback(void (*callback)()) { activityCallback = callback; }
+
     /// Start BLE advertising
     void startAdvertising();
 
@@ -77,6 +80,8 @@ private:
 
     MyServerCallbacks *serverCallbacks;
     MyCharacteristicCallbacks *rxCallbacks;
+
+    void (*activityCallback)(); // Callback for activity updates
 };
 
 #endif // BLE_MANAGER_H

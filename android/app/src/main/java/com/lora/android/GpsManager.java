@@ -22,8 +22,8 @@ public class GpsManager {
 
     private final Context context;
     private final LocationManager locationManager;
-    private Location currentLocation = null;
     private final LocationListener locationListener;
+    private Location currentLocation = null;
 
     public GpsManager(Context context) {
         this.context = context;

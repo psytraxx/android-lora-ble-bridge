@@ -331,7 +331,7 @@ public class Protocol {
             System.arraycopy(data, 4, packedBytes, 0, packedLen);
             String text = unpackText(packedBytes, charCount);
             boolean hasGps = data[4 + packedLen] != 0;
-            
+
             if (hasGps) {
                 if (data.length < 5 + packedLen + 8) {
                     throw new IllegalArgumentException("Data too short for GPS data");

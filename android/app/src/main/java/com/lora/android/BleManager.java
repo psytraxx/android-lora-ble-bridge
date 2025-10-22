@@ -33,11 +33,17 @@ public class BleManager {
     private static final UUID TX_CHAR_UUID = UUID.fromString("00005678-0000-1000-8000-00805F9B34FB");
     private static final UUID RX_CHAR_UUID = UUID.fromString("00005679-0000-1000-8000-00805F9B34FB");
     private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
-    private static final long LOCATION_CHECK_INTERVAL_MS = 3000; // Check every 3 seconds
-    private static final long RECONNECT_DELAY_MS = 30000; // 30 seconds between reconnect attempts
+    private static final long LOCATION_CHECK_INTERVAL_MS = 60000; // Check every minute
     private static final long SCAN_TIMEOUT_MS = 5000; // 5 seconds scan timeout
 
     private final Context context;
+    private final android.os.Handler locationCheckHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    // LiveData for state changes
+    private final MutableLiveData<String> connectionStatus = new MutableLiveData<>();
+    private final MutableLiveData<Protocol.Message> messageReceived = new MutableLiveData<>();
+    private final MutableLiveData<String> showToast = new MutableLiveData<>();
+    private final MutableLiveData<Boolean> connected = new MutableLiveData<>();
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothLeScanner bluetoothLeScanner;
     private BluetoothGatt bluetoothGatt;
@@ -46,14 +52,6 @@ public class BleManager {
     private boolean isWaitingForLocation = false;
     private boolean isScanning = false;
     private ScanCallback currentScanCallback = null;
-    private final android.os.Handler locationCheckHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-
-    // LiveData for state changes
-    private final MutableLiveData<String> connectionStatus = new MutableLiveData<>();
-    private final MutableLiveData<Protocol.Message> messageReceived = new MutableLiveData<>();
-    private final MutableLiveData<String> showToast = new MutableLiveData<>();
-    private final MutableLiveData<Boolean> connected = new MutableLiveData<>();
 
     public BleManager(Context context) {
         this.context = context;
@@ -160,11 +158,9 @@ public class BleManager {
             @Override
             public void onScanFailed(int errorCode) {
                 Log.e(TAG, "BLE scan failed with error code: " + errorCode);
-                connectionStatus.postValue("❌ Scan failed (error " + errorCode + ")");
+                connectionStatus.postValue("❌ Scan failed (error " + errorCode + ") - Tap here to reconnect");
                 isScanning = false;
                 currentScanCallback = null;
-                // Retry after delay
-                mainHandler.postDelayed(() -> startScan(), RECONNECT_DELAY_MS);
             }
         };
 
@@ -175,9 +171,7 @@ public class BleManager {
             if (isScanning) {
                 Log.w(TAG, "Scan timeout - device not found");
                 stopScan();
-                connectionStatus.postValue("❌ Device not found (retrying in " + (RECONNECT_DELAY_MS / 1000) + "s)");
-                // Retry scan after delay
-                mainHandler.postDelayed(() -> startScan(), RECONNECT_DELAY_MS);
+                connectionStatus.postValue("❌ Device not found - Tap here to reconnect");
             }
         }, SCAN_TIMEOUT_MS);
     }
@@ -229,14 +223,8 @@ public class BleManager {
                     gatt.requestMtu(512);
                 } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
                     connected.postValue(false);
-                    connectionStatus.postValue("❌ Disconnected (reconnecting in " + (RECONNECT_DELAY_MS / 1000) + "s)");
-                    Log.d(TAG, "Disconnected. Will retry in " + (RECONNECT_DELAY_MS / 1000) + " seconds");
-                    
-                    // Retry indefinitely with 30 second delay
-                    mainHandler.postDelayed(() -> {
-                        Log.d(TAG, "Attempting reconnection...");
-                        startScan();
-                    }, RECONNECT_DELAY_MS);
+                    connectionStatus.postValue("❌ Disconnected - Tap here to reconnect");
+                    Log.d(TAG, "Disconnected. Use reconnect button to retry.");
                 }
             }
 
@@ -318,7 +306,7 @@ public class BleManager {
 
             @Override
             public void onDescriptorWrite(BluetoothGatt gatt, android.bluetooth.BluetoothGattDescriptor descriptor,
-                    int status) {
+                                          int status) {
                 Log.d(TAG, "Descriptor write completed: status=" + status);
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     Log.d(TAG, "Notifications successfully enabled on server side!");
@@ -357,14 +345,33 @@ public class BleManager {
     }
 
     @SuppressLint("MissingPermission")
+    public void reconnect() {
+        Log.d(TAG, "Manual reconnect requested");
+
+        // Disconnect if currently connected
+        if (bluetoothGatt != null) {
+            bluetoothGatt.disconnect();
+            bluetoothGatt.close();
+            bluetoothGatt = null;
+        }
+        connected.postValue(false);
+
+        // Clear any pending handlers
+        mainHandler.removeCallbacksAndMessages(null);
+
+        // Start scanning immediately
+        startScan();
+    }
+
+    @SuppressLint("MissingPermission")
     public void disconnect() {
         // Stop scanning if in progress
         stopScan();
-        
+
         // Cancel any pending reconnect attempts
         mainHandler.removeCallbacksAndMessages(null);
         locationCheckHandler.removeCallbacksAndMessages(null);
-        
+
         if (bluetoothGatt != null) {
             bluetoothGatt.disconnect();
             bluetoothGatt.close();
