@@ -28,7 +28,7 @@ The ESP32 PlatformIO project has been successfully completed with full feature p
 - **GATT Server**: Service UUID `0x1234`
 - **TX Characteristic**: UUID `0x5678` (notifications to phone)
 - **RX Characteristic**: UUID `0x5679` (writes from phone)
-- **Device Name**: "ESP32-LoRa"
+- **Device Name**: "ESP32S3-LoRa"
 - **Connection Management**: Auto-reconnect after disconnect
 - **Callbacks**: Server and characteristic callbacks implemented
 
@@ -196,7 +196,7 @@ ESP32 LoRa-BLE Bridge starting...
 ===================================
 Initializing BLE...
 BLE service created
-Device name: ESP32-LoRa
+Device name: ESP32S3-LoRa
 ...
 Starting BLE advertising...
 ...
@@ -255,7 +255,7 @@ System running - waiting for connections...
 - ✅ **Interoperability**: Can communicate with each other
 
 ### With Android App
-- ✅ **BLE Discovery**: Advertises as "ESP32-LoRa"
+- ✅ **BLE Discovery**: Advertises as "ESP32S3-LoRa"
 - ✅ **Service UUID**: 0x1234
 - ✅ **Characteristics**: 0x5678 (TX), 0x5679 (RX)
 - ✅ **Message Protocol**: Fully compatible

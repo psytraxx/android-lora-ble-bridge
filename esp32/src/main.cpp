@@ -20,20 +20,11 @@
 #include <freertos/task.h>
 #include <LoRa.h>
 
-// --- Pin Definitions for LoRa Module ---
-#define LORA_SCK 18
-#define LORA_MISO 19
-#define LORA_MOSI 23
-#define LORA_SS 5
-#define LORA_RST 12
-#define LORA_DIO0 32
-
-// --- LED Pin Definition ---
-#define LED_PIN 2 // Built-in LED on ESP32 DevKit
-
 // Manager objects
 LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_FREQUENCY);
+#ifdef LED_PIN
 LEDManager ledManager(LED_PIN);
+#endif
 
 // Message queues using FreeRTOS
 const int BLE_TO_LORA_QUEUE_SIZE = 10;
@@ -133,7 +124,7 @@ void setup()
         Serial.print("/");
         Serial.println(BLE_RETRY_COUNT);
 
-        if (bleManager->setup("ESP32S3-LoRa"))
+        if (bleManager->setup(DEVICE_NAME))
         {
             bleSuccess = true;
             Serial.println("BLE setup successful");
@@ -209,7 +200,9 @@ void setup()
     loraManager.startReceiveMode();
 
     // Initialize LED
+#ifdef LED_PIN
     ledManager.setup();
+#endif
 
     Serial.println("\n===================================");
     Serial.println("All systems initialized successfully");
@@ -255,7 +248,9 @@ void loop()
             {
                 Serial.println("LoRa TX successful");
                 // Blink twice for outgoing message
+#ifdef LED_PIN
                 ledManager.blink(2);
+#endif
             }
             else
             {
@@ -331,7 +326,9 @@ void loop()
                 else
                 {
                     // Blink once for incoming message (reduced frequency for power savings)
+#ifdef LED_PIN
                     ledManager.blink();
+#endif
                 }
                 break;
             }
@@ -375,7 +372,9 @@ void loop()
                 else
                 {
                     // Blink once for incoming message (reduced frequency for power savings)
+#ifdef LED_PIN
                     ledManager.blink();
+#endif
                 }
                 break;
             }
@@ -393,7 +392,9 @@ void loop()
                 else
                 {
                     // Blink once for incoming message (reduced frequency for power savings)
+#ifdef LED_PIN
                     ledManager.blink();
+#endif
                 }
                 break;
             }

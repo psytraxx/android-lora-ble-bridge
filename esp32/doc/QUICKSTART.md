@@ -71,13 +71,13 @@ LoRa initialized successfully.
 You should see:
 ```
 BLE service created
-Device name: ESP32-LoRa
+Device name: ESP32S3-LoRa
 Starting BLE advertising...
 ```
 
 ### 3. Connect Android App
 1. Open the Android app
-2. Scan for "ESP32-LoRa"
+2. Scan for "ESP32S3-LoRa"
 3. Connect
 4. You should see: `BLE client connected`
 
@@ -208,7 +208,7 @@ Text message forwarded from LoRa to BLE
 ## Default Settings
 
 ```
-Device Name:    ESP32-LoRa
+Device Name:    ESP32S3-LoRa
 BLE Service:    00001234-0000-1000-8000-00805f9b34fb
 TX Char:        00005678-0000-1000-8000-00805f9b34fb
 RX Char:        00005679-0000-1000-8000-00805f9b34fb

@@ -92,7 +92,7 @@ Completely rewrote the ESP32 firmware to match ESP32-S3 Rust functionality, tran
 - Text encoding: 25% more efficient (50 chars: 42 bytes vs 56 bytes)
 - Time on Air (SF10): ~550 ms for max message
 - Range: 5-10 km typical, up to 15+ km ideal
-- BLE advertising: "ESP32-LoRa"
+- BLE advertising: "ESP32S3-LoRa"
 
 ### 🔧 Configuration Options
 ```ini
