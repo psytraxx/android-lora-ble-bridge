@@ -12,6 +12,8 @@ import android.util.Log;
 
 import androidx.core.app.ActivityCompat;
 
+import java.util.Locale;
+
 public class GpsManager {
 
     private static final String TAG = "GpsManager";
@@ -92,11 +94,15 @@ public class GpsManager {
     }
 
     public void stopLocationUpdates() {
-        try {
-            locationManager.removeUpdates(locationListener);
-            Log.d(TAG, "Stopped location updates");
-        } catch (Exception e) {
-            Log.e(TAG, "Error stopping location updates: " + e.getMessage());
+        if (locationManager != null && locationListener != null) {
+            try {
+                locationManager.removeUpdates(locationListener);
+                android.util.Log.d(TAG, "Stopped location updates");
+            } catch (SecurityException e) {
+                android.util.Log.e(TAG, "Security exception stopping location updates: " + e.getMessage());
+            } catch (Exception e) {
+                android.util.Log.e(TAG, "Error stopping location updates: " + e.getMessage());
+            }
         }
     }
 
@@ -176,5 +182,13 @@ public class GpsManager {
         }
 
         return bestLocation;
+    }
+
+    public String getLastKnownLocationString() {
+        Location location = getLastKnownLocation();
+        if (location != null) {
+            return String.format(Locale.US, "%.6f, %.6f", location.getLatitude(), location.getLongitude());
+        }
+        return "No GPS fix";
     }
 }

@@ -29,16 +29,12 @@ public class MessageViewModel extends ViewModel {
     private byte seqCounter = 0;
 
     // Observers for BLE manager
-    private final Observer<String> bleConnectionStatusObserver = status -> connectionStatus.postValue(status);
+    private final Observer<String> bleConnectionStatusObserver = connectionStatus::postValue;
     private final Observer<Protocol.Message> messageReceivedObserver = this::handleReceivedMessage;
-    private final Observer<String> bleShowToastObserver = message -> showToast.postValue(message);
+    private final Observer<String> bleShowToastObserver = showToast::postValue;
     private final Observer<Boolean> bleConnectedObserver = connected -> {
         // Handle connection state changes if needed
         Log.d(TAG, "BLE connection state changed: " + connected);
-    };
-    private final Observer<Void> locationEnabledObserver = unused -> {
-        gpsManager.startLocationUpdates();
-        updateGps(); // Immediately update GPS display
     };
 
     public void setManagers(BleManager bleManager, GpsManager gpsManager, MessageAdapter messageAdapter) {
@@ -51,7 +47,6 @@ public class MessageViewModel extends ViewModel {
         bleManager.getMessageReceived().observeForever(messageReceivedObserver);
         bleManager.getShowToast().observeForever(bleShowToastObserver);
         bleManager.getConnected().observeForever(bleConnectedObserver);
-        bleManager.getLocationEnabled().observeForever(locationEnabledObserver);
     }
 
     public LiveData<String> getConnectionStatus() {
@@ -170,7 +165,6 @@ public class MessageViewModel extends ViewModel {
             bleManager.getMessageReceived().removeObserver(messageReceivedObserver);
             bleManager.getShowToast().removeObserver(bleShowToastObserver);
             bleManager.getConnected().removeObserver(bleConnectedObserver);
-            bleManager.getLocationEnabled().removeObserver(locationEnabledObserver);
         }
     }
 }

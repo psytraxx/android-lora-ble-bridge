@@ -95,26 +95,20 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
     }
 
     public void updateAckStatus(byte seq, AckStatus status) {
-        android.util.Log.d("MessageAdapter", "updateAckStatus called: seq=" + seq + ", status=" + status);
-        android.util.Log.d("MessageAdapter", "Total messages in list: " + messages.size());
-
-        boolean found = false;
-        for (int i = 0; i < messages.size(); i++) {
-            ChatMessage msg = messages.get(i);
-            android.util.Log.d("MessageAdapter",
-                    "  Message[" + i + "]: seq=" + msg.seq + ", isSent=" + msg.isSent + ", text=" + msg.text);
-
-            if (msg.isSent && msg.seq == seq) {
-                android.util.Log.d("MessageAdapter", "  -> MATCH FOUND! Updating message " + i);
-                msg.ackStatus = status;
-                notifyItemChanged(i);
-                found = true;
-                break;
-            }
+        // Ensure we're on main thread
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(() ->
+                    updateAckStatus(seq, status));
+            return;
         }
 
-        if (!found) {
-            android.util.Log.w("MessageAdapter", "No matching sent message found for seq=" + seq);
+        for (int i = 0; i < messages.size(); i++) {
+            ChatMessage msg = messages.get(i);
+            if (msg.isSent && msg.seq == seq) {
+                msg.ackStatus = status;
+                notifyItemChanged(i);
+                break; // Exit once we find the message
+            }
         }
     }
 
