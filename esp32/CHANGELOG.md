@@ -2,26 +2,23 @@
 
 ## [2.1.0] - 2025-10-22
 
-### ✨ Deep Sleep Power Management
+### ✨ Light Sleep Power Management
 
 ### 🎯 Added
 - **Sleep Manager** (`SleepManager.h`, `SleepManager.cpp`)
-  - Automatic deep sleep after 2 minutes of inactivity
-  - Ultra-low power consumption (~10-150 μA in sleep mode)
-  - ~96% power reduction vs active mode
+  - Automatic light sleep after 2 minutes of inactivity
+  - Low power consumption (~0.8-5 mA in sleep mode)
+  - ~90-95% power reduction vs active mode
   - Activity tracking for all BLE and LoRa operations
   - RTC memory for persistent data across sleep cycles
 
 - **Wake-up Sources**
-  - Button 1 (GPIO 0 - BOOT): Press to wake
-  - Button 2 (GPIO 15 - EN): Release to wake (hardware limitation workaround)
   - LoRa interrupt (GPIO 32): Automatic wake on incoming messages
-  - Configurable wake-up pins
   - Visual confirmation: 3 LED blinks on wake-up
 
 - **Message Persistence**
   - RTC memory storage for up to 10 messages
-  - Messages survive deep sleep cycles
+  - Messages survive light sleep cycles
   - FIFO queue (oldest messages delivered first)
   - Automatic delivery when BLE reconnects
   - No message loss during sleep or wake cycles
@@ -36,13 +33,12 @@
   - Stores pending messages before entering sleep
 
 - **LED Visual Feedback**
-  - 3 rapid blinks: Wake-up from deep sleep
+  - 3 rapid blinks: Wake-up from light sleep
   - 1 blink: LoRa message received
   - 2 blinks: LoRa message transmitted
 
 - **Documentation**
-  - DEEP_SLEEP.md - Comprehensive deep sleep guide
-  - WAKEUP_BUTTONS.md - Button configuration and hardware details
+  - LIGHT_SLEEP.md - Comprehensive light sleep guide
   - Updated README.md with sleep features
 
 ### 🔧 Changed
@@ -60,9 +56,10 @@
 
 ### 💡 Features
 - **Power Efficiency**
-  - 2000 mAh battery: ~20 hours without sleep → ~23 days with sleep
+  - 2000 mAh battery: ~20 hours without sleep → ~15 days with light sleep
   - Field deployment optimized
   - Configurable timeout (default: 2 minutes)
+  - Fast wake-up (milliseconds vs seconds for deep sleep)
 
 - **Reliability**
   - Wake-up count tracking
@@ -86,21 +83,18 @@
 **Optional Configuration:**
 ```cpp
 // SleepManager.h
-#define DEEP_SLEEP_TIMEOUT_MS (2 * 60 * 1000)  // Change timeout
-#define MAX_STORED_MESSAGES 10                  // Change buffer size
-#define WAKE_BUTTON_PIN_1 GPIO_NUM_0           // Change button GPIOs
-#define WAKE_BUTTON_PIN_2 GPIO_NUM_15
+#define LIGHT_SLEEP_TIMEOUT_MS (2 * 60 * 1000)  // Change timeout
+#define MAX_STORED_MESSAGES 10                   // Change buffer size
 ```
 
 ### 📊 Performance Impact
 - Active power: ~80-120 mA
-- Sleep power: ~10-150 μA (99% reduction)
-- Wake-up time: ~2-3 seconds (full system initialization)
+- Sleep power: ~0.8-5 mA (90-95% reduction)
+- Wake-up time: ~few milliseconds (maintains system state)
 - Message delivery latency: Instant when BLE connected
 - No impact on communication range or speed
 
 ### 🧪 Testing Scenarios
-- ✅ Button wake-up (both buttons)
 - ✅ LoRa interrupt wake-up
 - ✅ Message persistence across multiple sleep cycles
 - ✅ Automatic message delivery on BLE reconnection
@@ -108,10 +102,9 @@
 - ✅ LED visual feedback
 
 ### 📝 Technical Details
-- Uses ESP32 EXT0 + EXT1 wake sources
+- Uses ESP32 EXT1 wake source for LoRa interrupt
 - RTC memory structure with magic number validation
 - FIFO message queue in RTC_DATA_ATTR memory
-- Hardware limitation: Button 2 wakes on release (see WAKEUP_BUTTONS.md)
 - Compatible with ESP32 classic (not S2/S3 specific)
 
 ---

@@ -13,8 +13,8 @@ This firmware implements a BLE peripheral that communicates with Android devices
 - **Message Protocol**: Implements the 6-bit text encoding protocol for bandwidth optimization
 - **Automatic ACK**: Sends acknowledgments for received Text and GPS messages
 - **Real-time Bridging**: Forwards messages between BLE and LoRa in real-time
-- **Deep Sleep Mode**: Automatically enters ultra-low power mode after 2 minutes of inactivity
-- **Wake-up Sources**: Wakes on button press or LoRa signal reception
+- **Light Sleep Mode**: Automatically enters low power mode after 2 minutes of inactivity
+- **LoRa Wake-up**: Automatically wakes on incoming LoRa messages
 - **Message Persistence**: Stores up to 10 messages in RTC memory across sleep cycles
 - **Automatic Delivery**: Delivers stored messages when BLE reconnects
 - **LED Feedback**: Visual confirmation with 3 blinks on wake-up from sleep
@@ -63,7 +63,7 @@ The built-in LED provides visual feedback:
 
 | Pattern | Meaning |
 |---------|---------|
-| 3 rapid blinks | Wake-up from deep sleep |
+| 3 rapid blinks | Wake-up from light sleep |
 | 1 blink | LoRa message received |
 | 2 blinks | LoRa message transmitted |
 

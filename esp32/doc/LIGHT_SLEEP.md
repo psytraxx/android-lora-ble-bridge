@@ -1,23 +1,13 @@
-# Deep Sleep Implementation
+# Light Sleep Implementation
 
 ## Overview
 
-The ESP32 LoRa-BLE Bridge now supports deep sleep mode to dramatically reduce power consumption during periods of inactivity. The module automatically enters deep sleep after 2 minutes of no activity and can wake ### Test 4: Message Persistence
-1. Send 3 LoRa messages while no BLE connected
-2. Device stores all 3 in RTC memory
-3. Device enters deep sleep
-4. Press BOOT button to wake up
-5. Connect Android via BLE
-6. All 3 messages delivered automatically
-
-### Test 5: Multiple Sleep Cycles1. **Button 1 press** (GPIO 0 - BOOT button)
-2. **Button 2 release** (GPIO 15 - EN button) 
-3. **LoRa signal reception** (GPIO 32 - LoRa DIO0 interrupt pin)
+The ESP32 LoRa-BLE Bridge now supports light sleep mode to reduce power consumption during periods of inactivity. The module automatically enters light sleep after 2 minutes of no activity and can wake up automatically when a LoRa message is received.
 
 ## Key Features
 
-### 1. Automatic Deep Sleep
-- Enters deep sleep after **2 minutes** of inactivity
+### 1. Automatic Light Sleep
+- Enters light sleep after **2 minutes** of inactivity
 - Activity is tracked for:
   - BLE connections
   - BLE message reception
@@ -27,26 +17,13 @@ The ESP32 LoRa-BLE Bridge now supports deep sleep mode to dramatically reduce po
 
 ### 2. Message Persistence
 - Messages received while sleeping or without BLE connection are **stored in RTC memory**
-- RTC memory persists across deep sleep cycles
+- RTC memory persists across light sleep cycles
 - Up to **10 messages** can be stored
 - Messages are delivered automatically when:
   - Device wakes up AND
   - BLE connection is established
 
 ### 3. Wake-up Sources
-
-#### Button 1 Wake-up (GPIO 0 - BOOT)
-- Press the BOOT button to wake the device
-- Active LOW trigger (wakes when pressed)
-- Most reliable wake-up method
-- After wake-up, any stored messages will be delivered when BLE connects
-
-#### Button 2 Wake-up (GPIO 15 - EN)
-- The EN button can also wake the device
-- Due to ESP32 EXT1 limitations with mixed polarity, this button wakes on **release** (not press)
-- Press and hold during sleep, then release to wake
-- Shares EXT1 wake source with LoRa interrupt
-- Alternative: Can be reconfigured for active HIGH with external pull-down resistor
 
 #### LoRa Wake-up (GPIO 32)
 - Device automatically wakes when a LoRa signal is received
@@ -61,34 +38,35 @@ The ESP32 LoRa-BLE Bridge now supports deep sleep mode to dramatically reduce po
 - CPU at 160 MHz
 - BLE advertising and LoRa in receive mode
 
-### Deep Sleep Mode
-- Ultra-low power: ~10-150 μA (depending on ESP32 variant)
+### Light Sleep Mode
+- Low power: ~0.8-5 mA (depending on peripherals kept active)
 - RTC memory active (stores messages)
 - Wake-up sources monitoring
-- **~99% power reduction** compared to active mode
+- **Faster wake-up** compared to deep sleep (~few milliseconds)
+- **Maintains more state** - faster resume to operation
+- **~90-95% power reduction** compared to active mode
 
 ## Usage Scenarios
 
 ### Scenario 1: Field Device Without Android Connection
 1. Device receives LoRa message
-2. Device wakes from deep sleep (if sleeping)
+2. Device wakes from light sleep (if sleeping)
 3. Message is stored in RTC memory
 4. Device sends ACK via LoRa
-5. After 2 minutes of no activity, returns to deep sleep
+5. After 2 minutes of no activity, returns to light sleep
 6. Messages remain in RTC memory
-7. When operator presses button and connects Android:
-   - Device wakes up
-   - BLE connection established
+7. When operator connects Android via BLE:
+   - BLE connection triggers message delivery
    - All stored messages are delivered to Android
 
 ### Scenario 2: Receive Message While Sleeping
-1. Device is in deep sleep
+1. Device is in light sleep
 2. LoRa message arrives → LoRa interrupt triggers
 3. Device wakes up
 4. Receives and processes message
 5. Sends ACK
 6. Stores message in RTC memory (no BLE connection)
-7. Returns to deep sleep after 2 minutes
+7. Returns to light sleep after 2 minutes
 8. Repeat for subsequent messages (up to 10 stored)
 
 ### Scenario 3: Active BLE Session
@@ -97,7 +75,7 @@ The ESP32 LoRa-BLE Bridge now supports deep sleep mode to dramatically reduce po
 3. Device stays awake as long as messages flow
 4. If no activity for 2 minutes:
    - Any pending messages stored to RTC memory
-   - Device enters deep sleep
+   - Device enters light sleep
 5. Next wake-up delivers all stored messages
 
 ## Implementation Details
@@ -128,24 +106,24 @@ typedef struct {
 2. Store any pending messages from queues to RTC memory
 3. Print debug information (stored messages, wake-up count)
 4. Configure wake-up sources
-5. Enter deep sleep via `esp_deep_sleep_start()`
+5. Enter light sleep via `esp_light_sleep_start()`
 
 ### Wake-up Process
-1. ESP32 boots up
+1. ESP32 wakes from light sleep (maintains system state)
 2. Check wake-up reason
 3. Validate RTC memory data
 4. Increment wake-up counter
-5. Initialize all peripherals (LoRa, BLE, LED)
+5. Resume operation from sleep point
 6. **Visual confirmation: LED blinks 3 times**
-7. Resume normal operation
+7. Continue normal operation
 8. Deliver stored messages when BLE connects
 
 ## Configuration
 
 ### Sleep Timeout
-To change the deep sleep timeout, edit `SleepManager.h`:
+To change the light sleep timeout, edit `SleepManager.h`:
 ```cpp
-#define DEEP_SLEEP_TIMEOUT_MS (2 * 60 * 1000)  // 2 minutes in milliseconds
+#define LIGHT_SLEEP_TIMEOUT_MS (2 * 60 * 1000)  // 2 minutes in milliseconds
 ```
 
 ### Message Buffer Size
@@ -154,33 +132,11 @@ To change the number of stored messages, edit `SleepManager.h`:
 #define MAX_STORED_MESSAGES 10  // Maximum messages in RTC memory
 ```
 
-### Wake-up Button
-Default buttons are GPIO 0 (BOOT) and GPIO 15 (EN). To change, edit `SleepManager.h`:
-```cpp
-#define WAKE_BUTTON_PIN_1 GPIO_NUM_0   // Primary button (active LOW)
-#define WAKE_BUTTON_PIN_2 GPIO_NUM_15  // Secondary button (wakes on release)
-```
-
-**Note on Button 2 Behavior:**
-Due to ESP32 classic limitations, EXT0 supports one pin with configurable polarity, while EXT1 supports multiple pins but with same polarity for all. Since we need:
-- Button 1: Wake on LOW (pressed)
-- Button 2: Wake on LOW (pressed) 
-- LoRa: Wake on HIGH (interrupt)
-
-We use:
-- EXT0 for Button 1 (GPIO 0) - wake on LOW ✅
-- EXT1 for Button 2 (GPIO 15) + LoRa (GPIO 32) - wake on ANY_HIGH
-
-This means Button 2 wakes when it goes HIGH (released), not when pressed. Workarounds:
-1. Press and hold Button 2, then release to wake
-2. Add external pull-down resistor to Button 2 to invert logic (active HIGH)
-3. Use only Button 1 (BOOT) for reliable press-to-wake behavior
-
 ## Monitoring and Debug
 
 ### Visual Feedback
 **LED Blink Patterns:**
-- **3 blinks on boot**: Device woke from deep sleep
+- **3 blinks on boot**: Device woke from light sleep
 - **1 blink**: Incoming LoRa message received
 - **2 blinks**: Outgoing LoRa message transmitted
 
@@ -188,13 +144,6 @@ This means Button 2 wakes when it goes HIGH (released), not when pressed. Workar
 The device prints detailed information about sleep operations:
 
 **On wake-up:**
-```
-Wake-up caused by: Button press (EXT0)
-Wake-up count: 5
-Stored messages: 3
-```
-
-Or:
 ```
 Wake-up caused by: LoRa interrupt (EXT1)
 Wake-up count: 5
@@ -204,13 +153,11 @@ Stored messages: 3
 **Before sleep:**
 ```
 ===================================
-ENTERING DEEP SLEEP
+ENTERING LIGHT SLEEP
 ===================================
 Stored messages: 2
 Wake-up count: 4
 Wake-up sources:
-  - Button 1 (BOOT) on GPIO 0 (press to wake)
-  - Button 2 (EN) on GPIO 15 (release to wake - due to pull-up)
   - LoRa interrupt on GPIO 32
 ===================================
 ```
@@ -240,29 +187,19 @@ Message retrieved from RTC memory (2 remaining)
    - Device must be awake to send stored messages
    - Stays awake for 2 minutes or until all messages delivered
 
-4. **No deep sleep during active BLE**
+4. **No light sleep during active BLE**
    - While BLE is connected and active, no sleep
    - This is intentional for responsive communication
 
+5. **Faster wake-up than deep sleep**
+   - Light sleep maintains more state
+   - Resume time is in milliseconds vs seconds for deep sleep
+   - Better for frequent wake/sleep cycles
+
 ## Testing
 
-### Test 1: Button 1 Wake-up (BOOT)
-1. Power on device
-2. Wait 2+ minutes (no activity)
-3. Device enters deep sleep (LED off)
-4. Press BOOT button (GPIO 0)
-5. Device wakes up and reinitializes
-6. **Observe: LED blinks 3 times** (wake-up confirmation)
-
-### Test 2: Button 2 Wake-up (EN)
-1. Device in deep sleep
-2. Press and hold EN button (GPIO 15)
-3. Release the button
-4. Device wakes up (wakes on release due to pull-up configuration)
-5. **Observe: LED blinks 3 times** (wake-up confirmation)
-
-### Test 3: LoRa Wake-up
-1. Device in deep sleep
+### Test 1: LoRa Wake-up
+1. Device in light sleep
 2. Send LoRa message from another device
 3. Device wakes up automatically
 4. **Observe: LED blinks 3 times** (wake-up confirmation)
@@ -270,65 +207,60 @@ Message retrieved from RTC memory (2 remaining)
 6. Receives message and stores it
 7. Check serial output for confirmation
 
-### Test 4: Message Persistence
+### Test 2: Message Persistence
 1. Send 3 LoRa messages while no BLE connected
 2. Device stores all 3 in RTC memory
-3. Device enters deep sleep
-4. Press button to wake up
-5. Connect Android via BLE
-6. All 3 messages delivered automatically
+3. Device enters light sleep
+4. Connect Android via BLE
+5. All 3 messages delivered automatically
 
-### Test 4: Multiple Sleep Cycles
+### Test 3: Multiple Sleep Cycles
 1. Send LoRa message → device wakes, stores, sleeps
 2. Wait, send another → device wakes, stores (2 total), sleeps
 3. Send another → device wakes, stores (3 total), sleeps
-4. Press button and connect BLE
+4. Connect BLE with Android
 5. All 3 messages delivered
 
 ## Power Saving Calculations
 
 ### Example: Field Deployment (24 hours)
 
-**Without deep sleep:**
+**Without light sleep:**
 - Active 24h: 100mA × 24h = 2400 mAh
 
-**With deep sleep (assume 10 wake-ups, 5 min active each):**
+**With light sleep (assume 10 wake-ups, 5 min active each):**
 - Active: 100mA × (50min / 60) = 83 mAh
-- Sleep: 0.1mA × (1390min / 60) = 2.3 mAh
-- **Total: ~85 mAh** (96.5% reduction!)
+- Sleep: 2mA × (1390min / 60) = 46 mAh
+- **Total: ~129 mAh** (95% reduction!)
 
 With a 2000 mAh battery:
 - Without sleep: ~20 hours
-- With sleep: ~23 days (with light usage)
+- With light sleep: ~15 days (with light usage)
+
+**Note**: Light sleep uses more power than deep sleep (~2-5mA vs 10-150μA), but provides:
+- Much faster wake-up (milliseconds vs seconds)
+- Maintains more system state
+- Better for frequent wake/sleep cycles
+- More responsive to interrupts
 
 ## Future Enhancements
 
 Possible improvements:
 1. Configurable timeout via BLE command
-2. Light sleep during BLE idle (less aggressive)
+2. Dynamic sleep mode selection (light vs deep sleep based on usage patterns)
 3. Flash storage for more message persistence
 4. Scheduled wake-ups (timer-based)
 5. Battery level monitoring with sleep adjustment
 6. Message priority (keep important messages longer)
+7. Automatic mode switching between light and deep sleep
 
 ## Troubleshooting
-
-**Device not waking on Button 1 (BOOT):**
-- Check GPIO 0 is configured correctly
-- Ensure button connects GPIO 0 to GND when pressed
-- This is the most reliable wake method
-
-**Device not waking on Button 2 (EN):**
-- Remember: Button 2 wakes on **release**, not press
-- Press and hold the button, then release to wake
-- Check GPIO 15 configuration
-- Consider using only Button 1 for simpler operation
-- Or add external pull-down resistor to GPIO 15 for active HIGH operation
 
 **Device not waking on LoRa:**
 - Check LoRa DIO0 is connected to GPIO 32
 - Ensure LoRa module is powered during sleep
 - Verify LoRa interrupt configuration
+- Test with a strong LoRa signal
 
 **Messages not stored:**
 - Check serial output for "buffer full" messages
@@ -342,17 +274,15 @@ Possible improvements:
 
 ## Summary
 
-The deep sleep implementation provides:
+The light sleep implementation provides:
 - ✅ Automatic sleep after 2 minutes of inactivity
-- ✅ Wake on button press (GPIO 0 - BOOT)
-- ✅ Wake on button release (GPIO 15 - EN)*
 - ✅ Wake on LoRa signal (GPIO 32)
 - ✅ Message persistence across sleep cycles
 - ✅ Automatic delivery when BLE connects
-- ✅ Up to 96% power savings
+- ✅ Up to 95% power savings
 - ✅ No message loss during sleep
 - ✅ Multiple sleep/wake cycles supported
+- ✅ Fast wake-up (milliseconds)
+- ✅ Maintains system state
 
-*Note: Button 2 (EN) wakes on release due to ESP32 EXT1 polarity limitations. Use Button 1 (BOOT) for press-to-wake.
-
-Perfect for battery-powered field deployments! 🔋
+Perfect for battery-powered field deployments with frequent wake/sleep cycles! 🔋

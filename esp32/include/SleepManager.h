@@ -5,17 +5,13 @@
 #include "Protocol.h"
 #include <esp_sleep.h>
 
-// Wake-up button GPIO pins
-#define WAKE_BUTTON_PIN_1 GPIO_NUM_0  // Boot button on most ESP32 dev boards
-#define WAKE_BUTTON_PIN_2 GPIO_NUM_15 // EN button
-
-// Deep sleep timeout in milliseconds (2 minutes)
-#define DEEP_SLEEP_TIMEOUT_MS (2 * 60 * 1000)
+// Light sleep timeout in milliseconds (2 minutes)
+#define LIGHT_SLEEP_TIMEOUT_MS (2 * 60 * 1000)
 
 // Maximum number of messages that can be stored in RTC memory
 #define MAX_STORED_MESSAGES 10
 
-// Structure stored in RTC memory that persists across deep sleep
+// Structure stored in RTC memory that persists across light sleep
 typedef struct
 {
     uint32_t magic;                        // Magic number to verify valid data
@@ -41,10 +37,10 @@ public:
     void updateActivity();
 
     /**
-     * @brief Check if it's time to enter deep sleep
-     * @return true if should enter deep sleep
+     * @brief Check if it's time to enter light sleep
+     * @return true if should enter light sleep
      */
-    bool shouldEnterDeepSleep();
+    bool shouldEnterLightSleep();
 
     /**
      * @brief Store a message in RTC memory for later delivery
@@ -72,10 +68,10 @@ public:
     void clearMessages();
 
     /**
-     * @brief Enter deep sleep mode
+     * @brief Enter light sleep mode
      * Will configure wake sources and print debug info before sleeping
      */
-    void enterDeepSleep();
+    void enterLightSleep();
 
     /**
      * @brief Get wake-up reason after boot
@@ -84,8 +80,8 @@ public:
     String getWakeupReason();
 
     /**
-     * @brief Check if this boot was from deep sleep
-     * @return true if woken from deep sleep
+     * @brief Check if this boot was from light sleep
+     * @return true if woken from light sleep
      */
     bool wasWokenFromSleep();
 

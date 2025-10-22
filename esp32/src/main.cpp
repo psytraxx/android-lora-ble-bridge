@@ -220,10 +220,10 @@ void setup()
     // Initialize Sleep Manager
     sleepManager.setup();
 
-    // Check if we woke from deep sleep and deliver any stored messages
+    // Check if we woke from light sleep and deliver any stored messages
     if (sleepManager.wasWokenFromSleep())
     {
-        Serial.print("Woke from deep sleep - ");
+        Serial.print("Woke from light sleep - ");
         Serial.print(sleepManager.getStoredMessageCount());
         Serial.println(" messages in RTC memory");
         Serial.println(sleepManager.getWakeupReason());
@@ -239,7 +239,7 @@ void setup()
 }
 
 /**
- * @brief Main loop - handles BLE<->LoRa message bridging and deep sleep management
+ * @brief Main loop - handles BLE<->LoRa message bridging and light sleep management
  */
 void loop()
 {
@@ -456,8 +456,8 @@ void loop()
         }
     }
 
-    // Check if we should enter deep sleep (2 minutes of inactivity)
-    if (sleepManager.shouldEnterDeepSleep())
+    // Check if we should enter light sleep (2 minutes of inactivity)
+    if (sleepManager.shouldEnterLightSleep())
     {
         Serial.println("\n>>> 2 minutes of inactivity detected <<<");
 
@@ -468,16 +468,13 @@ void loop()
             sleepManager.storeMessage(loraMsg);
         }
 
-        sleepManager.enterDeepSleep();
-        // Execution stops here - device enters deep sleep
-        // Will wake on button press or LoRa interrupt
+        sleepManager.enterLightSleep();
+        // Execution continues here after wake-up from light sleep
+        // Will process normally in next loop iteration
     }
 
     // Small delay to prevent watchdog issues and allow task switching
     vTaskDelay(pdMS_TO_TICKS(10));
-
-    // Note: Light sleep could be used here for additional power savings, but would interfere with BLE advertising
-    // esp_light_sleep_start(); // Would need wakeup sources configured
 
     // Reset watchdog to prevent timeout
     esp_task_wdt_reset();
