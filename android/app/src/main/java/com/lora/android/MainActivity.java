@@ -1,19 +1,21 @@
 package com.lora.android;
 
 import android.content.Context;
+import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
+
+import com.lora.android.databinding.ActivityMainBinding;
 
 import lora.Protocol;
 
@@ -23,13 +25,9 @@ public class MainActivity extends AppCompatActivity {
     private static final long GPS_UPDATE_INTERVAL_MS = 5000; // 5 seconds
     private static final double CHAR_COUNT_WARNING_THRESHOLD = 0.9; // 90% of max
 
-    private EditText messageEditText;
-    private Button sendButton;
-    private RecyclerView messagesRecyclerView;
+    private ActivityMainBinding binding;
+
     private MessageAdapter messageAdapter;
-    private TextView gpsTextView;
-    private TextView charCountTextView;
-    private TextView connectionStatusTextView;
 
     private MessageViewModel messageViewModel;
     private BleManager bleManager;
@@ -41,27 +39,32 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+        binding = ActivityMainBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
+
+        // Ensure status bar is visible
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.show(WindowInsets.Type.statusBars());
+            }
+        } else {
+            View decorView = getWindow().getDecorView();
+            decorView.setSystemUiVisibility(0);
+        }
 
         // Set up Action Bar title
         if (getSupportActionBar() != null) {
             getSupportActionBar().setTitle("LoRa Chat");
         }
 
-        messageEditText = findViewById(R.id.messageEditText);
-        sendButton = findViewById(R.id.sendButton);
-        messagesRecyclerView = findViewById(R.id.messagesRecyclerView);
-        gpsTextView = findViewById(R.id.gpsTextView);
-        charCountTextView = findViewById(R.id.charCountTextView);
-        connectionStatusTextView = findViewById(R.id.connectionStatusTextView);
-
         // Initialize managers
         messageAdapter = new MessageAdapter();
 
         // Set scroll callback to auto-scroll when messages are added
-        messageAdapter.setScrollCallback(() -> messagesRecyclerView.post(() -> {
+        messageAdapter.setScrollCallback(() -> binding.messagesRecyclerView.post(() -> {
             if (messageAdapter.getItemCount() > 0) {
-                messagesRecyclerView.smoothScrollToPosition(messageAdapter.getItemCount() - 1);
+                binding.messagesRecyclerView.smoothScrollToPosition(messageAdapter.getItemCount() - 1);
             }
         }));
 
@@ -72,11 +75,11 @@ public class MainActivity extends AppCompatActivity {
         messageViewModel.setManagers(bleManager, gpsManager, messageAdapter);
 
         // Set up RecyclerView
-        messagesRecyclerView.setLayoutManager(new LinearLayoutManager(this));
-        messagesRecyclerView.setAdapter(messageAdapter);
+        binding.messagesRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        binding.messagesRecyclerView.setAdapter(messageAdapter);
 
         // Observe ViewModel
-        messageViewModel.getGpsDisplay().observe(this, gps -> gpsTextView.setText(gps));
+        messageViewModel.getGpsDisplay().observe(this, gps -> binding.gpsTextView.setText(gps));
         messageViewModel.getShowToast().observe(this, message -> {
             if (message != null) {
                 Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
@@ -84,13 +87,13 @@ public class MainActivity extends AppCompatActivity {
         });
 
         // Observe BLE connection state for send button and status
-        bleManager.getConnectionStatus().observe(this, status -> connectionStatusTextView.setText(status));
+        bleManager.getConnectionStatus().observe(this, status -> binding.connectionStatusTextView.setText(status));
         bleManager.getConnected().observe(this,
-                connected -> sendButton.setEnabled(connected != null ? connected : false));
+                connected -> binding.sendButton.setEnabled(connected != null ? connected : false));
 
         // Add click listener for reconnect functionality
-        connectionStatusTextView.setOnClickListener(v -> {
-            String currentStatus = connectionStatusTextView.getText().toString();
+        binding.connectionStatusTextView.setOnClickListener(v -> {
+            String currentStatus = binding.connectionStatusTextView.getText().toString();
             if (currentStatus.contains("Tap here to reconnect")) {
                 bleManager.reconnect();
             }
@@ -98,17 +101,17 @@ public class MainActivity extends AppCompatActivity {
 
         checkPermissions();
 
-        sendButton.setOnClickListener(v -> {
-            String messageText = messageEditText.getText().toString();
+        binding.sendButton.setOnClickListener(v -> {
+            String messageText = binding.messageEditText.getText().toString();
             if (!messageText.isEmpty()) {
                 messageViewModel.sendMessage(messageText);
-                messageEditText.setText("");
+                binding.messageEditText.setText("");
             }
         });
-        sendButton.setEnabled(false); // Disabled until connected
+        binding.sendButton.setEnabled(false); // Disabled until connected
 
         // Add text watcher to update character count
-        messageEditText.addTextChangedListener(new android.text.TextWatcher() {
+        binding.messageEditText.addTextChangedListener(new android.text.TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
             }
@@ -123,7 +126,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        messageEditText.setOnEditorActionListener((v, actionId, event) -> {
+        binding.messageEditText.setOnEditorActionListener((v, actionId, event) -> {
             android.util.Log.d("LoRaApp", "EditorAction - actionId: " + actionId + ", event: " + event);
 
             // Handle any action - Done, Send, Unspecified, etc.
@@ -153,7 +156,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
+            @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_PERMISSIONS) {
             if (PermissionHelper.areAllPermissionsGranted(grantResults)) {
@@ -204,8 +207,8 @@ public class MainActivity extends AppCompatActivity {
         if (imm != null && getCurrentFocus() != null) {
             imm.hideSoftInputFromWindow(getCurrentFocus().getWindowToken(), 0);
         }
-        if (messageEditText != null) {
-            messageEditText.clearFocus();
+        if (binding.messageEditText != null) {
+            binding.messageEditText.clearFocus();
         }
     }
 
@@ -217,15 +220,15 @@ public class MainActivity extends AppCompatActivity {
         int totalMessageSize = 12 + packedBytes; // 12 byte header + packed text
 
         String countText = charCount + "/" + Protocol.MAX_TEXT_LENGTH + " chars (" + totalMessageSize + " bytes)";
-        charCountTextView.setText(countText);
+        binding.charCountTextView.setText(countText);
 
         // Change color if approaching limit
         if (charCount >= Protocol.MAX_TEXT_LENGTH) {
-            charCountTextView.setTextColor(0xFFFF0000); // Red
+            binding.charCountTextView.setTextColor(0xFFFF0000); // Red
         } else if (charCount >= Protocol.MAX_TEXT_LENGTH * CHAR_COUNT_WARNING_THRESHOLD) {
-            charCountTextView.setTextColor(0xFFFF6600); // Orange
+            binding.charCountTextView.setTextColor(0xFFFF6600); // Orange
         } else {
-            charCountTextView.setTextColor(0xFF666666); // Gray
+            binding.charCountTextView.setTextColor(0xFF666666); // Gray
         }
     }
 
