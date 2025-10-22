@@ -1,10 +1,10 @@
-# LoRa Android RS
+# Android LoRa BLE Bridge
 
 A long-range communication system for sending text messages (up to 50 characters) and GPS coordinates via 433 MHz LoRa using ESP32-S3 and Android devices.
 
 ## Features
 
-- 📱 **Android App**: Java-based app with GPS integration and BLE communication
+- 📱 **Android App**: Modern Java app with ViewBinding, GPS integration, and BLE communication
 - 📡 **Long Range**: 5-10 km typical range (up to 15+ km in ideal conditions)
 - 🔋 **Power Optimized**: 40-50% power savings (70-100 hours on 2500 mAh battery)
 - 📦 **Message Buffering**: Buffers up to 10 messages when phone is disconnected
@@ -89,15 +89,19 @@ android-lora-ble-bridge/
 │   │   │   ├── MainActivity.java
 │   │   │   ├── MessageAdapter.java
 │   │   │   ├── MessageViewModel.java
-│   │   │   ├── Protocol.java
-│   │   │   └── BleService.java
+│   │   │   ├── BleManager.java
+│   │   │   ├── GpsManager.java
+│   │   │   ├── PermissionHelper.java
+│   │   │   └── Protocol.java
 │   │   └── res/
 │   │       ├── layout/
 │   │       │   ├── activity_main.xml
 │   │       │   └── message_item.xml
 │   │       └── drawable/
 │   │           ├── message_bubble_sent.xml
-│   │           └── message_bubble_received.xml
+│   │           ├── message_bubble_received.xml
+│   │           ├── ic_launcher_background.xml
+│   │           └── ic_launcher_foreground.xml
 │   └── build.gradle
 ├── protocol.md           # Protocol specification
 ├── CHANGELOG.md          # Project changelog
@@ -116,7 +120,7 @@ android-lora-ble-bridge/
 
 #### Android App
 - [Android Studio](https://developer.android.com/studio) or Android SDK
-- JDK 8 or higher
+- JDK 17 or higher (for ViewBinding support)
 - Gradle (included in Android Studio)
 
 ### ESP32 Firmware Build
@@ -515,15 +519,6 @@ ACK_Delay = LoRa_TX_Time + RX_Mode_Switch + Processing_Buffer
 - Ensure devices are on same frequency (433 MHz)
 
 ### Debug Tips
-
-**Protocol Version Compatibility:**
-- ⚠️ Protocol v3.0 is **not backward compatible** with v2.0 or v1.0
-- All devices must run same protocol version
-- v3.0 changes:
-  - Unified TextMessage with optional GPS coordinates
-  - 6-bit character encoding (not UTF-8)
-  - ACK message type changed to 0x02
-  - Single message transmission (no separate GPS message)
 
 **ESP32 Serial Monitor:**
 ```bash
