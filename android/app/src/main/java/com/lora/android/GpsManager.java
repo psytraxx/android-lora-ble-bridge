@@ -17,7 +17,7 @@ import java.util.Locale;
 public class GpsManager {
 
     private static final String TAG = "GpsManager";
-    private static final long MIN_TIME_BETWEEN_UPDATES = 30000; // 30 seconds (reduced from 5s for power saving)
+    private static final long MIN_TIME_BETWEEN_UPDATES = 30000; // 30s interval
     private static final float MIN_DISTANCE_CHANGE = 10; // 10 meters
 
     private final Context context;
@@ -54,7 +54,8 @@ public class GpsManager {
             }
         };
 
-        // Note: Location updates are now event-driven, not started automatically in constructor
+        // Note: Location updates are now event-driven, not started automatically in
+        // constructor
         Log.d(TAG, "GpsManager initialized - updates will start on-demand");
     }
 
@@ -76,14 +77,14 @@ public class GpsManager {
         }
 
         try {
-            // Request updates from both GPS and Network providers
+            // Request continuous updates from both GPS and Network providers
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                         LocationManager.GPS_PROVIDER,
                         MIN_TIME_BETWEEN_UPDATES,
                         MIN_DISTANCE_CHANGE,
                         locationListener);
-                Log.d(TAG, "Started GPS location updates (30s interval for power saving)");
+                Log.d(TAG, "Started GPS location updates");
             }
 
             if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
@@ -92,7 +93,7 @@ public class GpsManager {
                         MIN_TIME_BETWEEN_UPDATES,
                         MIN_DISTANCE_CHANGE,
                         locationListener);
-                Log.d(TAG, "Started Network location updates (30s interval)");
+                Log.d(TAG, "Started Network location updates");
             }
             isListening = true;
         } catch (Exception e) {
@@ -127,7 +128,7 @@ public class GpsManager {
         }
 
         try {
-            // Request a single update from GPS (most accurate)
+            // Request a single update from GPS
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestSingleUpdate(
                         LocationManager.GPS_PROVIDER,
@@ -155,7 +156,7 @@ public class GpsManager {
                 Log.d(TAG, "Requested single GPS location update (event-driven)");
             }
 
-            // Also request from Network as fallback
+            // Also request a single update from Network as fallback
             if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 locationManager.requestSingleUpdate(
                         LocationManager.NETWORK_PROVIDER,
