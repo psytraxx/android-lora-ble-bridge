@@ -33,11 +33,9 @@ public class BleManager {
     private static final UUID TX_CHAR_UUID = UUID.fromString("00005678-0000-1000-8000-00805F9B34FB");
     private static final UUID RX_CHAR_UUID = UUID.fromString("00005679-0000-1000-8000-00805F9B34FB");
     private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
-    private static final long LOCATION_CHECK_INTERVAL_MS = 60000; // Check every minute
-    private static final long SCAN_TIMEOUT_MS = 15000; // 15 seconds scan timeout (increased from 5)
+    private static final long SCAN_TIMEOUT_MS = 7000; // 7 seconds scan timeout
 
     private final Context context;
-    private final android.os.Handler locationCheckHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     // LiveData for state changes
     private final MutableLiveData<String> connectionStatus = new MutableLiveData<>();
@@ -52,6 +50,7 @@ public class BleManager {
     private boolean isWaitingForLocation = false;
     private boolean isScanning = false;
     private ScanCallback currentScanCallback = null;
+    private android.content.BroadcastReceiver locationProviderReceiver;
 
     public BleManager(Context context) {
         this.context = context;
@@ -121,18 +120,16 @@ public class BleManager {
             Log.w(TAG,
                     "Location services are disabled. BLE scanning requires location services to be enabled on Android.");
 
-            // Start checking periodically for location services to be enabled
+            // Register receiver to listen for location changes
             if (!isWaitingForLocation) {
                 isWaitingForLocation = true;
-                startLocationCheck();
+                registerLocationProviderReceiver();
             }
             return;
         }
 
         // Location is enabled, stop waiting
         isWaitingForLocation = false;
-        locationCheckHandler.removeCallbacksAndMessages(null);
-
         // Stop any existing scan
         stopScan();
 
@@ -190,22 +187,38 @@ public class BleManager {
         }
     }
 
-    private void startLocationCheck() {
-        locationCheckHandler.postDelayed(new Runnable() {
+    public void registerLocationProviderReceiver() {
+        if (locationProviderReceiver != null) return;
+        locationProviderReceiver = new android.content.BroadcastReceiver() {
             @Override
-            public void run() {
-                if (isWaitingForLocation && !isConnected()) {
-                    if (isLocationEnabled()) {
+            public void onReceive(Context context, android.content.Intent intent) {
+                if (LocationManager.PROVIDERS_CHANGED_ACTION.equals(intent.getAction())) {
+                    if (isLocationEnabled() && isWaitingForLocation && !isConnected()) {
                         Log.d(TAG, "Location services now enabled! Retrying BLE scan...");
                         showToast.postValue("Location enabled! Scanning for device...");
                         startScan();
-                    } else {
-                        // Keep checking
-                        locationCheckHandler.postDelayed(this, LOCATION_CHECK_INTERVAL_MS);
                     }
                 }
             }
-        }, LOCATION_CHECK_INTERVAL_MS);
+        };
+        android.content.IntentFilter filter = new android.content.IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION);
+        context.registerReceiver(locationProviderReceiver, filter);
+    }
+
+    public void unregisterLocationProviderReceiver() {
+        if (locationProviderReceiver != null) {
+            try {
+                context.unregisterReceiver(locationProviderReceiver);
+            } catch (Exception e) {
+                Log.e(TAG, "Error unregistering locationProviderReceiver: " + e.getMessage());
+            }
+            locationProviderReceiver = null;
+        }
+    }
+
+    public void onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null);
+        unregisterLocationProviderReceiver();
     }
 
     @SuppressLint("MissingPermission")
@@ -352,7 +365,7 @@ public class BleManager {
 
         // Cancel any pending reconnect attempts
         mainHandler.removeCallbacksAndMessages(null);
-        locationCheckHandler.removeCallbacksAndMessages(null);
+        unregisterLocationProviderReceiver();
 
         if (bluetoothGatt != null) {
             bluetoothGatt.disconnect();
