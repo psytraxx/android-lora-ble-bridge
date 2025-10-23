@@ -1,9 +1,8 @@
 package com.lora.android;
 
 import android.content.Context;
-import android.os.Build;
+import android.content.Intent;
 import android.os.Bundle;
-import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.inputmethod.EditorInfo;
@@ -12,6 +11,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
@@ -22,7 +22,6 @@ import lora.Protocol;
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_PERMISSIONS = 1;
-    private static final long GPS_UPDATE_INTERVAL_MS = 5000; // 5 seconds
     private static final double CHAR_COUNT_WARNING_THRESHOLD = 0.9; // 90% of max
 
     private ActivityMainBinding binding;
@@ -33,26 +32,21 @@ public class MainActivity extends AppCompatActivity {
     private BleManager bleManager;
     private GpsManager gpsManager;
 
-    private android.os.Handler gpsHandler;
-    private Runnable gpsUpdateRunnable;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
+        // Start foreground service for background message reception
+        startForegroundService();
+
         // Ensure status bar is visible and icons are dark
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            WindowInsetsController controller = getWindow().getInsetsController();
-            if (controller != null) {
-                controller.show(WindowInsets.Type.statusBars());
-                controller.setSystemBarsAppearance(WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
-                        WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS);
-            }
-        } else {
-            View decorView = getWindow().getDecorView();
-            decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        WindowInsetsController controller = getWindow().getInsetsController();
+        if (controller != null) {
+            controller.show(WindowInsets.Type.statusBars());
+            controller.setSystemBarsAppearance(WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
+                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS);
         }
 
         // Set up Action Bar title
@@ -71,7 +65,7 @@ public class MainActivity extends AppCompatActivity {
         }));
 
         messageViewModel = new ViewModelProvider(this).get(MessageViewModel.class);
-        bleManager = new BleManager(this);
+        bleManager = BleManager.getInstance(this);
         gpsManager = new GpsManager(this);
 
         messageViewModel.setManagers(bleManager, gpsManager, messageAdapter);
@@ -97,7 +91,7 @@ public class MainActivity extends AppCompatActivity {
         binding.connectionStatusTextView.setOnClickListener(v -> {
             String currentStatus = binding.connectionStatusTextView.getText().toString();
             if (currentStatus.contains("Tap here to reconnect")) {
-                bleManager.reconnect();
+                bleManager.connect();
             }
         });
 
@@ -106,6 +100,8 @@ public class MainActivity extends AppCompatActivity {
         binding.sendButton.setOnClickListener(v -> {
             String messageText = binding.messageEditText.getText().toString();
             if (!messageText.isEmpty()) {
+                // Request fresh GPS location when user sends message (event-driven)
+                gpsManager.requestSingleLocationUpdate();
                 messageViewModel.sendMessage(messageText);
                 binding.messageEditText.setText("");
             }
@@ -142,10 +138,9 @@ public class MainActivity extends AppCompatActivity {
             return false;
         });
 
+        // Get initial GPS location (event-driven, not periodic)
         messageViewModel.updateGps();
         updateCharCount(""); // Initialize counter
-
-        startGpsPeriodicUpdates();
     }
 
     private void checkPermissions() {
@@ -158,11 +153,11 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-            @NonNull int[] grantResults) {
+                                           @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_PERMISSIONS) {
             if (PermissionHelper.areAllPermissionsGranted(grantResults)) {
-                gpsManager.startLocationUpdates(); // Start GPS updates when permissions granted
+                // Note: GPS updates are now event-driven, not started automatically
                 startBleScan();
             } else {
                 Toast.makeText(this, "Permissions required", Toast.LENGTH_SHORT).show();
@@ -177,30 +172,22 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (gpsHandler != null && gpsUpdateRunnable != null) {
-            gpsHandler.removeCallbacks(gpsUpdateRunnable);
-        }
         if (gpsManager != null) {
             gpsManager.stopLocationUpdates();
         }
         if (bleManager != null) {
             bleManager.disconnect();
         }
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        if (gpsHandler != null && gpsUpdateRunnable != null) {
-            gpsHandler.removeCallbacks(gpsUpdateRunnable);
-        }
+        // Note: We intentionally do NOT stop the foreground service here
+        // so it continues running in the background to receive messages
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (gpsHandler != null && gpsUpdateRunnable != null) {
-            gpsHandler.postDelayed(gpsUpdateRunnable, GPS_UPDATE_INTERVAL_MS);
+        // Refresh GPS display when app comes to foreground
+        if (gpsManager != null && messageViewModel != null) {
+            messageViewModel.updateGps();
         }
     }
 
@@ -226,23 +213,19 @@ public class MainActivity extends AppCompatActivity {
 
         // Change color if approaching limit
         if (charCount >= Protocol.MAX_TEXT_LENGTH) {
-            binding.charCountTextView.setTextColor(0xFFFF0000); // Red
+            binding.charCountTextView.setTextColor(
+                    androidx.core.content.ContextCompat.getColor(this, R.color.char_count_exceeded));
         } else if (charCount >= Protocol.MAX_TEXT_LENGTH * CHAR_COUNT_WARNING_THRESHOLD) {
-            binding.charCountTextView.setTextColor(0xFFFF6600); // Orange
+            binding.charCountTextView.setTextColor(
+                    androidx.core.content.ContextCompat.getColor(this, R.color.char_count_warning));
         } else {
-            binding.charCountTextView.setTextColor(0xFF666666); // Gray
+            binding.charCountTextView.setTextColor(
+                    androidx.core.content.ContextCompat.getColor(this, R.color.char_count_normal));
         }
     }
 
-    private void startGpsPeriodicUpdates() {
-        gpsHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-        gpsUpdateRunnable = new Runnable() {
-            @Override
-            public void run() {
-                messageViewModel.updateGps();
-                gpsHandler.postDelayed(this, GPS_UPDATE_INTERVAL_MS);
-            }
-        };
-        gpsHandler.postDelayed(gpsUpdateRunnable, GPS_UPDATE_INTERVAL_MS);
+    private void startForegroundService() {
+        Intent serviceIntent = new Intent(this, LoRaForegroundService.class);
+        ContextCompat.startForegroundService(this, serviceIntent);
     }
 }

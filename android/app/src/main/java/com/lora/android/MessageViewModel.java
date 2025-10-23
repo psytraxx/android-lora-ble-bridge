@@ -19,6 +19,7 @@ public class MessageViewModel extends ViewModel {
     private final MutableLiveData<String> gpsDisplay = new MutableLiveData<>();
     private final MutableLiveData<String> showToast = new MutableLiveData<>();
     private final Observer<String> bleShowToastObserver = showToast::postValue;
+    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
     private BleManager bleManager;
     private GpsManager gpsManager;
     private MessageAdapter messageAdapter;
@@ -78,11 +79,6 @@ public class MessageViewModel extends ViewModel {
     public void sendMessage(String text) {
         Log.d(TAG, "Send message - text: " + text);
 
-        if (!canSendMessage()) {
-            Log.e(TAG, "Cannot send: not connected");
-            return;
-        }
-
         // Enforce maximum text length
         if (text.length() > Protocol.MAX_TEXT_LENGTH) {
             text = text.substring(0, Protocol.MAX_TEXT_LENGTH);
@@ -91,9 +87,38 @@ public class MessageViewModel extends ViewModel {
         // Validate characters
         if (!Protocol.isTextSupported(text)) {
             Log.e(TAG, "Invalid characters in message");
+            showToast.postValue("Message contains unsupported characters");
             return;
         }
 
+        // Attempt to connect if not connected (async)
+        if (bleManager != null && !bleManager.isConnected()) {
+            Log.d(TAG, "BLE not connected - attempting to connect...");
+            bleManager.connect();
+            showToast.postValue("Connecting to device...");
+
+            // Queue message for retry after brief delay using Handler
+            final String finalText = text;
+            handler.postDelayed(() -> {
+                if (canSendMessage()) {
+                    sendMessageInternal(finalText);
+                } else {
+                    showToast.postValue("Failed to connect - please try again");
+                }
+            }, 2000);
+            return;
+        }
+
+        if (!canSendMessage()) {
+            Log.e(TAG, "Cannot send: BLE not connected");
+            showToast.postValue("Not connected to device");
+            return;
+        }
+
+        sendMessageInternal(text);
+    }
+
+    private void sendMessageInternal(String text) {
         // Update GPS
         updateGps();
         Location location = gpsManager.getLastKnownLocation();
@@ -107,7 +132,6 @@ public class MessageViewModel extends ViewModel {
                 final int lat = (int) (location.getLatitude() * 1_000_000);
                 final int lon = (int) (location.getLongitude() * 1_000_000);
                 textMsg = new Protocol.TextMessage(textSeq, text, lat, lon);
-                // Display text without GPS coordinates, but store GPS data for Maps click
                 messageAdapter.addMessage(text, true, textSeq, true,
                         location.getLatitude(), location.getLongitude());
             } else {
@@ -115,11 +139,37 @@ public class MessageViewModel extends ViewModel {
                 messageAdapter.addMessage(text, true, textSeq);
             }
 
-            bleManager.sendMessage(textMsg);
+            boolean success = bleManager.sendMessage(textMsg);
+            if (!success) {
+                Log.e(TAG, "Failed to send message - will retry");
+                showToast.postValue("Send failed - retrying...");
+                // Retry after brief delay using Handler
+                final Protocol.TextMessage retryMsg = textMsg;
+                handler.postDelayed(() -> {
+                    if (bleManager.isConnected()) {
+                        bleManager.sendMessage(retryMsg);
+                    }
+                }, 1000);
+            }
+
+            // Schedule disconnect after longer delay (to await ACK) - increased from 5 to
+            // 30 seconds
+            disconnectAfterDelay(30000);
 
         } catch (Exception e) {
             Log.e(TAG, "Error sending message: " + e.getMessage());
+            showToast.postValue("Error: " + e.getMessage());
         }
+    }
+
+    private void disconnectAfterDelay(long delayMs) {
+        // Use Handler instead of Thread to avoid race conditions
+        handler.postDelayed(() -> {
+            if (bleManager != null && bleManager.isConnected()) {
+                Log.d(TAG, "Disconnecting BLE after inactivity timeout");
+                bleManager.disconnect();
+            }
+        }, delayMs);
     }
 
     private void handleReceivedMessage(Protocol.Message message) {
@@ -143,6 +193,10 @@ public class MessageViewModel extends ViewModel {
     @Override
     protected void onCleared() {
         super.onCleared();
+        // Clean up handlers to prevent memory leaks
+        handler.removeCallbacksAndMessages(null);
+        Log.d(TAG, "Handler callbacks cleared");
+
         // Safe cleanup with null checks
         if (bleManager != null && observersRegistered) {
             try {

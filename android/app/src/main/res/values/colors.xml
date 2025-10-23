@@ -7,4 +7,14 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Message adapter colors -->
+    <color name="message_text">#FF000000</color>
+    <color name="ack_pending">#FF999999</color>
+    <color name="ack_delivered">#FF4CAF50</color>
+
+    <!-- Character counter colors -->
+    <color name="char_count_normal">#FF666666</color>
+    <color name="char_count_warning">#FFFF6600</color>
+    <color name="char_count_exceeded">#FFFF0000</color>
 </resources>

@@ -114,7 +114,7 @@ bool BLEManager::setup(const char *deviceName)
     pAdvertising->setName(deviceName);
 
     // Set TX power to balance range and power consumption
-    NimBLEDevice::setPower(ESP_PWR_LVL_P6); // +6dBm (reduced from +9dBm for power saving)
+    NimBLEDevice::setPower(ESP_PWR_LVL_P9); // +9dBm
 
     Serial.println("BLE service created");
     Serial.print("Device name: ");
@@ -189,6 +189,43 @@ void BLEManager::process()
     {
         oldDeviceConnected = deviceConnected;
         Serial.println("Connection state updated");
+    }
+
+    // Note: Removed BLE advertising inactivity timeout
+    // Requirement: Always able to receive LoRa messages and deliver to Android
+    // Therefore, advertising must never stop automatically
+}
+
+void BLEManager::stopAdvertising()
+{
+    if (pAdvertising)
+    {
+        pAdvertising->stop();
+        Serial.println("BLE advertising manually stopped");
+    }
+}
+
+void BLEManager::updateActivity()
+{
+    lastActivityTime = millis();
+}
+
+void BLEManager::disconnect()
+{
+    if (deviceConnected)
+    {
+        Serial.println("Disconnecting BLE client...");
+        NimBLEDevice::stopAdvertising();
+        NimBLEDevice::deinit(true);
+        deviceConnected = false;
+        oldDeviceConnected = false;
+        Serial.println("BLE client disconnected and BLE stack reset");
+    }
+
+    if (pAdvertising)
+    {
+        pAdvertising->stop();
+        Serial.println("BLE advertising stopped");
     }
 }
 

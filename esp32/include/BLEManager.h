@@ -39,6 +39,14 @@ private:
 class BLEManager
 {
 public:
+    void stopAdvertising();
+    void disconnect();
+    void updateActivity();
+
+private:
+    unsigned long lastActivityTime;
+
+public:
     BLEManager(QueueHandle_t bleToLoraQueue);
 
     /// Initialize BLE with device name

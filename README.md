@@ -5,13 +5,15 @@ A long-range communication system for sending text messages (up to 50 characters
 ## Features
 
 - 📱 **Android App**: Modern Java app with ViewBinding, GPS integration, and BLE communication
+- 🔔 **Background Service**: Receives messages even when app is minimized (Android 8.0+)
 - 📡 **Long Range**: 5-10 km typical range (up to 15+ km in ideal conditions)
 - 🔋 **Power Optimized**: 40-50% power savings (70-100 hours on 2500 mAh battery)
 - 📦 **Message Buffering**: Buffers up to 10 messages when phone is disconnected
-- ✅ **Reliable**: ACK mechanism confirms message delivery
+- ✅ **Reliable**: ACK mechanism confirms message delivery with automatic retry
 - 🌍 **GPS Precision**: ±1 meter accuracy (GPS sent only when available)
 - 🚀 **Fast**: ~1-2 second end-to-end latency
 - 📉 **Bandwidth Efficient**: 6-bit character packing (40% smaller than UTF-8)
+- 🔧 **Improved Stability**: Extended timeouts and async operations prevent disconnects
 
 ## Architecture
 
