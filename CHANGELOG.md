@@ -1,5 +1,45 @@
 ## Recent Improvements
 
+### Android App - Critical Connection State & Message Delivery Fixes (October 23, 2025)
+
+#### Critical Bug Fixes
+- **CRITICAL - Buffered Messages Not Delivered on Reconnect**: Fixed timing issue where messages were lost during reconnection
+  - Problem: Android set `connected=true` BEFORE notifications were fully enabled on ESP32
+  - ESP32 would immediately send buffered messages, but Android wasn't ready to receive them
+  - Solution: Delay `connected=true` until `onDescriptorWrite` callback confirms notifications enabled
+  - Impact: All buffered messages now reliably delivered when app reconnects
+  - File: `BleManager.java:330-405`
+
+- **CRITICAL - Connection State UI Still Mismatched**: Enhanced connection state validation
+  - Problem: Validation wasn't checking actual GATT connection state from BluetoothManager
+  - Only checked if characteristic objects existed, not if GATT was actually connected
+  - Solution: Query `BluetoothManager.getConnectionState()` for actual connection status
+  - Added synchronous execution when already on main thread (prevents async race conditions)
+  - Impact: Send button state now ALWAYS matches connection status text
+  - File: `BleManager.java:434-482`
+
+#### Technical Details
+**Connection Sequence** (Now Correct):
+1. BLE GATT connects → Status: "🔗 Negotiating..."
+2. MTU negotiated → Status: "🔧 Discovering services..."
+3. Services discovered → TX/RX characteristics found
+4. Notification enable requested → CCCD descriptor write initiated
+5. **NEW**: Wait for `onDescriptorWrite` success callback
+6. **ONLY THEN**: Set `connected=true` → Status: "✅ Ready to send!"
+
+**Why This Matters:**
+- ESP32 sends buffered messages as soon as Android sets `connected=true`
+- If notifications aren't enabled yet, messages are lost
+- Old behavior: Connected too early (step 4)
+- New behavior: Connected at right time (step 6)
+
+#### Test Results
+- **Build**: ✅ Successful
+- **Unit Tests**: ✅ All 9 tests passing
+- **Impact**: Reliable message delivery on every reconnection
+
+---
+
 ### ESP32-S3 Debugger - Display Dimming Removal & Deep Sleep Notification (October 23, 2025)
 
 #### User Experience Improvements

@@ -340,13 +340,19 @@ public class BleManager {
                                         .setValue(android.bluetooth.BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
                                 boolean descriptorWriteSuccess = gatt.writeDescriptor(descriptor);
                                 Log.d(TAG, "CCCD descriptor write initiated: " + descriptorWriteSuccess);
+
+                                // DON'T set connected=true here! Wait for onDescriptorWrite callback
+                                // to confirm notifications are actually enabled before ESP32 starts sending
+                                if (!descriptorWriteSuccess) {
+                                    Log.e(TAG, "Failed to initiate descriptor write");
+                                    connected.postValue(false);
+                                    connectionStatus.postValue("❌ Failed to enable notifications - Tap here to reconnect");
+                                }
                             } else {
                                 Log.e(TAG, "CCCD descriptor not found on TX characteristic!");
+                                connected.postValue(false);
+                                connectionStatus.postValue("❌ CCCD descriptor missing - Tap here to reconnect");
                             }
-
-                            // Only NOW set connected=true (after successful service discovery)
-                            connected.postValue(true);
-                            connectionStatus.postValue("✅ Ready to send!");
                         } else {
                             Log.e(TAG, "Characteristics not found!");
                             connected.postValue(false);
@@ -385,8 +391,16 @@ public class BleManager {
                 Log.d(TAG, "Descriptor write completed: status=" + status);
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     Log.d(TAG, "Notifications successfully enabled on server side!");
+
+                    // CRITICAL: Only NOW set connected=true
+                    // This ensures notifications are fully enabled before ESP32 starts sending buffered messages
+                    connected.postValue(true);
+                    connectionStatus.postValue("✅ Ready to send!");
+                    Log.d(TAG, "Connection FULLY established - ready to receive notifications");
                 } else {
                     Log.e(TAG, "Failed to enable notifications on server side, status: " + status);
+                    connected.postValue(false);
+                    connectionStatus.postValue("❌ Notification setup failed - Tap here to reconnect");
                 }
             }
         });
@@ -429,38 +443,56 @@ public class BleManager {
      * Validates that the LiveData connection state matches the actual GATT connection state.
      * Call this when app resumes to ensure UI reflects reality.
      *
-     * IMPORTANT: This must use setValue() on main thread to ensure observers are notified
-     * immediately, not postValue() which is asynchronous.
+     * CRITICAL: Must run synchronously on main thread to prevent race conditions.
      */
     public void validateConnectionState() {
-        // Must run on main thread since we're calling setValue()
-        mainHandler.post(() -> {
-            // Check actual GATT connection state
-            boolean actuallyConnected = bluetoothGatt != null &&
-                                       txCharacteristic != null &&
-                                       rxCharacteristic != null;
+        // If already on main thread, execute immediately. Otherwise post.
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            validateConnectionStateInternal();
+        } else {
+            mainHandler.post(this::validateConnectionStateInternal);
+        }
+    }
 
-            Boolean currentLiveDataValue = connected.getValue();
-            boolean liveDataSaysConnected = currentLiveDataValue != null && currentLiveDataValue;
-
-            Log.d(TAG, "Validating connection state: LiveData=" + liveDataSaysConnected +
-                      ", GATT=" + (bluetoothGatt != null) +
-                      ", TX=" + (txCharacteristic != null) +
-                      ", RX=" + (rxCharacteristic != null) +
-                      ", Actual=" + actuallyConnected);
-
-            // ALWAYS update both values to ensure they're in sync, even if they match
-            // This forces the LiveData observers to fire with the current state
-            if (actuallyConnected) {
-                connected.setValue(true);  // Use setValue() not postValue() for immediate update
-                connectionStatus.setValue("✅ Ready to send!");
-                Log.d(TAG, "Connection state updated to CONNECTED");
-            } else {
-                connected.setValue(false);  // Use setValue() not postValue() for immediate update
-                connectionStatus.setValue("❌ Disconnected - Tap here to reconnect");
-                Log.d(TAG, "Connection state updated to DISCONNECTED");
+    private void validateConnectionStateInternal() {
+        // Check actual GATT connection state (must check BluetoothGatt state too)
+        boolean gattConnected = false;
+        if (bluetoothGatt != null) {
+            android.bluetooth.BluetoothManager bluetoothManager =
+                (android.bluetooth.BluetoothManager) context.getSystemService(android.content.Context.BLUETOOTH_SERVICE);
+            if (bluetoothManager != null && bluetoothGatt.getDevice() != null) {
+                int connectionState = bluetoothManager.getConnectionState(
+                    bluetoothGatt.getDevice(),
+                    android.bluetooth.BluetoothProfile.GATT
+                );
+                gattConnected = (connectionState == android.bluetooth.BluetoothProfile.STATE_CONNECTED);
             }
-        });
+        }
+
+        boolean hasCharacteristics = txCharacteristic != null && rxCharacteristic != null;
+        boolean actuallyConnected = bluetoothGatt != null && gattConnected && hasCharacteristics;
+
+        Boolean currentLiveDataValue = connected.getValue();
+        boolean liveDataSaysConnected = currentLiveDataValue != null && currentLiveDataValue;
+
+        Log.w(TAG, "Validating connection state: " +
+                  "LiveData=" + liveDataSaysConnected +
+                  ", GATT=" + (bluetoothGatt != null) +
+                  ", GATTConnected=" + gattConnected +
+                  ", TX=" + (txCharacteristic != null) +
+                  ", RX=" + (rxCharacteristic != null) +
+                  ", Actual=" + actuallyConnected);
+
+        // ALWAYS update to force observers to fire
+        if (actuallyConnected) {
+            connected.setValue(true);
+            connectionStatus.setValue("✅ Ready to send!");
+            Log.d(TAG, "State: CONNECTED");
+        } else {
+            connected.setValue(false);
+            connectionStatus.setValue("❌ Disconnected - Tap here to reconnect");
+            Log.d(TAG, "State: DISCONNECTED");
+        }
     }
 
     @SuppressLint("MissingPermission")
