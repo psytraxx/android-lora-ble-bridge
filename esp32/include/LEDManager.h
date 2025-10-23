@@ -19,10 +19,10 @@ public:
     /**
      * @brief Blinks the LED a specified number of times.
      * @param times Number of blinks (default: 1).
-     * @param duration Duration of each blink in milliseconds (default: 100).
-     * @param delayBetween Delay between blinks in milliseconds (default: 100).
+     * @param duration Duration of each blink in milliseconds (default: 50 - reduced for power saving).
+     * @param delayBetween Delay between blinks in milliseconds (default: 200 - increased for power saving).
      */
-    void blink(int times = 1, int duration = 100, int delayBetween = 100)
+    void blink(int times = 1, int duration = 50, int delayBetween = 200)
     {
         for (int i = 0; i < times; i++)
         {

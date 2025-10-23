@@ -506,8 +506,8 @@ void loop()
     }
 #endif
 
-    // Small delay to prevent watchdog issues and allow task switching
-    vTaskDelay(pdMS_TO_TICKS(10));
+    // Small delay to prevent watchdog issues and allow task switching (increased for power saving)
+    vTaskDelay(pdMS_TO_TICKS(50));
 
     // Reset watchdog to prevent timeout
     esp_task_wdt_reset();
