@@ -175,7 +175,25 @@ public class BleManager {
             }
         };
 
-        bluetoothLeScanner.startScan(currentScanCallback);
+        // Use scan filters and settings for faster, more efficient scanning
+        android.bluetooth.le.ScanSettings scanSettings = new android.bluetooth.le.ScanSettings.Builder()
+                .setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY) // Fastest scanning
+                .setCallbackType(android.bluetooth.le.ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+                .setMatchMode(android.bluetooth.le.ScanSettings.MATCH_MODE_AGGRESSIVE) // Match ASAP
+                .setNumOfMatches(android.bluetooth.le.ScanSettings.MATCH_NUM_ONE_ADVERTISEMENT) // Stop after first match
+                .setReportDelay(0) // Report immediately
+                .build();
+
+        // Filter by device name to ignore other BLE devices
+        android.bluetooth.le.ScanFilter nameFilter = new android.bluetooth.le.ScanFilter.Builder()
+                .setDeviceName(DEVICE_NAME)
+                .build();
+
+        java.util.List<android.bluetooth.le.ScanFilter> filters = new java.util.ArrayList<>();
+        filters.add(nameFilter);
+
+        Log.d(TAG, "Starting optimized scan with filters (device name: " + DEVICE_NAME + ")");
+        bluetoothLeScanner.startScan(filters, scanSettings, currentScanCallback);
 
         // Set scan timeout
         mainHandler.postDelayed(() -> {
@@ -245,7 +263,7 @@ public class BleManager {
                 Log.d(TAG, "Connection state changed: status=" + status + ", newState=" + newState);
 
                 if (newState == BluetoothGatt.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
-                    connected.postValue(true);
+                    // Don't set connected=true yet - wait for service discovery to complete
                     Log.d(TAG, "Connected! Requesting MTU...");
                     connectionStatus.postValue("🔗 Negotiating...");
                     gatt.requestMtu(512);
@@ -326,19 +344,23 @@ public class BleManager {
                                 Log.e(TAG, "CCCD descriptor not found on TX characteristic!");
                             }
 
+                            // Only NOW set connected=true (after successful service discovery)
                             connected.postValue(true);
                             connectionStatus.postValue("✅ Ready to send!");
                         } else {
                             Log.e(TAG, "Characteristics not found!");
-                            connectionStatus.postValue("❌ Characteristics missing");
+                            connected.postValue(false);
+                            connectionStatus.postValue("❌ Characteristics missing - Tap here to reconnect");
                         }
                     } else {
                         Log.e(TAG, "LoRa service not found! Expected UUID: " + SERVICE_UUID);
-                        connectionStatus.postValue("❌ LoRa service not found");
+                        connected.postValue(false);
+                        connectionStatus.postValue("❌ LoRa service not found - Tap here to reconnect");
                     }
                 } else {
                     Log.e(TAG, "Service discovery failed with status: " + status);
-                    connectionStatus.postValue("❌ Service discovery failed");
+                    connected.postValue(false);
+                    connectionStatus.postValue("❌ Service discovery failed - Tap here to reconnect");
                 }
             }
 

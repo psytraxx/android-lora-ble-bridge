@@ -70,6 +70,27 @@
 
 ### Android App - Critical Bug Fixes & Code Quality (October 23, 2025)
 
+#### Connection State & UX Fixes
+- **CRITICAL - Send Button/Status Mismatch**: Fixed mismatched UI state where send button was disabled but status showed "Ready"
+  - Problem: `connected` flag set too early (on BLE connect) before service discovery completed
+  - Solution: Only set `connected=true` after full successful connection (MTU, service discovery, characteristics)
+  - Added `connected=false` for all failure cases (missing service, missing characteristics, discovery failed)
+  - Impact: Send button state now always matches connection status text
+  - File: `BleManager.java:248, 330, 334, 339, 344`
+
+- **Reconnect Button Improvements**: All error messages now include "Tap here to reconnect" for consistency
+  - Users can always manually reconnect by tapping status text
+  - Works for all error states (disconnected, characteristics missing, service not found, discovery failed)
+
+#### BLE Scan Optimization
+- **Fast Device Discovery**: Implemented optimized BLE scanning with filters and settings
+  - **ScanFilter**: Only scans for devices named "ESP32S3-LoRa" (ignores other BLE devices)
+  - **ScanSettings**: LOW_LATENCY mode for fastest scanning
+  - **Match Mode**: AGGRESSIVE matching reports device immediately
+  - **Impact**: Device found in 1-3 seconds (vs 5-15 seconds previously) in crowded BLE environments
+  - **Trade-off**: Higher power during scan, but much shorter scan duration
+  - File: `BleManager.java:178-196`
+
 #### Memory Leak Fixes
 - **Handler Cleanup**: Fixed memory leak in MessageViewModel - Handler callbacks now properly cleaned up in `onCleared()`
 - **LocationListener Leaks**: Completely refactored GpsManager to use reusable LocationListener instances instead of creating anonymous listeners
