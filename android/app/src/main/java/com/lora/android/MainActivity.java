@@ -97,7 +97,7 @@ public class MainActivity extends AppCompatActivity {
         binding.connectionStatusTextView.setOnClickListener(v -> {
             String currentStatus = binding.connectionStatusTextView.getText().toString();
             if (currentStatus.contains("Tap here to reconnect")) {
-                bleManager.reconnect();
+                bleManager.connect();
             }
         });
 

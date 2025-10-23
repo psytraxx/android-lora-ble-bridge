@@ -344,24 +344,6 @@ public class BleManager {
         return connectedValue != null && connectedValue;
     }
 
-    @SuppressLint("MissingPermission")
-    public void reconnect() {
-        Log.d(TAG, "Manual reconnect requested");
-
-        // Disconnect if currently connected
-        if (bluetoothGatt != null) {
-            bluetoothGatt.disconnect();
-            bluetoothGatt.close();
-            bluetoothGatt = null;
-        }
-        connected.postValue(false);
-
-        // Clear any pending handlers
-        mainHandler.removeCallbacksAndMessages(null);
-
-        // Start scanning immediately
-        startScan();
-    }
 
     @SuppressLint("MissingPermission")
     public void disconnect() {
@@ -379,5 +361,18 @@ public class BleManager {
         }
         connected.postValue(false);
         isWaitingForLocation = false;
+    }
+
+    /** 
+     * Initiates a BLE connection by scanning for the ESP32 device.
+     * If already connected, does nothing.
+     */
+    public void connect() {
+        if (isConnected()) {
+            Log.d(TAG, "Already connected to BLE device");
+            return;
+        }
+        Log.d(TAG, "Starting BLE connection process...");
+        startScan();
     }
 }

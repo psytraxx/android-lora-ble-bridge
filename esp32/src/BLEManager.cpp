@@ -190,6 +190,47 @@ void BLEManager::process()
         oldDeviceConnected = deviceConnected;
         Serial.println("Connection state updated");
     }
+
+    // Check for inactivity timeout
+    const unsigned long BLE_INACTIVITY_TIMEOUT_MS = 8000; // 8 seconds
+    if (!deviceConnected && pAdvertising && (millis() - lastActivityTime > BLE_INACTIVITY_TIMEOUT_MS))
+    {
+        stopAdvertising();
+        Serial.println("BLE advertising stopped due to inactivity");
+    }
+}
+
+void BLEManager::stopAdvertising()
+{
+    if (pAdvertising)
+    {
+        pAdvertising->stop();
+        Serial.println("BLE advertising manually stopped");
+    }
+}
+
+void BLEManager::updateActivity()
+{
+    lastActivityTime = millis();
+}
+
+void BLEManager::disconnect()
+{
+    if (deviceConnected)
+    {
+        Serial.println("Disconnecting BLE client...");
+        NimBLEDevice::stopAdvertising();
+        NimBLEDevice::deinit(true);
+        deviceConnected = false;
+        oldDeviceConnected = false;
+        Serial.println("BLE client disconnected and BLE stack reset");
+    }
+
+    if (pAdvertising)
+    {
+        pAdvertising->stop();
+        Serial.println("BLE advertising stopped");
+    }
 }
 
 void BLEManager::onMessageReceived(const uint8_t *data, size_t length)

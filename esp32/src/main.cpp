@@ -286,148 +286,243 @@ void loop()
         }
     }
 
+    // Power management configuration (modem sleep only)
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+
     // Check for messages from LoRa (event-driven via callback)
     LoRaPacket packet;
     if (xQueueReceive(loRaQueue, &packet, 0) == pdTRUE)
     {
-        Serial.print("LoRa RX: received ");
-        Serial.print(packet.len);
-        Serial.print(" bytes, RSSI: ");
-        Serial.print(packet.rssi);
-        Serial.print(" dBm, SNR: ");
-        Serial.print(packet.snr);
-        Serial.println(" dB");
-
-        // Deserialize message
-        Message msg;
-        if (msg.deserialize(packet.buffer, packet.len))
+        bleManager->updateActivity();
+        if (!bleManager->isConnected())
         {
-            Serial.print("LoRa message deserialized: type=");
-            Serial.println((int)msg.type);
+            Serial.println("No BLE connection - starting advertising to forward LoRa message");
+            bleManager->startAdvertising();
+        }
+        {
+            Serial.print("LoRa RX: received ");
+            Serial.print(packet.len);
+            Serial.print(" bytes, RSSI: ");
+            Serial.print(packet.rssi);
+            Serial.print(" dBm, SNR: ");
+            Serial.print(packet.snr);
+            Serial.println(" dB");
 
-            // Handle different message types
-            switch (msg.type)
+            // Deserialize message
+            Message msg;
+            if (msg.deserialize(packet.buffer, packet.len))
             {
-            case MessageType::Text:
-            {
-                Serial.print("Text message - seq: ");
-                Serial.print(msg.textData.seq);
-                Serial.print(", text: \"");
-                Serial.print(msg.textData.text);
-                Serial.print("\"");
+                Serial.print("LoRa message deserialized: type=");
+                Serial.println((int)msg.type);
 
-                if (msg.textData.hasGps)
+                // Handle different message types
+                switch (msg.type)
                 {
-                    Serial.print(", GPS: ");
-                    Serial.print(msg.textData.lat / 1000000.0, 6);
-                    Serial.print("°, ");
-                    Serial.print(msg.textData.lon / 1000000.0, 6);
-                    Serial.print("°");
-                }
-                Serial.println();
-
-                // Send ACK
-                Message ack = Message::createAck(msg.textData.seq);
-                uint8_t ackBuf[64];
-                int ackLen = ack.serialize(ackBuf, sizeof(ackBuf));
-
-                if (ackLen > 0)
+                case MessageType::Text:
                 {
-                    Serial.print("Sending ACK for seq: ");
-                    Serial.println(msg.textData.seq);
-                    bool ackSent = loraManager.sendPacket(ackBuf, ackLen);
-                    if (ackSent)
-                    {
-                        Serial.println("ACK sent successfully");
-                    }
-                    else
-                    {
-                        Serial.println("ACK send failed");
-                    }
-                    loraManager.startReceiveMode();
-                }
+                    Serial.print("Text message - seq: ");
+                    Serial.print(msg.textData.seq);
+                    Serial.print(", text: \"");
+                    Serial.print(msg.textData.text);
+                    Serial.print("\"");
 
-                // Try to send via BLE if connected, otherwise store in RTC memory
-                if (bleManager->isConnected())
-                {
-                    if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
+                    if (msg.textData.hasGps)
                     {
-                        Serial.println("Warning: LoRa to BLE queue full, storing in RTC memory");
+                        Serial.print(", GPS: ");
+                        Serial.print(msg.textData.lat / 1000000.0, 6);
+                        Serial.print("°, ");
+                        Serial.print(msg.textData.lon / 1000000.0, 6);
+                        Serial.print("°");
                     }
-                    else
+                    Serial.println();
+
+                    // Send ACK
+                    Message ack = Message::createAck(msg.textData.seq);
+                    uint8_t ackBuf[64];
+                    int ackLen = ack.serialize(ackBuf, sizeof(ackBuf));
+
+                    if (ackLen > 0)
                     {
+                        Serial.print("Sending ACK for seq: ");
+                        Serial.println(msg.textData.seq);
+                        bool ackSent = loraManager.sendPacket(ackBuf, ackLen);
+                        if (ackSent)
+                        {
+                            Serial.println("ACK sent successfully");
+                        }
+                        else
+                        {
+                            Serial.println("ACK send failed");
+                        }
+                        loraManager.startReceiveMode();
+                    }
+
+                    // Try to send via BLE if connected, otherwise store in RTC memory
+                    if (bleManager->isConnected())
+                    {
+                        if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
+                        {
+                            Serial.println("Warning: LoRa to BLE queue full, storing in RTC memory");
+                        }
+                        else
+                        {
 #ifdef LED_PIN
-                        // Blink once for incoming message (reduced frequency for power savings)
+                            // Blink once for incoming message (reduced frequency for power savings)
+                            ledManager.blink();
+#endif
+                        }
+                    }
+                    else
+                    {
+                        // No BLE connection - buffer message for later transmission
+                        Serial.println("No BLE connection - buffering message for later transmission");
+                        static Message bufferedMessages[10];
+                        static int bufferedCount = 0;
+
+                        if (bufferedCount < 10)
+                        {
+                            bufferedMessages[bufferedCount++] = msg;
+                            Serial.print("Buffered message count: ");
+                            Serial.println(bufferedCount);
+                        }
+                        else
+                        {
+                            Serial.println("Buffer full - dropping oldest message");
+                            for (int i = 1; i < 10; i++)
+                            {
+                                bufferedMessages[i - 1] = bufferedMessages[i];
+                            }
+                            bufferedMessages[9] = msg;
+                        }
+#ifdef LED_PIN
                         ledManager.blink();
 #endif
                     }
+                    break;
                 }
-                else
+
+                case MessageType::Ack:
                 {
-                    // No BLE connection - storing message in RTC memory (SleepManager removed)
-                    Serial.println("No BLE connection - storing message in RTC memory");
+                    Serial.print("Received ACK for seq: ");
+                    Serial.println(msg.ackData.seq);
+
+                    if (bleManager->isConnected())
+                    {
+                        if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
+                        {
+                            Serial.println("Warning: LoRa to BLE queue full, buffering message");
+                        }
+                        else
+                        {
+#ifdef LED_PIN
+                            ledManager.blink();
+#endif
+                        }
+                    }
+                    else
+                    {
+                        // No BLE connection - buffer ACK message
+                        Serial.println("No BLE connection - buffering ACK message");
+                        static Message bufferedMessages[10];
+                        static int bufferedCount = 0;
+
+                        if (bufferedCount < 10)
+                        {
+                            bufferedMessages[bufferedCount++] = msg;
+                            Serial.print("Buffered message count: ");
+                            Serial.println(bufferedCount);
+                        }
+                        else
+                        {
+                            Serial.println("Buffer full - dropping oldest message");
+                            for (int i = 1; i < 10; i++)
+                            {
+                                bufferedMessages[i - 1] = bufferedMessages[i];
+                            }
+                            bufferedMessages[9] = msg;
+                        }
+#ifdef LED_PIN
+                        ledManager.blink();
+#endif
+                    }
+                    break;
+                }
+                }
+            }
+            else
+            {
+                Serial.println("Failed to deserialize LoRa message");
+            }
+        }
+
+        // Forward queued messages from LoRa to BLE if connected
+        Message loraMsg;
+        static Message bufferedMessages[10];
+        static int bufferedCount = 0;
+
+        if (bleManager->isConnected())
+        {
+            // Send any buffered messages first
+            if (bufferedCount > 0)
+            {
+                Serial.print("BLE connected - sending ");
+                Serial.print(bufferedCount);
+                Serial.println(" buffered messages");
+
+                for (int i = 0; i < bufferedCount; i++)
+                {
+                    if (bleManager->sendMessage(bufferedMessages[i]))
+                    {
+                        Serial.print("Buffered message ");
+                        Serial.print(i + 1);
+                        Serial.println(" sent successfully");
+#ifdef LED_PIN
+                        ledManager.blink();
+#endif
+                    }
+                    else
+                    {
+                        Serial.print("Failed to send buffered message ");
+                        Serial.println(i + 1);
+                    }
+                }
+                bufferedCount = 0;
+            }
+
+            // Then process live queue messages
+            if (xQueueReceive(loraToBleQueue, &loraMsg, 0) == pdTRUE)
+            {
+                if (bleManager->sendMessage(loraMsg))
+                {
+                    Serial.println("Message forwarded from LoRa to BLE");
 #ifdef LED_PIN
                     ledManager.blink();
 #endif
                 }
-                break;
-            }
-
-            case MessageType::Ack:
-            {
-                Serial.print("Received ACK for seq: ");
-                Serial.println(msg.ackData.seq);
-
-                // Try to send via BLE if connected, otherwise store in RTC memory
-                if (bleManager->isConnected())
-                {
-                    if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
-                    {
-                        Serial.println("Warning: LoRa to BLE queue full, storing in RTC memory");
-                    }
-                    else
-                    {
-#ifdef LED_PIN
-                        // Blink once for incoming message (reduced frequency for power savings)
-                        ledManager.blink();
-#endif
-                    }
-                }
-                else
-                {
-                    // No BLE connection - storing message in RTC memory (SleepManager removed)
-                    Serial.println("No BLE connection - storing message in RTC memory");
-#ifdef LED_PIN
-                    ledManager.blink();
-#endif
-                }
-                break;
-            }
             }
         }
-        else
-        {
-            Serial.println("Failed to deserialize LoRa message");
-        }
+
+        // Small delay to prevent watchdog issues and allow task switching (increased for power saving)
+        vTaskDelay(pdMS_TO_TICKS(50));
+
+        // Reset watchdog to prevent timeout
+        esp_task_wdt_reset();
     }
 
-    // Forward queued messages from LoRa to BLE if connected
-    Message loraMsg;
-    if (bleManager->isConnected() && xQueueReceive(loraToBleQueue, &loraMsg, 0) == pdTRUE)
+    // BLE inactivity timeout handling
+    static unsigned long lastBleActivity = millis();
+    const unsigned long BLE_DISCONNECT_TIMEOUT_MS = 8000;
+
+    // Update last activity when BLE is active
+    if (bleManager->isConnected())
     {
-        if (bleManager->sendMessage(loraMsg))
-        {
-            Serial.println("Message forwarded from LoRa to BLE");
-#ifdef LED_PIN
-            // Blink once for message forwarded (reduced frequency for power savings)
-            ledManager.blink();
-#endif
-        }
+        lastBleActivity = millis();
     }
 
-    // Small delay to prevent watchdog issues and allow task switching (increased for power saving)
-    vTaskDelay(pdMS_TO_TICKS(50));
-
-    // Reset watchdog to prevent timeout
-    esp_task_wdt_reset();
+    // Disconnect BLE if idle for too long
+    if (millis() - lastBleActivity > BLE_DISCONNECT_TIMEOUT_MS && bleManager->isConnected())
+    {
+        Serial.println("BLE inactive for too long - disconnecting to save power");
+        bleManager->disconnect();
+    }
 }

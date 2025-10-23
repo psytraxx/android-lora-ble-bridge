@@ -78,11 +78,6 @@ public class MessageViewModel extends ViewModel {
     public void sendMessage(String text) {
         Log.d(TAG, "Send message - text: " + text);
 
-        if (!canSendMessage()) {
-            Log.e(TAG, "Cannot send: not connected");
-            return;
-        }
-
         // Enforce maximum text length
         if (text.length() > Protocol.MAX_TEXT_LENGTH) {
             text = text.substring(0, Protocol.MAX_TEXT_LENGTH);
@@ -91,6 +86,22 @@ public class MessageViewModel extends ViewModel {
         // Validate characters
         if (!Protocol.isTextSupported(text)) {
             Log.e(TAG, "Invalid characters in message");
+            return;
+        }
+
+        // Attempt to connect if not connected
+        if (bleManager != null && !bleManager.isConnected()) {
+            Log.d(TAG, "BLE not connected - attempting to connect...");
+            bleManager.connect();
+            try {
+                Thread.sleep(1500); // wait briefly for connection
+            } catch (InterruptedException e) {
+                Log.e(TAG, "Interrupted while waiting for BLE connection");
+            }
+        }
+
+        if (!canSendMessage()) {
+            Log.e(TAG, "Cannot send: BLE connection failed");
             return;
         }
 
@@ -107,7 +118,6 @@ public class MessageViewModel extends ViewModel {
                 final int lat = (int) (location.getLatitude() * 1_000_000);
                 final int lon = (int) (location.getLongitude() * 1_000_000);
                 textMsg = new Protocol.TextMessage(textSeq, text, lat, lon);
-                // Display text without GPS coordinates, but store GPS data for Maps click
                 messageAdapter.addMessage(text, true, textSeq, true,
                         location.getLatitude(), location.getLongitude());
             } else {
@@ -117,9 +127,26 @@ public class MessageViewModel extends ViewModel {
 
             bleManager.sendMessage(textMsg);
 
+            // Schedule disconnect after short delay (to await ACK)
+            disconnectAfterDelay(5000);
+
         } catch (Exception e) {
             Log.e(TAG, "Error sending message: " + e.getMessage());
         }
+    }
+
+    private void disconnectAfterDelay(long delayMs) {
+        new Thread(() -> {
+            try {
+                Thread.sleep(delayMs);
+                if (bleManager != null && bleManager.isConnected()) {
+                    Log.d(TAG, "Disconnecting BLE after inactivity timeout");
+                    bleManager.disconnect();
+                }
+            } catch (InterruptedException e) {
+                Log.e(TAG, "Disconnect delay interrupted");
+            }
+        }).start();
     }
 
     private void handleReceivedMessage(Protocol.Message message) {
