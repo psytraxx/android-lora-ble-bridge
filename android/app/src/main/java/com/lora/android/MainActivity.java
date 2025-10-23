@@ -38,9 +38,6 @@ public class MainActivity extends AppCompatActivity {
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        // Start foreground service for background message reception
-        startForegroundService();
-
         // Ensure status bar is visible and icons are dark
         WindowInsetsController controller = getWindow().getInsetsController();
         if (controller != null) {
@@ -178,13 +175,17 @@ public class MainActivity extends AppCompatActivity {
         if (bleManager != null) {
             bleManager.disconnect();
         }
-        // Note: We intentionally do NOT stop the foreground service here
-        // so it continues running in the background to receive messages
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        // Validate BLE connection state when app comes to foreground
+        // This ensures UI accurately reflects actual connection state
+        if (bleManager != null) {
+            bleManager.validateConnectionState();
+        }
+
         // Refresh GPS display when app comes to foreground
         if (gpsManager != null && messageViewModel != null) {
             messageViewModel.updateGps();
@@ -222,10 +223,5 @@ public class MainActivity extends AppCompatActivity {
             binding.charCountTextView.setTextColor(
                     androidx.core.content.ContextCompat.getColor(this, R.color.char_count_normal));
         }
-    }
-
-    private void startForegroundService() {
-        Intent serviceIntent = new Intent(this, LoRaForegroundService.class);
-        ContextCompat.startForegroundService(this, serviceIntent);
     }
 }

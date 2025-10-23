@@ -1,5 +1,42 @@
 ## Recent Improvements
 
+### Android App - Connection State Fix & Foreground Service Removal (October 23, 2025)
+
+#### Critical Bug Fixes
+- **CRITICAL - Connection State Synchronization**: Fixed UI state mismatch where send button was greyed out but status showed "Ready to send"
+  - Problem: LiveData connection state could become stale when app went to background and returned to foreground
+  - Root Cause: No validation of actual GATT connection state (bluetoothGatt, txCharacteristic, rxCharacteristic) on app resume
+  - Solution: Added `validateConnectionState()` method that checks actual GATT objects and forces LiveData update
+  - Impact: UI now always accurately reflects actual BLE connection state after screen unlock or app switching
+  - File: `BleManager.java:428-464`, `MainActivity.java:186-198`
+
+#### Architecture Simplification
+- **Removed Foreground Service**: Eliminated LoRaForegroundService as it's unnecessary with ESP32's message buffering
+  - ESP32 already buffers up to 10 messages when BLE disconnected and re-delivers them on reconnect
+  - Foreground service caused state synchronization issues between service and MainActivity
+  - Reduces app complexity and memory footprint (~2-5 MB savings)
+  - Simplifies permission requirements (removed FOREGROUND_SERVICE, POST_NOTIFICATIONS)
+  - Files removed: `LoRaForegroundService.java`
+  - Files modified: `MainActivity.java`, `AndroidManifest.xml`
+
+#### Code Quality Improvements
+- **Scheduled Disconnect Fix**: Prevented multiple overlapping disconnect timers
+  - Problem: Each message send scheduled a new 30-second disconnect without cancelling previous ones
+  - Solution: Cancel previous disconnect callback before scheduling new one
+  - Added `cancelPendingDisconnect()` method for explicit cancellation
+  - File: `MessageViewModel.java:165-187`
+
+- **LiveData Update Strategy**: Changed from `postValue()` to `setValue()` for immediate observer notification
+  - Ensures UI updates happen synchronously when validating connection state
+  - Prevents race conditions between background threads and main thread
+
+#### Test Results
+- **Build**: ✅ Successful
+- **Unit Tests**: ✅ All 9 tests passing
+- **Impact**: Simpler, more reliable app with accurate UI state
+
+---
+
 ### ESP32-S3 Debugger - Light Sleep & Reliability Fixes (October 23, 2025)
 
 #### Critical Bug Fixes

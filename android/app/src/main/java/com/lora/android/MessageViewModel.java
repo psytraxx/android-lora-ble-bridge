@@ -162,14 +162,28 @@ public class MessageViewModel extends ViewModel {
         }
     }
 
-    private void disconnectAfterDelay(long delayMs) {
-        // Use Handler instead of Thread to avoid race conditions
-        handler.postDelayed(() -> {
+    private final Runnable disconnectRunnable = new Runnable() {
+        @Override
+        public void run() {
             if (bleManager != null && bleManager.isConnected()) {
                 Log.d(TAG, "Disconnecting BLE after inactivity timeout");
                 bleManager.disconnect();
             }
-        }, delayMs);
+        }
+    };
+
+    private void disconnectAfterDelay(long delayMs) {
+        // Cancel any previously scheduled disconnect first
+        handler.removeCallbacks(disconnectRunnable);
+
+        // Schedule new disconnect
+        handler.postDelayed(disconnectRunnable, delayMs);
+        Log.d(TAG, "Scheduled disconnect in " + (delayMs / 1000) + " seconds");
+    }
+
+    public void cancelPendingDisconnect() {
+        handler.removeCallbacks(disconnectRunnable);
+        Log.d(TAG, "Cancelled pending disconnect");
     }
 
     private void handleReceivedMessage(Protocol.Message message) {

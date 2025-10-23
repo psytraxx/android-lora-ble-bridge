@@ -425,6 +425,44 @@ public class BleManager {
         return connectedValue != null && connectedValue;
     }
 
+    /**
+     * Validates that the LiveData connection state matches the actual GATT connection state.
+     * Call this when app resumes to ensure UI reflects reality.
+     *
+     * IMPORTANT: This must use setValue() on main thread to ensure observers are notified
+     * immediately, not postValue() which is asynchronous.
+     */
+    public void validateConnectionState() {
+        // Must run on main thread since we're calling setValue()
+        mainHandler.post(() -> {
+            // Check actual GATT connection state
+            boolean actuallyConnected = bluetoothGatt != null &&
+                                       txCharacteristic != null &&
+                                       rxCharacteristic != null;
+
+            Boolean currentLiveDataValue = connected.getValue();
+            boolean liveDataSaysConnected = currentLiveDataValue != null && currentLiveDataValue;
+
+            Log.d(TAG, "Validating connection state: LiveData=" + liveDataSaysConnected +
+                      ", GATT=" + (bluetoothGatt != null) +
+                      ", TX=" + (txCharacteristic != null) +
+                      ", RX=" + (rxCharacteristic != null) +
+                      ", Actual=" + actuallyConnected);
+
+            // ALWAYS update both values to ensure they're in sync, even if they match
+            // This forces the LiveData observers to fire with the current state
+            if (actuallyConnected) {
+                connected.setValue(true);  // Use setValue() not postValue() for immediate update
+                connectionStatus.setValue("✅ Ready to send!");
+                Log.d(TAG, "Connection state updated to CONNECTED");
+            } else {
+                connected.setValue(false);  // Use setValue() not postValue() for immediate update
+                connectionStatus.setValue("❌ Disconnected - Tap here to reconnect");
+                Log.d(TAG, "Connection state updated to DISCONNECTED");
+            }
+        });
+    }
+
     @SuppressLint("MissingPermission")
     public void disconnect() {
         try {
