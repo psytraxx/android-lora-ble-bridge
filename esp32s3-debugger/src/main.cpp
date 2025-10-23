@@ -78,10 +78,16 @@ DisplayManager display(LCD_D0, LCD_D1, LCD_D2, LCD_D3, LCD_D4, LCD_D5, LCD_D6, L
 // State tracking
 bool firstMessageReceived = false;
 const int MAX_DISPLAY_LINES = 20; // Maximum lines to keep in history
-String messageHistory[20];        // Store message lines
+String messageHistory[MAX_DISPLAY_LINES];        // Store message lines
 int messageCount = 0;
 int lastRssi = 0;    // Last received RSSI
 float lastSnr = 0.0; // Last received SNR
+
+// ACK timing (non-blocking)
+unsigned long ackSendTime = 0;
+bool ackPending = false;
+Message pendingAckMsg;
+int pendingAckSeq = 0;
 
 // Button debouncing and long press detection
 unsigned long lastButtonPressTime = 0;
@@ -90,7 +96,7 @@ const unsigned long LONG_PRESS_DURATION = 2000; // 2 seconds for deep sleep
 bool buttonPressed = false;
 unsigned long buttonPressStartTime = 0;
 
-// Display dimming settings
+// Display dimming settings (disabled during light sleep mode)
 const unsigned long DISPLAY_DIM_TIMEOUT = 10000; // 10 seconds
 const uint8_t DISPLAY_BRIGHT = 255;              // Full brightness
 const uint8_t DISPLAY_DIM = 10;                  // Dimmed brightness
@@ -98,8 +104,17 @@ unsigned long lastActivityTime = 0;              // Track last activity
 bool displayDimmed = false;                      // Track dimming state
 
 // Sleep mode settings
-const unsigned long SLEEP_TIMEOUT = 30000; // 30 seconds
+const unsigned long SLEEP_TIMEOUT = 30000; // 30 seconds before light sleep
 RTC_DATA_ATTR int bootCount = 0;           // Persistent across deep sleep
+
+// Display layout constants
+const int LINE_HEIGHT = 18;      // Height per line for text size 2
+const int STATUS_HEIGHT = 20;    // Reserve space for status line at bottom
+const int STATUS_LINE_Y_OFFSET = 16; // Status line position from bottom
+const int BUTTON_INDICATOR_Y_OFFSET = 32; // Button indicator position from bottom
+
+// ACK delay constant (time to wait for TX->RX mode switch)
+const unsigned long ACK_DELAY_MS = 500; // 500ms delay before sending ACK
 
 /**
  * @brief LoRa receive callback - handles incoming LoRa packets event-driven
@@ -183,7 +198,7 @@ void configureLightSleepWakeup()
 /**
  * @brief Enter light sleep mode
  * Light sleep preserves RAM and peripheral states (including SPI and LoRa module)
- * This allows us to receive the packet that triggered the wake-up
+ * CRITICAL: Must reinitialize LoRa module after wake to ensure proper RX mode
  */
 void enterLightSleep()
 {
@@ -208,6 +223,9 @@ void enterLightSleep()
     // Turn off display backlight
     display.setBrightness(0);
 
+    // Disable display dimming check while sleeping (prevents conflict)
+    displayDimmed = true;
+
     // Configure wake-up sources (LoRa only)
     configureLightSleepWakeup();
 
@@ -217,21 +235,29 @@ void enterLightSleep()
     // Enter light sleep (preserves RAM and peripherals)
     esp_light_sleep_start();
 
+    // ===== CRITICAL: Wake-up handling =====
     // Execution continues here after wake-up
     Serial.println("\n===================================");
     Serial.println("Woke up from light sleep!");
     Serial.println("===================================\n");
+
+    // CRITICAL: Reinitialize LoRa module after sleep
+    // The SX1276 may have lost sync or entered idle mode during sleep
+    Serial.println("Reinitializing LoRa module after sleep...");
+    loraManager.startReceiveMode();
+    delay(50); // Allow LoRa module to stabilize
+    Serial.println("LoRa module back in RX mode");
 
     // Restore display brightness
     display.setBrightness(DISPLAY_BRIGHT);
     displayDimmed = false;
     lastActivityTime = millis();
 
-    // Wake-up reason (only LoRa is configured)
-    Serial.println("Woke up from LoRa message (EXT1)");
+    // Clear screen and show wake message
     display.clearScreen();
     display.printLine("Woke: LoRa Message");
-    // LoRa callback will process the packet automatically
+
+    // LoRa callback will process the queued packet
 }
 
 /**
@@ -304,21 +330,19 @@ void addMessageToDisplay(const String &message, int rssi, float snr)
     display.setTextSize(2); // Bigger font
     display.setCursor(0, 0);
 
-    int lineHeight = 18;   // Height per line for text size 2
-    int statusHeight = 20; // Reserve space for status line at bottom
-    int maxVisibleLines = (display.height() - statusHeight) / lineHeight;
+    int maxVisibleLines = (display.height() - STATUS_HEIGHT) / LINE_HEIGHT;
 
     // Display messages (limit to what fits on screen)
     int linesToShow = min(messageCount, maxVisibleLines);
     for (int i = 0; i < linesToShow; i++)
     {
-        display.setCursor(0, i * lineHeight);
+        display.setCursor(0, i * LINE_HEIGHT);
         display.printLine(messageHistory[i]);
     }
 
     // Draw status line at bottom with RSSI/SNR
-    int statusY = display.height() - 16;                      // Position at bottom
-    display.fillRect(0, statusY, display.width(), 16, BLACK); // Clear status area
+    int statusY = display.height() - STATUS_LINE_Y_OFFSET;
+    display.fillRect(0, statusY, display.width(), STATUS_LINE_Y_OFFSET, BLACK); // Clear status area
     display.setCursor(0, statusY);
     display.setTextSize(1); // Smaller font for status
     display.setTextColor(GREEN, BLACK);
@@ -455,6 +479,14 @@ void setup()
 
     // Initialize activity timer
     lastActivityTime = millis();
+
+    // Initialize message history
+    for (int i = 0; i < MAX_DISPLAY_LINES; i++) {
+        messageHistory[i] = "";
+    }
+    messageCount = 0;
+
+    Serial.println("Message history initialized");
 }
 
 /**
@@ -470,10 +502,13 @@ void loop()
         // Button just pressed (after debounce)
         buttonPressed = true;
         buttonPressStartTime = millis();
+        lastButtonPressTime = millis(); // Update for release debounce
         Serial.println("Button pressed - hold for 2s for deep sleep");
 
-        // Show indicator on display
-        display.setCursor(0, display.height() - 32);
+        // Show indicator on display (above status line)
+        int indicatorY = display.height() - BUTTON_INDICATOR_Y_OFFSET;
+        display.fillRect(0, indicatorY, display.width(), 16, BLACK); // Clear area
+        display.setCursor(0, indicatorY);
         display.setTextSize(1);
         display.setTextColor(YELLOW, BLACK);
         display.print("Hold for deep sleep...");
@@ -483,9 +518,9 @@ void loop()
     {
         unsigned long pressDuration = millis() - buttonPressStartTime;
 
-        if (!currentButtonState)
+        if (!currentButtonState && (millis() - lastButtonPressTime > BUTTON_DEBOUNCE))
         {
-            // Button released
+            // Button released (with debounce)
             buttonPressed = false;
             lastButtonPressTime = millis();
 
@@ -574,29 +609,18 @@ void loop()
 
                 addMessageToDisplay(displayText, packet.rssi, packet.snr);
 
-                // Wait for sender to return to RX mode (allow time for TX->RX transition)
-                delay(500);
+                // Schedule ACK to send after delay (non-blocking)
+                // This allows sender time to switch from TX to RX mode
+                ackPending = true;
+                pendingAckSeq = msg.textData.seq;
+                ackSendTime = millis() + ACK_DELAY_MS;
+                pendingAckMsg = Message::createAck(msg.textData.seq);
 
-                // Send ACK
-                Message ack = Message::createAck(msg.textData.seq);
-                uint8_t ackBuf[64];
-                int ackLen = ack.serialize(ackBuf, sizeof(ackBuf));
-
-                if (ackLen > 0)
-                {
-                    Serial.print("Sending ACK for seq: ");
-                    Serial.println(msg.textData.seq);
-                    bool ackSent = loraManager.sendPacket(ackBuf, ackLen);
-                    if (ackSent)
-                    {
-                        Serial.println("ACK sent successfully");
-                    }
-                    else
-                    {
-                        Serial.println("ACK send failed");
-                    }
-                    loraManager.startReceiveMode();
-                }
+                Serial.print("ACK scheduled for seq ");
+                Serial.print(msg.textData.seq);
+                Serial.print(" in ");
+                Serial.print(ACK_DELAY_MS);
+                Serial.println("ms");
 
                 break;
             }
@@ -621,21 +645,47 @@ void loop()
         }
     }
 
-    // Check for display dimming timeout
-    if (!displayDimmed && (millis() - lastActivityTime > DISPLAY_DIM_TIMEOUT))
+    // Check for pending ACK to send (non-blocking)
+    if (ackPending && millis() >= ackSendTime)
+    {
+        ackPending = false;
+
+        uint8_t ackBuf[64];
+        int ackLen = pendingAckMsg.serialize(ackBuf, sizeof(ackBuf));
+
+        if (ackLen > 0)
+        {
+            Serial.print("Sending ACK for seq: ");
+            Serial.println(pendingAckSeq);
+            bool ackSent = loraManager.sendPacket(ackBuf, ackLen);
+            if (ackSent)
+            {
+                Serial.println("ACK sent successfully");
+            }
+            else
+            {
+                Serial.println("ACK send failed");
+            }
+            loraManager.startReceiveMode();
+        }
+    }
+
+    // Check for display dimming timeout (only if not already dimmed or sleeping soon)
+    unsigned long timeSinceActivity = millis() - lastActivityTime;
+    if (!displayDimmed && timeSinceActivity > DISPLAY_DIM_TIMEOUT && timeSinceActivity < SLEEP_TIMEOUT)
     {
         display.setBrightness(DISPLAY_DIM);
         displayDimmed = true;
         Serial.println("Display dimmed due to inactivity");
     }
 
-    // Check for sleep timeout
-    if (millis() - lastActivityTime > SLEEP_TIMEOUT)
+    // Check for sleep timeout (prevents immediate re-sleep after wake)
+    if (timeSinceActivity > SLEEP_TIMEOUT)
     {
         Serial.println("Inactivity timeout - entering light sleep mode");
         enterLightSleep();
         // After wake-up, execution continues here
-        // Reset the dimming flag since we restored brightness in enterLightSleep()
+        // Activity time already reset in enterLightSleep()
     }
 
     // Small delay to prevent watchdog issues and allow task switching

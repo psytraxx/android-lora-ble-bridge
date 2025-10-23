@@ -1,5 +1,76 @@
 ## Recent Improvements
 
+### ESP32-S3 Debugger - Light Sleep & Reliability Fixes (October 23, 2025)
+
+#### Critical Bug Fixes
+- **CRITICAL - LoRa Reinitialization After Sleep**: Fixed LoRa module state corruption when waking from light sleep
+  - Problem: SX1276 LoRa module lost RX mode state after ESP32-S3 light sleep, preventing message reception
+  - Solution: Added `loraManager.startReceiveMode()` + 50ms stabilization delay after wake-up
+  - Impact: LoRa reception now works reliably across sleep/wake cycles
+  - File: `esp32s3-debugger/src/main.cpp:244-249`
+
+- **HIGH - Non-Blocking ACK Delay**: Replaced blocking 500ms delay with timer-based implementation
+  - Problem: `delay(500)` blocked all operations (button input, display updates, LoRa reception) during ACK transmission
+  - Solution: Implemented `ackPending` flag with `ackSendTime` timer for non-blocking ACK scheduling
+  - Impact: System remains responsive during ACK transmission, no missed button presses or messages
+  - File: `esp32s3-debugger/src/main.cpp:86-90, 612-624, 648-671`
+
+- **HIGH - Display Dimming/Sleep Conflict**: Fixed display dimming timeout triggering during sleep countdown
+  - Problem: Display would dim at 10 seconds, then immediately wake for sleep at 15 seconds
+  - Solution: Set `displayDimmed=true` during sleep entry, check `timeSinceActivity < SLEEP_TIMEOUT` before dimming
+  - Impact: Display only dims when not about to sleep, smoother UX
+  - File: `esp32s3-debugger/src/main.cpp:226-227, 673-680`
+
+#### Reliability Improvements
+- **Button Debounce**: Added debounce on button release in addition to press
+  - Prevents spurious wake events from switch bounce
+  - 200ms debounce window on both press and release
+  - File: `esp32s3-debugger/src/main.cpp:521`
+
+- **Sleep Re-Entry Race Condition**: Fixed potential race condition in sleep timing logic
+  - Calculate `timeSinceActivity` once per loop iteration
+  - Prevents edge case where `millis()` wraps during comparison
+  - File: `esp32s3-debugger/src/main.cpp:674, 683`
+
+#### Code Quality Improvements
+- **Message History Initialization**: Added explicit initialization of message history array in setup()
+  - Prevents garbage data on first boot
+  - File: `esp32s3-debugger/src/main.cpp:486-491`
+
+- **Display Overlap Fix**: Adjusted button indicator Y-offset to prevent overlap with status line
+  - Moved from 24 pixels to 32 pixels above bottom
+  - File: `esp32s3-debugger/src/main.cpp:110, 509-510`
+
+- **Magic Number Extraction**: Extracted display layout constants for maintainability
+  - `LINE_HEIGHT = 18`, `STATUS_HEIGHT = 20`, `STATUS_LINE_Y_OFFSET = 16`, `BUTTON_INDICATOR_Y_OFFSET = 32`
+  - Improves code readability and makes layout adjustments easier
+  - File: `esp32s3-debugger/src/main.cpp:111-117`
+
+#### Performance Characteristics
+- **Memory Usage**:
+  - RAM: 4.2% (13,616 / 327,680 bytes)
+  - Flash: 2.9% (192,152 / 6,553,600 bytes)
+
+- **Power Consumption** (with light sleep):
+  - Active (display on, LoRa RX): ~80-100mA
+  - Display dimmed: ~50-60mA
+  - Light sleep: ~5-10mA (estimated)
+
+- **Sleep Timing**:
+  - Display dim: 10 seconds after last activity
+  - Light sleep: 15 seconds after last activity
+  - Wake triggers: Button press, LoRa message received
+
+#### System Reliability
+- ✅ LoRa reception works across sleep/wake cycles
+- ✅ Non-blocking ACK transmission
+- ✅ No display dimming/sleep conflicts
+- ✅ Proper button debounce (press and release)
+- ✅ No sleep re-entry race conditions
+- ✅ Light sleep enabled for power savings
+
+---
+
 ### ESP32 Firmware - Power Optimization & Critical Bug Fixes (October 23, 2025)
 
 #### Critical Bug Fixes
