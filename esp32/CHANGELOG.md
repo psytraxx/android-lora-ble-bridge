@@ -1,5 +1,22 @@
 # ESP32 PlatformIO Project - Changelog
 
+## [2.2.0] - 2025-10-23
+
+### 🗑️ Removed
+- **Sleep Manager** (`SleepManager.h`, `SleepManager.cpp`) and all related light sleep, BLE/LoRa wake-up, and RTC message persistence features.
+- All code and documentation for automatic sleep, wake-up sources, and message persistence across sleep cycles.
+- LED feedback for wake-up from sleep.
+
+### 🔧 Changed
+- `main.cpp` and related files updated to remove all references to SleepManager and sleep-related logic.
+- Documentation updated to reflect removal of sleep/persistence features.
+
+### 🔄 Migration Notes
+- Sleep management and RTC message persistence are no longer available. All message delivery now occurs only when BLE is connected; messages are not stored across sleep cycles.
+- No configuration or hardware changes required for this update.
+
+---
+
 ## [2.1.0] - 2025-10-22
 
 ### ✨ Light Sleep Power Management (ESP32-S3 Only)

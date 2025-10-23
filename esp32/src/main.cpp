@@ -15,9 +15,6 @@
 #include "BLEManager.h"
 #include "Protocol.h"
 #include "LEDManager.h"
-#ifdef ENABLE_BLE_WAKEUP
-#include "SleepManager.h"
-#endif
 #include <freertos/queue.h>
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
@@ -30,9 +27,6 @@
 LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_FREQUENCY);
 #ifdef LED_PIN
 LEDManager ledManager(LED_PIN);
-#endif
-#ifdef ENABLE_BLE_WAKEUP
-SleepManager sleepManager(LORA_DIO0); // Initialize sleep manager with LoRa interrupt pin
 #endif
 
 // Message queues using FreeRTOS
@@ -61,9 +55,6 @@ BLEManager *bleManager;
  */
 void updateSleepActivity()
 {
-#ifdef ENABLE_BLE_WAKEUP
-    sleepManager.updateActivity();
-#endif
 }
 
 /**
@@ -232,25 +223,6 @@ void setup()
     ledManager.setup();
 #endif
 
-#ifdef ENABLE_BLE_WAKEUP
-    // Initialize Sleep Manager
-    sleepManager.setup();
-
-    // Check if we woke from light sleep and deliver any stored messages
-    if (sleepManager.wasWokenFromSleep())
-    {
-        Serial.print("Woke from light sleep - ");
-        Serial.print(sleepManager.getStoredMessageCount());
-        Serial.println(" messages in RTC memory");
-        Serial.println(sleepManager.getWakeupReason());
-
-#ifdef LED_PIN
-        // Visual confirmation: 3 LED blinks on wake-up
-        ledManager.blink(3, 150, 100);
-#endif
-    }
-#endif
-
     Serial.println("\n===================================");
     Serial.println("All systems initialized successfully");
     Serial.println("System running - waiting for connections...");
@@ -265,37 +237,12 @@ void loop()
     // Process BLE events
     bleManager->process();
 
-#ifdef ENABLE_BLE_WAKEUP
-    // Deliver stored messages from RTC memory when BLE is connected
-    if (bleManager->isConnected() && sleepManager.getStoredMessageCount() > 0)
-    {
-        Message storedMsg;
-        if (sleepManager.retrieveMessage(storedMsg))
-        {
-            if (bleManager->sendMessage(storedMsg))
-            {
-                Serial.println("Delivered stored message from RTC memory to BLE");
-                sleepManager.updateActivity(); // Activity: message delivered
-            }
-            else
-            {
-                // Failed to send, put it back
-                sleepManager.storeMessage(storedMsg);
-            }
-        }
-    }
-#endif
-
     // Check for messages from BLE to send via LoRa
     Message bleMsg;
     if (xQueueReceive(bleToLoraQueue, &bleMsg, 0) == pdTRUE)
     {
         Serial.print("Received message from BLE queue: type=");
         Serial.println((int)bleMsg.type);
-
-#ifdef ENABLE_BLE_WAKEUP
-        sleepManager.updateActivity(); // Activity: BLE message received
-#endif
 
         // Serialize and send via LoRa
         uint8_t buf[64];
@@ -322,9 +269,6 @@ void loop()
                 // Blink twice for outgoing message
 #ifdef LED_PIN
                 ledManager.blink(2);
-#endif
-#ifdef ENABLE_BLE_WAKEUP
-                sleepManager.updateActivity(); // Activity: LoRa transmission
 #endif
             }
             else
@@ -353,10 +297,6 @@ void loop()
         Serial.print(" dBm, SNR: ");
         Serial.print(packet.snr);
         Serial.println(" dB");
-
-#ifdef ENABLE_BLE_WAKEUP
-        sleepManager.updateActivity(); // Activity: LoRa packet received
-#endif
 
         // Deserialize message
         Message msg;
@@ -413,9 +353,6 @@ void loop()
                     if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
                     {
                         Serial.println("Warning: LoRa to BLE queue full, storing in RTC memory");
-#ifdef ENABLE_BLE_WAKEUP
-                        sleepManager.storeMessage(msg);
-#endif
                     }
                     else
                     {
@@ -427,11 +364,8 @@ void loop()
                 }
                 else
                 {
-                    // No BLE connection - store message for later delivery
+                    // No BLE connection - storing message in RTC memory (SleepManager removed)
                     Serial.println("No BLE connection - storing message in RTC memory");
-#ifdef ENABLE_BLE_WAKEUP
-                    sleepManager.storeMessage(msg);
-#endif
 #ifdef LED_PIN
                     ledManager.blink();
 #endif
@@ -450,9 +384,6 @@ void loop()
                     if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
                     {
                         Serial.println("Warning: LoRa to BLE queue full, storing in RTC memory");
-#ifdef ENABLE_BLE_WAKEUP
-                        sleepManager.storeMessage(msg);
-#endif
                     }
                     else
                     {
@@ -464,11 +395,8 @@ void loop()
                 }
                 else
                 {
-                    // No BLE connection - store message for later delivery
+                    // No BLE connection - storing message in RTC memory (SleepManager removed)
                     Serial.println("No BLE connection - storing message in RTC memory");
-#ifdef ENABLE_BLE_WAKEUP
-                    sleepManager.storeMessage(msg);
-#endif
 #ifdef LED_PIN
                     ledManager.blink();
 #endif
@@ -490,30 +418,12 @@ void loop()
         if (bleManager->sendMessage(loraMsg))
         {
             Serial.println("Message forwarded from LoRa to BLE");
-#ifdef ENABLE_BLE_WAKEUP
-            sleepManager.updateActivity(); // Activity: message forwarded to BLE
+#ifdef LED_PIN
+            // Blink once for message forwarded (reduced frequency for power savings)
+            ledManager.blink();
 #endif
         }
     }
-
-#ifdef ENABLE_BLE_WAKEUP
-    // Check if we should enter sleep (2 minutes of inactivity)
-    if (sleepManager.shouldEnterLightSleep())
-    {
-        Serial.println("\n>>> 2 minutes of inactivity detected <<<");
-
-        // Store any pending messages from the LoRa-to-BLE queue
-        while (xQueueReceive(loraToBleQueue, &loraMsg, 0) == pdTRUE)
-        {
-            Serial.println("Storing pending message before sleep");
-            sleepManager.storeMessage(loraMsg);
-        }
-
-        sleepManager.enterLightSleep();
-        // Execution continues here after wake-up from sleep
-        // Will process normally in next loop iteration
-    }
-#endif
 
     // Small delay to prevent watchdog issues and allow task switching (increased for power saving)
     vTaskDelay(pdMS_TO_TICKS(50));
