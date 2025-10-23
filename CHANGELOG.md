@@ -1,6 +1,6 @@
 ## Recent Improvements
 
-### ESP32-S3 Debugger - Display Dimming Removal & Button Wake-up (October 23, 2025)
+### ESP32-S3 Debugger - Display Dimming Removal & Deep Sleep Notification (October 23, 2025)
 
 #### User Experience Improvements
 - **Removed Display Dimming**: Eliminated automatic display dimming feature for simpler behavior
@@ -10,13 +10,19 @@
   - Reduces code complexity and eliminates dimming/sleep conflict logic
   - Files modified: `esp32s3-debugger/src/main.cpp`
 
-- **Added Button Wake-up from Light Sleep**: Wake button (GPIO 14) now wakes device from light sleep
-  - Previously only LoRa messages could wake from light sleep
-  - Now supports both LoRa message wake-up (EXT1) and button press wake-up (EXT0)
-  - Display shows wake-up cause: "Woke: Button Press" or "Woke: LoRa Message"
-  - Serial output indicates which wake source triggered (EXT0 = button, EXT1 = LoRa)
-  - Same button used for deep sleep (long press) and light sleep wake-up
-  - File: `esp32s3-debugger/src/main.cpp:186-197, 241-274`
+- **Deep Sleep LoRa Notification**: Device now sends LoRa message before entering deep sleep
+  - Message: "Going to deep sleep" (text only, no GPS)
+  - Sequence number: 0 (fixed, not incremented)
+  - Transmitted before displaying sleep screen
+  - Allows other devices to know this device is entering deep sleep
+  - File: `esp32s3-debugger/src/main.cpp:158-186`
+
+- **Wake-up Button Behavior Clarified**: Wake button (GPIO 14) only wakes from deep sleep, not light sleep
+  - Light sleep wake-up: LoRa messages only (GPIO 3 / DIO0)
+  - Deep sleep wake-up: Button press only (GPIO 14)
+  - Prevents accidental wake from light sleep during normal operation
+  - Long button press (2 seconds) triggers deep sleep
+  - File: `esp32s3-debugger/src/main.cpp:186-193`
 
 #### Code Cleanup
 - Removed constants: `DISPLAY_DIM_TIMEOUT`, `DISPLAY_DIM`
@@ -28,15 +34,19 @@
 #### Performance Characteristics
 - **Memory Usage**:
   - RAM: 4.2% (13,616 / 327,680 bytes)
-  - Flash: 2.9% (192,304 / 6,553,600 bytes)
+  - Flash: 2.9% (192,412 / 6,553,600 bytes)
 
 #### System Behavior
 - Display stays at full brightness until sleep timeout (30 seconds)
-- Light sleep turns off display completely (brightness = 0)
-- **Wake-up sources**: LoRa message OR button press
-- Wake-up restores full brightness immediately and shows cause
-- Button press resets activity timer to prevent sleep
-- Long button press (2 seconds) still triggers deep sleep
+- **Light sleep** (automatic after 30s inactivity):
+  - Display turns off (brightness = 0)
+  - Wake-up: LoRa message only (GPIO 3 / DIO0)
+  - Wake restores full brightness and shows "Woke: LoRa Message"
+- **Deep sleep** (manual via long button press):
+  - Sends "Going to deep sleep" LoRa message first
+  - Wake-up: Button press only (GPIO 14)
+  - Preserves nothing (full restart on wake)
+- Short button press resets activity timer to prevent auto-sleep
 
 ---
 

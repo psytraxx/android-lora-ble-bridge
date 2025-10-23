@@ -155,6 +155,36 @@ void enterDeepSleep()
     Serial.println("  - Button press (GPIO 14)");
     Serial.println("===================================\n");
 
+    // Send LoRa message to notify about deep sleep
+    Serial.println("Sending deep sleep notification via LoRa...");
+    Message deepSleepMsg = Message::createText(0, "Going to deep sleep");
+    uint8_t buf[64];
+    int len = deepSleepMsg.serialize(buf, sizeof(buf));
+
+    if (len > 0)
+    {
+        Serial.print("Transmitting ");
+        Serial.print(len);
+        Serial.println(" bytes via LoRa");
+
+        if (loraManager.sendPacket(buf, len))
+        {
+            Serial.println("Deep sleep notification sent successfully");
+        }
+        else
+        {
+            Serial.println("Failed to send deep sleep notification");
+        }
+
+        // Return to RX mode briefly then proceed to sleep
+        loraManager.startReceiveMode();
+        delay(100); // Brief delay to allow transmission to complete
+    }
+    else
+    {
+        Serial.println("Failed to serialize deep sleep message");
+    }
+
     // Show sleep message on display
     display.clearScreen();
     display.setTextSize(2);
@@ -185,16 +215,11 @@ void enterDeepSleep()
  */
 void configureLightSleepWakeup()
 {
-    // Configure LoRa DIO0 wake-up (active HIGH when packet received)
+    // Configure LoRa DIO0 wake-up only (active HIGH when packet received)
     esp_sleep_enable_ext1_wakeup(1ULL << LORA_DIO0, ESP_EXT1_WAKEUP_ANY_HIGH);
 
-    // Configure wake button wake-up (active LOW when pressed)
-    // Note: ext0 and ext1 can be used simultaneously for light sleep
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON, 0); // 0 = wake on LOW
-
     Serial.println("Configured light sleep wake-up sources:");
-    Serial.println("  - LoRa DIO0 (GPIO 3) - active HIGH");
-    Serial.println("  - Wake button (GPIO 14) - active LOW");
+    Serial.println("  - LoRa DIO0 (GPIO 3) - active HIGH only");
 }
 
 /**
@@ -206,20 +231,18 @@ void enterLightSleep()
 {
     Serial.println("\n===================================");
     Serial.println("Entering LIGHT SLEEP mode...");
-    Serial.println("Wake-up sources:");
-    Serial.println("  - LoRa message (GPIO 3)");
-    Serial.println("  - Button press (GPIO 14)");
+    Serial.println("Wake-up source:");
+    Serial.println("  - LoRa message only (GPIO 3)");
     Serial.println("===================================\n");
 
     // Show sleep message on display
     display.clearScreen();
     display.setTextSize(2);
-    display.setCursor(10, 50);
+    display.setCursor(10, 60);
     display.printLine("Light Sleep Mode");
-    display.setCursor(10, 80);
+    display.setCursor(10, 90);
     display.setTextSize(1);
-    display.printLine("LoRa message or");
-    display.printLine("button press");
+    display.printLine("Send LoRa message");
     display.printLine("to wake up");
 
     delay(2000); // Show message for 2 seconds
@@ -238,18 +261,8 @@ void enterLightSleep()
 
     // ===== CRITICAL: Wake-up handling =====
     // Execution continues here after wake-up
-    esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
-
     Serial.println("\n===================================");
     Serial.println("Woke up from light sleep!");
-    Serial.print("Wake-up cause: ");
-    if (wakeup_cause == ESP_SLEEP_WAKEUP_EXT0) {
-        Serial.println("Button press (EXT0)");
-    } else if (wakeup_cause == ESP_SLEEP_WAKEUP_EXT1) {
-        Serial.println("LoRa message (EXT1)");
-    } else {
-        Serial.println("Unknown");
-    }
     Serial.println("===================================\n");
 
     // CRITICAL: Reinitialize LoRa module after sleep
@@ -265,15 +278,9 @@ void enterLightSleep()
 
     // Clear screen and show wake message
     display.clearScreen();
-    if (wakeup_cause == ESP_SLEEP_WAKEUP_EXT0) {
-        display.printLine("Woke: Button Press");
-    } else if (wakeup_cause == ESP_SLEEP_WAKEUP_EXT1) {
-        display.printLine("Woke: LoRa Message");
-    } else {
-        display.printLine("Woke: Unknown");
-    }
+    display.printLine("Woke: LoRa Message");
 
-    // LoRa callback will process the queued packet if wake was from LoRa
+    // LoRa callback will process the queued packet
 }
 
 /**
