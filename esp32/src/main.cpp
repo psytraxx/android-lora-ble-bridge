@@ -22,6 +22,9 @@
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
 #include <LoRa.h>
+#include "Network.h"
+#include <esp_wifi.h>
+#include <esp_wifi.h>
 
 // Manager objects
 LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_FREQUENCY);
@@ -95,6 +98,12 @@ void setup()
 #define CPU_FREQ_MHZ 160
 #endif
     setCpuFrequencyMhz(CPU_FREQ_MHZ);
+
+    // Disable WiFi and underlying peripherals
+    esp_wifi_stop();
+    esp_wifi_deinit();
+    btStop(); // Disable Bluetooth stack (if enabled)
+
     Serial.print("CPU Frequency set to: ");
     Serial.print(getCpuFrequencyMhz());
     Serial.println(" MHz");
