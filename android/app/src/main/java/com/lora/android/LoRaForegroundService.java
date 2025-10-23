@@ -53,13 +53,13 @@ public class LoRaForegroundService extends Service {
         Notification notification = createNotification("LoRa service active", "Waiting for connection...");
         startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
 
-        // Start BLE scan
+        // Start BLE scan only if actively communicating (add logic as needed)
         if (!bleManager.isConnected()) {
             bleManager.startScan();
         }
 
-        // If service is killed, restart it
-        return START_STICKY;
+        // If service is killed, do NOT restart it automatically
+        return START_NOT_STICKY;
     }
 
     @Override
