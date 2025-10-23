@@ -1,5 +1,45 @@
 ## Recent Improvements
 
+### ESP32-S3 Debugger - Display Dimming Removal & Button Wake-up (October 23, 2025)
+
+#### User Experience Improvements
+- **Removed Display Dimming**: Eliminated automatic display dimming feature for simpler behavior
+  - Removed 10-second dimming timeout that reduced brightness to 10/255
+  - Display now stays at full brightness (255) until light sleep at 30 seconds
+  - Simplifies user experience - only two states: full brightness or asleep
+  - Reduces code complexity and eliminates dimming/sleep conflict logic
+  - Files modified: `esp32s3-debugger/src/main.cpp`
+
+- **Added Button Wake-up from Light Sleep**: Wake button (GPIO 14) now wakes device from light sleep
+  - Previously only LoRa messages could wake from light sleep
+  - Now supports both LoRa message wake-up (EXT1) and button press wake-up (EXT0)
+  - Display shows wake-up cause: "Woke: Button Press" or "Woke: LoRa Message"
+  - Serial output indicates which wake source triggered (EXT0 = button, EXT1 = LoRa)
+  - Same button used for deep sleep (long press) and light sleep wake-up
+  - File: `esp32s3-debugger/src/main.cpp:186-197, 241-274`
+
+#### Code Cleanup
+- Removed constants: `DISPLAY_DIM_TIMEOUT`, `DISPLAY_DIM`
+- Removed variable: `displayDimmed` (bool state tracker)
+- Removed dimming check in main loop (lines ~673-680)
+- Removed brightness restore logic in button handler and message display
+- Kept: `DISPLAY_BRIGHT` (255) for full brightness setting
+
+#### Performance Characteristics
+- **Memory Usage**:
+  - RAM: 4.2% (13,616 / 327,680 bytes)
+  - Flash: 2.9% (192,304 / 6,553,600 bytes)
+
+#### System Behavior
+- Display stays at full brightness until sleep timeout (30 seconds)
+- Light sleep turns off display completely (brightness = 0)
+- **Wake-up sources**: LoRa message OR button press
+- Wake-up restores full brightness immediately and shows cause
+- Button press resets activity timer to prevent sleep
+- Long button press (2 seconds) still triggers deep sleep
+
+---
+
 ### Android App - Connection State Fix & Foreground Service Removal (October 23, 2025)
 
 #### Critical Bug Fixes

@@ -96,14 +96,11 @@ const unsigned long LONG_PRESS_DURATION = 2000; // 2 seconds for deep sleep
 bool buttonPressed = false;
 unsigned long buttonPressStartTime = 0;
 
-// Display dimming settings (disabled during light sleep mode)
-const unsigned long DISPLAY_DIM_TIMEOUT = 10000; // 10 seconds
-const uint8_t DISPLAY_BRIGHT = 255;              // Full brightness
-const uint8_t DISPLAY_DIM = 10;                  // Dimmed brightness
-unsigned long lastActivityTime = 0;              // Track last activity
-bool displayDimmed = false;                      // Track dimming state
+// Display brightness setting
+const uint8_t DISPLAY_BRIGHT = 255; // Full brightness
 
 // Sleep mode settings
+unsigned long lastActivityTime = 0;              // Track last activity for sleep
 const unsigned long SLEEP_TIMEOUT = 30000; // 30 seconds before light sleep
 RTC_DATA_ATTR int bootCount = 0;           // Persistent across deep sleep
 
@@ -188,11 +185,16 @@ void enterDeepSleep()
  */
 void configureLightSleepWakeup()
 {
-    // Configure LoRa DIO0 wake-up only (active HIGH when packet received)
+    // Configure LoRa DIO0 wake-up (active HIGH when packet received)
     esp_sleep_enable_ext1_wakeup(1ULL << LORA_DIO0, ESP_EXT1_WAKEUP_ANY_HIGH);
 
+    // Configure wake button wake-up (active LOW when pressed)
+    // Note: ext0 and ext1 can be used simultaneously for light sleep
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON, 0); // 0 = wake on LOW
+
     Serial.println("Configured light sleep wake-up sources:");
-    Serial.println("  - LoRa DIO0 (GPIO 3) - active HIGH only");
+    Serial.println("  - LoRa DIO0 (GPIO 3) - active HIGH");
+    Serial.println("  - Wake button (GPIO 14) - active LOW");
 }
 
 /**
@@ -204,27 +206,26 @@ void enterLightSleep()
 {
     Serial.println("\n===================================");
     Serial.println("Entering LIGHT SLEEP mode...");
-    Serial.println("Wake-up source:");
-    Serial.println("  - LoRa message only (GPIO 3)");
+    Serial.println("Wake-up sources:");
+    Serial.println("  - LoRa message (GPIO 3)");
+    Serial.println("  - Button press (GPIO 14)");
     Serial.println("===================================\n");
 
     // Show sleep message on display
     display.clearScreen();
     display.setTextSize(2);
-    display.setCursor(10, 60);
+    display.setCursor(10, 50);
     display.printLine("Light Sleep Mode");
-    display.setCursor(10, 90);
+    display.setCursor(10, 80);
     display.setTextSize(1);
-    display.printLine("Send LoRa message");
+    display.printLine("LoRa message or");
+    display.printLine("button press");
     display.printLine("to wake up");
 
     delay(2000); // Show message for 2 seconds
 
     // Turn off display backlight
     display.setBrightness(0);
-
-    // Disable display dimming check while sleeping (prevents conflict)
-    displayDimmed = true;
 
     // Configure wake-up sources (LoRa only)
     configureLightSleepWakeup();
@@ -237,8 +238,18 @@ void enterLightSleep()
 
     // ===== CRITICAL: Wake-up handling =====
     // Execution continues here after wake-up
+    esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
+
     Serial.println("\n===================================");
     Serial.println("Woke up from light sleep!");
+    Serial.print("Wake-up cause: ");
+    if (wakeup_cause == ESP_SLEEP_WAKEUP_EXT0) {
+        Serial.println("Button press (EXT0)");
+    } else if (wakeup_cause == ESP_SLEEP_WAKEUP_EXT1) {
+        Serial.println("LoRa message (EXT1)");
+    } else {
+        Serial.println("Unknown");
+    }
     Serial.println("===================================\n");
 
     // CRITICAL: Reinitialize LoRa module after sleep
@@ -250,14 +261,19 @@ void enterLightSleep()
 
     // Restore display brightness
     display.setBrightness(DISPLAY_BRIGHT);
-    displayDimmed = false;
     lastActivityTime = millis();
 
     // Clear screen and show wake message
     display.clearScreen();
-    display.printLine("Woke: LoRa Message");
+    if (wakeup_cause == ESP_SLEEP_WAKEUP_EXT0) {
+        display.printLine("Woke: Button Press");
+    } else if (wakeup_cause == ESP_SLEEP_WAKEUP_EXT1) {
+        display.printLine("Woke: LoRa Message");
+    } else {
+        display.printLine("Woke: Unknown");
+    }
 
-    // LoRa callback will process the queued packet
+    // LoRa callback will process the queued packet if wake was from LoRa
 }
 
 /**
@@ -293,12 +309,6 @@ void addMessageToDisplay(const String &message, int rssi, float snr)
 {
     // Reset activity timer and restore brightness
     lastActivityTime = millis();
-    if (displayDimmed)
-    {
-        display.setBrightness(DISPLAY_BRIGHT);
-        displayDimmed = false;
-    }
-
     // Clear screen on first message
     if (!firstMessageReceived)
     {
@@ -532,14 +542,9 @@ void loop()
             }
             else
             {
-                // Short press - reset activity timer and restore brightness
+                // Short press - reset activity timer
                 Serial.println("Button short press - activity reset");
                 lastActivityTime = millis();
-                if (displayDimmed)
-                {
-                    display.setBrightness(DISPLAY_BRIGHT);
-                    displayDimmed = false;
-                }
             }
         }
         else if (pressDuration >= LONG_PRESS_DURATION)
@@ -670,16 +675,8 @@ void loop()
         }
     }
 
-    // Check for display dimming timeout (only if not already dimmed or sleeping soon)
-    unsigned long timeSinceActivity = millis() - lastActivityTime;
-    if (!displayDimmed && timeSinceActivity > DISPLAY_DIM_TIMEOUT && timeSinceActivity < SLEEP_TIMEOUT)
-    {
-        display.setBrightness(DISPLAY_DIM);
-        displayDimmed = true;
-        Serial.println("Display dimmed due to inactivity");
-    }
-
     // Check for sleep timeout (prevents immediate re-sleep after wake)
+    unsigned long timeSinceActivity = millis() - lastActivityTime;
     if (timeSinceActivity > SLEEP_TIMEOUT)
     {
         Serial.println("Inactivity timeout - entering light sleep mode");
