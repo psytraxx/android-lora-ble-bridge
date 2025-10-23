@@ -244,15 +244,40 @@ public class BleManager {
             public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                 Log.d(TAG, "Connection state changed: status=" + status + ", newState=" + newState);
 
-                if (newState == BluetoothGatt.STATE_CONNECTED) {
+                if (newState == BluetoothGatt.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                     connected.postValue(true);
                     Log.d(TAG, "Connected! Requesting MTU...");
                     connectionStatus.postValue("🔗 Negotiating...");
                     gatt.requestMtu(512);
                 } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
+                    // Handle disconnection (device powered off, out of range, etc.)
+                    Log.d(TAG, "Disconnected. Status: " + status + ". Cleaning up GATT...");
                     connected.postValue(false);
                     connectionStatus.postValue("❌ Disconnected - Tap here to reconnect");
-                    Log.d(TAG, "Disconnected. Use reconnect button to retry.");
+
+                    // Clean up GATT connection and characteristics
+                    txCharacteristic = null;
+                    rxCharacteristic = null;
+
+                    // Close the GATT connection to release resources
+                    if (bluetoothGatt != null) {
+                        bluetoothGatt.close();
+                        bluetoothGatt = null;
+                    }
+                } else if (status != BluetoothGatt.GATT_SUCCESS) {
+                    // Connection failed
+                    Log.e(TAG, "Connection failed with status: " + status);
+                    connected.postValue(false);
+                    connectionStatus.postValue("❌ Connection failed - Tap here to reconnect");
+
+                    // Clean up failed connection
+                    txCharacteristic = null;
+                    rxCharacteristic = null;
+
+                    if (bluetoothGatt != null) {
+                        bluetoothGatt.close();
+                        bluetoothGatt = null;
+                    }
                 }
             }
 
@@ -352,6 +377,12 @@ public class BleManager {
             return false;
         }
 
+        if (bluetoothGatt == null || rxCharacteristic == null) {
+            Log.e(TAG, "Cannot send message: BLE not connected");
+            showToast.postValue("Error: Not connected to device");
+            return false;
+        }
+
         byte[] data = message.serialize();
         if (data == null || data.length == 0) {
             Log.e(TAG, "Cannot send empty message");
@@ -402,6 +433,20 @@ public class BleManager {
             Log.d(TAG, "Already connected to BLE device");
             return;
         }
+
+        // Clean up any stale GATT connection before starting new scan
+        if (bluetoothGatt != null) {
+            Log.d(TAG, "Cleaning up stale GATT connection before reconnect");
+            try {
+                bluetoothGatt.close();
+            } catch (Exception e) {
+                Log.e(TAG, "Error closing stale GATT: " + e.getMessage());
+            }
+            bluetoothGatt = null;
+            txCharacteristic = null;
+            rxCharacteristic = null;
+        }
+
         Log.d(TAG, "Starting BLE connection process...");
         startScan();
     }
