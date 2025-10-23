@@ -37,6 +37,14 @@ public class BleManager {
 
     private final Context context;
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final android.os.Handler locationCheckHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    private void cleanupHandlers() {
+        mainHandler.removeCallbacksAndMessages(null);
+        locationCheckHandler.removeCallbacksAndMessages(null);
+        unregisterLocationProviderReceiver();
+    }
+
     // LiveData for state changes
     private final MutableLiveData<String> connectionStatus = new MutableLiveData<>();
     private final MutableLiveData<Protocol.Message> messageReceived = new MutableLiveData<>();
@@ -188,7 +196,8 @@ public class BleManager {
     }
 
     public void registerLocationProviderReceiver() {
-        if (locationProviderReceiver != null) return;
+        if (locationProviderReceiver != null)
+            return;
         locationProviderReceiver = new android.content.BroadcastReceiver() {
             @Override
             public void onReceive(Context context, android.content.Intent intent) {
@@ -201,7 +210,8 @@ public class BleManager {
                 }
             }
         };
-        android.content.IntentFilter filter = new android.content.IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION);
+        android.content.IntentFilter filter = new android.content.IntentFilter(
+                LocationManager.PROVIDERS_CHANGED_ACTION);
         context.registerReceiver(locationProviderReceiver, filter);
     }
 
@@ -217,8 +227,7 @@ public class BleManager {
     }
 
     public void onDestroy() {
-        mainHandler.removeCallbacksAndMessages(null);
-        unregisterLocationProviderReceiver();
+        cleanupHandlers();
     }
 
     @SuppressLint("MissingPermission")
@@ -319,7 +328,7 @@ public class BleManager {
 
             @Override
             public void onDescriptorWrite(BluetoothGatt gatt, android.bluetooth.BluetoothGattDescriptor descriptor,
-                                          int status) {
+                    int status) {
                 Log.d(TAG, "Descriptor write completed: status=" + status);
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     Log.d(TAG, "Notifications successfully enabled on server side!");
@@ -357,26 +366,28 @@ public class BleManager {
         return connectedValue != null && connectedValue;
     }
 
-
     @SuppressLint("MissingPermission")
     public void disconnect() {
-        // Stop scanning if in progress
-        stopScan();
+        try {
+            // Stop scanning if in progress
+            stopScan();
 
-        // Cancel any pending reconnect attempts
-        mainHandler.removeCallbacksAndMessages(null);
-        unregisterLocationProviderReceiver();
+            cleanupHandlers();
 
-        if (bluetoothGatt != null) {
-            bluetoothGatt.disconnect();
-            bluetoothGatt.close();
-            bluetoothGatt = null;
+            if (bluetoothGatt != null) {
+                bluetoothGatt.disconnect();
+                bluetoothGatt.close();
+                bluetoothGatt = null;
+            }
+            connected.postValue(false);
+            isWaitingForLocation = false;
+        } finally {
+            // Ensure cleanup happens even if exceptions occur
+            cleanupHandlers();
         }
-        connected.postValue(false);
-        isWaitingForLocation = false;
     }
 
-    /** 
+    /**
      * Initiates a BLE connection by scanning for the ESP32 device.
      * If already connected, does nothing.
      */

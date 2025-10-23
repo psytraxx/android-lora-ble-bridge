@@ -75,6 +75,8 @@ public class MessageViewModel extends ViewModel {
         return bleManager != null && bleManager.isConnected();
     }
 
+    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+
     public void sendMessage(String text) {
         Log.d(TAG, "Send message - text: " + text);
 
@@ -90,36 +92,48 @@ public class MessageViewModel extends ViewModel {
             return;
         }
 
+        // Start GPS location updates on-demand before sending
+        if (gpsManager != null) {
+            gpsManager.startLocationUpdates();
+        }
+
         // Attempt to connect if not connected (async)
         if (bleManager != null && !bleManager.isConnected()) {
             Log.d(TAG, "BLE not connected - attempting to connect...");
             bleManager.connect();
             showToast.postValue("Connecting to device...");
-            
-            // Queue message for retry after brief delay (async)
+
+            // Queue message for retry after brief delay using Handler
             final String finalText = text;
-            new Thread(() -> {
-                try {
-                    Thread.sleep(2000); // Wait for connection in background thread
-                    if (canSendMessage()) {
-                        sendMessageInternal(finalText);
-                    } else {
-                        showToast.postValue("Failed to connect - please try again");
-                    }
-                } catch (InterruptedException e) {
-                    Log.e(TAG, "Interrupted while waiting for BLE connection");
+            handler.postDelayed(() -> {
+                if (canSendMessage()) {
+                    sendMessageInternal(finalText);
+                } else {
+                    showToast.postValue("Failed to connect - please try again");
                 }
-            }).start();
+                // Stop GPS updates after message attempt
+                if (gpsManager != null) {
+                    gpsManager.stopLocationUpdates();
+                }
+            }, 2000);
             return;
         }
 
         if (!canSendMessage()) {
             Log.e(TAG, "Cannot send: BLE not connected");
             showToast.postValue("Not connected to device");
+            // Stop GPS updates if not sending
+            if (gpsManager != null) {
+                gpsManager.stopLocationUpdates();
+            }
             return;
         }
 
         sendMessageInternal(text);
+        // Stop GPS updates after message sent
+        if (gpsManager != null) {
+            gpsManager.stopLocationUpdates();
+        }
     }
 
     private void sendMessageInternal(String text) {
@@ -147,21 +161,17 @@ public class MessageViewModel extends ViewModel {
             if (!success) {
                 Log.e(TAG, "Failed to send message - will retry");
                 showToast.postValue("Send failed - retrying...");
-                // Retry after brief delay
+                // Retry after brief delay using Handler
                 final Protocol.TextMessage retryMsg = textMsg;
-                new Thread(() -> {
-                    try {
-                        Thread.sleep(1000);
-                        if (bleManager.isConnected()) {
-                            bleManager.sendMessage(retryMsg);
-                        }
-                    } catch (InterruptedException e) {
-                        Log.e(TAG, "Retry interrupted");
+                handler.postDelayed(() -> {
+                    if (bleManager.isConnected()) {
+                        bleManager.sendMessage(retryMsg);
                     }
-                }).start();
+                }, 1000);
             }
 
-            // Schedule disconnect after longer delay (to await ACK) - increased from 5 to 30 seconds
+            // Schedule disconnect after longer delay (to await ACK) - increased from 5 to
+            // 30 seconds
             disconnectAfterDelay(30000);
 
         } catch (Exception e) {
