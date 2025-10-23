@@ -1,9 +1,8 @@
 package com.lora.android;
 
 import android.content.Context;
-import android.os.Build;
+import android.content.Intent;
 import android.os.Bundle;
-import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.inputmethod.EditorInfo;
@@ -12,6 +11,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
@@ -42,17 +42,15 @@ public class MainActivity extends AppCompatActivity {
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
+        // Start foreground service for background message reception
+        startForegroundService();
+
         // Ensure status bar is visible and icons are dark
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            WindowInsetsController controller = getWindow().getInsetsController();
-            if (controller != null) {
-                controller.show(WindowInsets.Type.statusBars());
-                controller.setSystemBarsAppearance(WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
-                        WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS);
-            }
-        } else {
-            View decorView = getWindow().getDecorView();
-            decorView.setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
+        WindowInsetsController controller = getWindow().getInsetsController();
+        if (controller != null) {
+            controller.show(WindowInsets.Type.statusBars());
+            controller.setSystemBarsAppearance(WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
+                    WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS);
         }
 
         // Set up Action Bar title
@@ -186,6 +184,8 @@ public class MainActivity extends AppCompatActivity {
         if (bleManager != null) {
             bleManager.disconnect();
         }
+        // Note: We intentionally do NOT stop the foreground service here
+        // so it continues running in the background to receive messages
     }
 
     @Override
@@ -244,5 +244,10 @@ public class MainActivity extends AppCompatActivity {
             }
         };
         gpsHandler.postDelayed(gpsUpdateRunnable, GPS_UPDATE_INTERVAL_MS);
+    }
+
+    private void startForegroundService() {
+        Intent serviceIntent = new Intent(this, LoRaForegroundService.class);
+        ContextCompat.startForegroundService(this, serviceIntent);
     }
 }

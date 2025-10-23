@@ -86,25 +86,43 @@ public class MessageViewModel extends ViewModel {
         // Validate characters
         if (!Protocol.isTextSupported(text)) {
             Log.e(TAG, "Invalid characters in message");
+            showToast.postValue("Message contains unsupported characters");
             return;
         }
 
-        // Attempt to connect if not connected
+        // Attempt to connect if not connected (async)
         if (bleManager != null && !bleManager.isConnected()) {
             Log.d(TAG, "BLE not connected - attempting to connect...");
             bleManager.connect();
-            try {
-                Thread.sleep(1500); // wait briefly for connection
-            } catch (InterruptedException e) {
-                Log.e(TAG, "Interrupted while waiting for BLE connection");
-            }
-        }
-
-        if (!canSendMessage()) {
-            Log.e(TAG, "Cannot send: BLE connection failed");
+            showToast.postValue("Connecting to device...");
+            
+            // Queue message for retry after brief delay (async)
+            final String finalText = text;
+            new Thread(() -> {
+                try {
+                    Thread.sleep(2000); // Wait for connection in background thread
+                    if (canSendMessage()) {
+                        sendMessageInternal(finalText);
+                    } else {
+                        showToast.postValue("Failed to connect - please try again");
+                    }
+                } catch (InterruptedException e) {
+                    Log.e(TAG, "Interrupted while waiting for BLE connection");
+                }
+            }).start();
             return;
         }
 
+        if (!canSendMessage()) {
+            Log.e(TAG, "Cannot send: BLE not connected");
+            showToast.postValue("Not connected to device");
+            return;
+        }
+
+        sendMessageInternal(text);
+    }
+
+    private void sendMessageInternal(String text) {
         // Update GPS
         updateGps();
         Location location = gpsManager.getLastKnownLocation();
@@ -125,13 +143,30 @@ public class MessageViewModel extends ViewModel {
                 messageAdapter.addMessage(text, true, textSeq);
             }
 
-            bleManager.sendMessage(textMsg);
+            boolean success = bleManager.sendMessage(textMsg);
+            if (!success) {
+                Log.e(TAG, "Failed to send message - will retry");
+                showToast.postValue("Send failed - retrying...");
+                // Retry after brief delay
+                final Protocol.TextMessage retryMsg = textMsg;
+                new Thread(() -> {
+                    try {
+                        Thread.sleep(1000);
+                        if (bleManager.isConnected()) {
+                            bleManager.sendMessage(retryMsg);
+                        }
+                    } catch (InterruptedException e) {
+                        Log.e(TAG, "Retry interrupted");
+                    }
+                }).start();
+            }
 
-            // Schedule disconnect after short delay (to await ACK)
-            disconnectAfterDelay(5000);
+            // Schedule disconnect after longer delay (to await ACK) - increased from 5 to 30 seconds
+            disconnectAfterDelay(30000);
 
         } catch (Exception e) {
             Log.e(TAG, "Error sending message: " + e.getMessage());
+            showToast.postValue("Error: " + e.getMessage());
         }
     }
 

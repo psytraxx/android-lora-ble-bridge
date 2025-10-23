@@ -1,14 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:padding="8dp">
+    android:clipToPadding="false"
+    android:paddingStart="8dp"
+    android:paddingTop="4dp"
+    android:paddingEnd="8dp"
+    android:paddingBottom="4dp">
 
     <LinearLayout
         android:id="@+id/messageContainer"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="start"
+        android:layout_alignParentStart="true"
         android:background="@drawable/message_bubble_received"
         android:maxWidth="280dp"
         android:orientation="vertical"
@@ -46,9 +50,7 @@
                 android:textColor="#999999"
                 android:textSize="14sp"
                 android:visibility="gone" />
-
         </LinearLayout>
-
     </LinearLayout>
 
-</FrameLayout>
+</RelativeLayout>

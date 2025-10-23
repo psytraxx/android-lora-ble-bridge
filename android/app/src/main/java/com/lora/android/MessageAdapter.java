@@ -3,12 +3,11 @@ package com.lora.android;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
-import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.FrameLayout;
 import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -58,11 +57,12 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
         }
 
         // Align message bubble based on sender
-        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) holder.messageContainer.getLayoutParams();
+        RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) holder.messageContainer.getLayoutParams();
 
         if (message.isSent) {
             // Sent messages: align right, green background
-            params.gravity = Gravity.END;
+            params.removeRule(RelativeLayout.ALIGN_PARENT_START);
+            params.addRule(RelativeLayout.ALIGN_PARENT_END);
             holder.messageContainer.setBackgroundResource(R.drawable.message_bubble_sent);
             holder.messageText.setTextColor(0xFF000000); // Black text
 
@@ -83,7 +83,8 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
             }
         } else {
             // Received messages: align left, white background with border
-            params.gravity = Gravity.START;
+            params.removeRule(RelativeLayout.ALIGN_PARENT_END);
+            params.addRule(RelativeLayout.ALIGN_PARENT_START);
             holder.messageContainer.setBackgroundResource(R.drawable.message_bubble_received);
             holder.messageText.setTextColor(0xFF000000); // Black text
             holder.ackStatusIcon.setVisibility(View.GONE); // No ACK indicator for received messages

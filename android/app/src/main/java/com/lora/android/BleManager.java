@@ -34,7 +34,7 @@ public class BleManager {
     private static final UUID RX_CHAR_UUID = UUID.fromString("00005679-0000-1000-8000-00805F9B34FB");
     private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private static final long LOCATION_CHECK_INTERVAL_MS = 60000; // Check every minute
-    private static final long SCAN_TIMEOUT_MS = 5000; // 5 seconds scan timeout
+    private static final long SCAN_TIMEOUT_MS = 15000; // 15 seconds scan timeout (increased from 5)
 
     private final Context context;
     private final android.os.Handler locationCheckHandler = new android.os.Handler(android.os.Looper.getMainLooper());

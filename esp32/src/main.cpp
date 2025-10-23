@@ -51,13 +51,6 @@ QueueHandle_t loRaQueue;
 BLEManager *bleManager;
 
 /**
- * @brief Helper function to update sleep activity timer from any context
- */
-void updateSleepActivity()
-{
-}
-
-/**
  * @brief LoRa receive callback - handles incoming LoRa packets event-driven
  */
 void onLoRaReceive(int packetSize)
@@ -127,9 +120,6 @@ void setup()
 
     // Initialize BLE with queue
     bleManager = new BLEManager(bleToLoraQueue);
-
-    // Set activity callback for sleep management
-    bleManager->setActivityCallback(updateSleepActivity);
 
     // Initialize BLE with retry logic
     const int BLE_RETRY_COUNT = 3;
@@ -511,7 +501,7 @@ void loop()
 
     // BLE inactivity timeout handling
     static unsigned long lastBleActivity = millis();
-    const unsigned long BLE_DISCONNECT_TIMEOUT_MS = 8000;
+    const unsigned long BLE_DISCONNECT_TIMEOUT_MS = 60000; // 60 seconds (increased from 8)
 
     // Update last activity when BLE is active
     if (bleManager->isConnected())
