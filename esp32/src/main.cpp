@@ -236,8 +236,22 @@ void setup()
 void handleLoRaToBleForwarding()
 {
     // Send buffered messages if BLE just connected
+    static bool justConnected = false;
+    static unsigned long connectTime = 0;
     if (bleManager->isConnected() && !messageBuffer.isEmpty())
     {
+        if (!justConnected)
+        {
+            // First time BLE is connected since last disconnect
+            justConnected = true;
+            connectTime = millis();
+            Serial.println("BLE connected - waiting before sending buffered messages...");
+        }
+        // Wait at least 2s after connection before sending buffered messages
+        if (millis() - connectTime < 2000)
+        {
+            return;
+        }
         Serial.print("BLE connected - sending ");
         Serial.print(messageBuffer.getCount());
         Serial.println(" buffered messages");
@@ -259,6 +273,11 @@ void handleLoRaToBleForwarding()
                 break; // Stop if send fails
             }
         }
+    }
+    else if (!bleManager->isConnected())
+    {
+        // Reset justConnected flag when disconnected
+        justConnected = false;
     }
 
     // Process live queue messages
