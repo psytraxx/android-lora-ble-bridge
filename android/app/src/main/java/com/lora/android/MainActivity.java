@@ -183,15 +183,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onPause() {
-        super.onPause();
-        // Stop GPS updates when app goes to background (power saving)
-        if (gpsManager != null) {
-            gpsManager.stopLocationUpdates();
-        }
-    }
-
-    @Override
     protected void onResume() {
         super.onResume();
         // Refresh GPS display when app comes to foreground
@@ -222,11 +213,14 @@ public class MainActivity extends AppCompatActivity {
 
         // Change color if approaching limit
         if (charCount >= Protocol.MAX_TEXT_LENGTH) {
-            binding.charCountTextView.setTextColor(0xFFFF0000); // Red
+            binding.charCountTextView.setTextColor(
+                    androidx.core.content.ContextCompat.getColor(this, R.color.char_count_exceeded));
         } else if (charCount >= Protocol.MAX_TEXT_LENGTH * CHAR_COUNT_WARNING_THRESHOLD) {
-            binding.charCountTextView.setTextColor(0xFFFF6600); // Orange
+            binding.charCountTextView.setTextColor(
+                    androidx.core.content.ContextCompat.getColor(this, R.color.char_count_warning));
         } else {
-            binding.charCountTextView.setTextColor(0xFF666666); // Gray
+            binding.charCountTextView.setTextColor(
+                    androidx.core.content.ContextCompat.getColor(this, R.color.char_count_normal));
         }
     }
 

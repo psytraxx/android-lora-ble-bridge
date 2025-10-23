@@ -91,11 +91,6 @@ public class MessageViewModel extends ViewModel {
             return;
         }
 
-        // Start GPS location updates on-demand before sending
-        if (gpsManager != null) {
-            gpsManager.startLocationUpdates();
-        }
-
         // Attempt to connect if not connected (async)
         if (bleManager != null && !bleManager.isConnected()) {
             Log.d(TAG, "BLE not connected - attempting to connect...");
@@ -110,10 +105,6 @@ public class MessageViewModel extends ViewModel {
                 } else {
                     showToast.postValue("Failed to connect - please try again");
                 }
-                // Stop GPS updates after message attempt
-                if (gpsManager != null) {
-                    gpsManager.stopLocationUpdates();
-                }
             }, 2000);
             return;
         }
@@ -121,18 +112,10 @@ public class MessageViewModel extends ViewModel {
         if (!canSendMessage()) {
             Log.e(TAG, "Cannot send: BLE not connected");
             showToast.postValue("Not connected to device");
-            // Stop GPS updates if not sending
-            if (gpsManager != null) {
-                gpsManager.stopLocationUpdates();
-            }
             return;
         }
 
         sendMessageInternal(text);
-        // Stop GPS updates after message sent
-        if (gpsManager != null) {
-            gpsManager.stopLocationUpdates();
-        }
     }
 
     private void sendMessageInternal(String text) {
@@ -180,17 +163,13 @@ public class MessageViewModel extends ViewModel {
     }
 
     private void disconnectAfterDelay(long delayMs) {
-        new Thread(() -> {
-            try {
-                Thread.sleep(delayMs);
-                if (bleManager != null && bleManager.isConnected()) {
-                    Log.d(TAG, "Disconnecting BLE after inactivity timeout");
-                    bleManager.disconnect();
-                }
-            } catch (InterruptedException e) {
-                Log.e(TAG, "Disconnect delay interrupted");
+        // Use Handler instead of Thread to avoid race conditions
+        handler.postDelayed(() -> {
+            if (bleManager != null && bleManager.isConnected()) {
+                Log.d(TAG, "Disconnecting BLE after inactivity timeout");
+                bleManager.disconnect();
             }
-        }).start();
+        }, delayMs);
     }
 
     private void handleReceivedMessage(Protocol.Message message) {
@@ -214,6 +193,10 @@ public class MessageViewModel extends ViewModel {
     @Override
     protected void onCleared() {
         super.onCleared();
+        // Clean up handlers to prevent memory leaks
+        handler.removeCallbacksAndMessages(null);
+        Log.d(TAG, "Handler callbacks cleared");
+
         // Safe cleanup with null checks
         if (bleManager != null && observersRegistered) {
             try {

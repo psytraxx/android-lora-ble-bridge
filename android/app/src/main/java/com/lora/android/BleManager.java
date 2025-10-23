@@ -33,7 +33,7 @@ public class BleManager {
     private static final UUID TX_CHAR_UUID = UUID.fromString("00005678-0000-1000-8000-00805F9B34FB");
     private static final UUID RX_CHAR_UUID = UUID.fromString("00005679-0000-1000-8000-00805F9B34FB");
     private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
-    private static final long SCAN_TIMEOUT_MS = 7000; // 7 seconds scan timeout
+    private static final long SCAN_TIMEOUT_MS = 15000; // 15 seconds scan timeout
     private static BleManager instance;
     private final Context context;
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());

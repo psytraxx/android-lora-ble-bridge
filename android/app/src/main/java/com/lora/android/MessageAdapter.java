@@ -59,23 +59,25 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
         // Align message bubble based on sender
         RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) holder.messageContainer.getLayoutParams();
 
+        Context context = holder.itemView.getContext();
+
         if (message.isSent) {
             // Sent messages: align right, green background
             params.removeRule(RelativeLayout.ALIGN_PARENT_START);
             params.addRule(RelativeLayout.ALIGN_PARENT_END);
             holder.messageContainer.setBackgroundResource(R.drawable.message_bubble_sent);
-            holder.messageText.setTextColor(0xFF000000); // Black text
+            holder.messageText.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.message_text));
 
             // Show ACK status indicator
             holder.ackStatusIcon.setVisibility(View.VISIBLE);
             switch (message.ackStatus) {
                 case PENDING:
                     holder.ackStatusIcon.setText("⏱"); // Clock for pending
-                    holder.ackStatusIcon.setTextColor(0xFF999999); // Gray
+                    holder.ackStatusIcon.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.ack_pending));
                     break;
                 case DELIVERED:
                     holder.ackStatusIcon.setText("✓"); // Checkmark for delivered
-                    holder.ackStatusIcon.setTextColor(0xFF4CAF50); // Green
+                    holder.ackStatusIcon.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.ack_delivered));
                     break;
                 default:
                     holder.ackStatusIcon.setVisibility(View.GONE);
@@ -86,7 +88,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
             params.removeRule(RelativeLayout.ALIGN_PARENT_END);
             params.addRule(RelativeLayout.ALIGN_PARENT_START);
             holder.messageContainer.setBackgroundResource(R.drawable.message_bubble_received);
-            holder.messageText.setTextColor(0xFF000000); // Black text
+            holder.messageText.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.message_text));
             holder.ackStatusIcon.setVisibility(View.GONE); // No ACK indicator for received messages
         }
 

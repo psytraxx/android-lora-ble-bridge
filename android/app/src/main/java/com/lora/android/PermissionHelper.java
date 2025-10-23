@@ -38,6 +38,9 @@ public class PermissionHelper {
     }
 
     public static boolean areAllPermissionsGranted(int[] grantResults) {
+        if (grantResults == null || grantResults.length == 0) {
+            return false;
+        }
         for (int result : grantResults) {
             if (result != PackageManager.PERMISSION_GRANTED) {
                 return false;

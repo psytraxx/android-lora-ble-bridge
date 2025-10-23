@@ -1,5 +1,39 @@
 ## Recent Improvements
 
+### Android App - Critical Bug Fixes & Code Quality (October 23, 2025)
+
+#### Memory Leak Fixes
+- **Handler Cleanup**: Fixed memory leak in MessageViewModel - Handler callbacks now properly cleaned up in `onCleared()`
+- **LocationListener Leaks**: Completely refactored GpsManager to use reusable LocationListener instances instead of creating anonymous listeners
+  - Reduced GpsManager from 279 → 218 lines (22% reduction)
+  - Fixed auto-cleanup after single location updates
+  - Removed 97 lines of dead code (unused continuous update infrastructure)
+
+#### Race Condition Fixes
+- **BLE Disconnect**: Replaced Thread-based auto-disconnect with Handler-based implementation to prevent race conditions
+- **Connection State**: Fixed BLE connection state management when device powers off
+  - Properly closes GATT connection on disconnect
+  - Resets characteristics to null
+  - Handles connection failures gracefully
+  - Reconnection now reliable after device power cycle
+
+#### Logic Bug Fixes
+- **GPS Management**: Removed unnecessary `startLocationUpdates()` / `stopLocationUpdates()` calls (app uses event-driven single updates)
+- **Permission Helper**: Added null/empty array validation in `areAllPermissionsGranted()` to prevent false positives
+- **MainActivity Lifecycle**: Removed redundant GPS stop/start in onPause/onResume (already event-driven)
+
+#### Code Quality Improvements
+- **Color Resources**: Extracted 7 hardcoded color values to `colors.xml` for better maintainability and theming support
+- **BLE Scan Timeout**: Increased from 7 seconds → 15 seconds for better device discovery
+- **Code Reduction**: Net reduction of ~40 lines while fixing all issues
+
+#### Test Results
+- **Build**: ✅ All builds successful
+- **Unit Tests**: ✅ All 9 tests passing
+- **Impact**: More stable, efficient, and maintainable codebase
+
+---
+
 ### Critical Bug Fixes & Reliability Improvements (October 23, 2025)
 
 #### ESP32 Firmware
