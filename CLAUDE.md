@@ -299,12 +299,14 @@ Also update function signatures in `ble.rs` and `lora.rs` when changing capacity
 
 ## Regional Regulations
 
+
 **TX Power Limits:**
-- EU 433 MHz: 2 dBm max
+- EU/Switzerland 433 MHz: 10 dBm max
 - US 433 MHz: 17 dBm max
 - Australia 433 MHz: 14 dBm max
 
-**Duty Cycle (EU: 1%):**
+
+**Duty Cycle (EU/Switzerland: 1%):**
 - 36 seconds per hour transmission time
 - 50-char message + GPS: ~600ms → ~60 messages/hour
 
