@@ -17,13 +17,14 @@ import java.util.Locale;
 public class GpsManager {
 
     private static final String TAG = "GpsManager";
-    private static final long MIN_TIME_BETWEEN_UPDATES = 5000; // 5 seconds
+    private static final long MIN_TIME_BETWEEN_UPDATES = 30000; // 30 seconds (reduced from 5s for power saving)
     private static final float MIN_DISTANCE_CHANGE = 10; // 10 meters
 
     private final Context context;
     private final LocationManager locationManager;
     private final LocationListener locationListener;
     private Location currentLocation = null;
+    private boolean isListening = false;
 
     public GpsManager(Context context) {
         this.context = context;
@@ -53,8 +54,8 @@ public class GpsManager {
             }
         };
 
-        // Start listening for location updates
-        startLocationUpdates();
+        // Note: Location updates are now event-driven, not started automatically in constructor
+        Log.d(TAG, "GpsManager initialized - updates will start on-demand");
     }
 
     public boolean hasLocationPermission() {
@@ -69,6 +70,11 @@ public class GpsManager {
             return;
         }
 
+        if (isListening) {
+            Log.d(TAG, "Location updates already started");
+            return;
+        }
+
         try {
             // Request updates from both GPS and Network providers
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
@@ -77,7 +83,7 @@ public class GpsManager {
                         MIN_TIME_BETWEEN_UPDATES,
                         MIN_DISTANCE_CHANGE,
                         locationListener);
-                Log.d(TAG, "Started GPS location updates");
+                Log.d(TAG, "Started GPS location updates (30s interval for power saving)");
             }
 
             if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
@@ -86,8 +92,9 @@ public class GpsManager {
                         MIN_TIME_BETWEEN_UPDATES,
                         MIN_DISTANCE_CHANGE,
                         locationListener);
-                Log.d(TAG, "Started Network location updates");
+                Log.d(TAG, "Started Network location updates (30s interval)");
             }
+            isListening = true;
         } catch (Exception e) {
             Log.e(TAG, "Error starting location updates: " + e.getMessage());
         }
@@ -97,12 +104,89 @@ public class GpsManager {
         if (locationManager != null && locationListener != null) {
             try {
                 locationManager.removeUpdates(locationListener);
-                android.util.Log.d(TAG, "Stopped location updates");
+                isListening = false;
+                Log.d(TAG, "Stopped location updates (power saving)");
             } catch (SecurityException e) {
-                android.util.Log.e(TAG, "Security exception stopping location updates: " + e.getMessage());
+                Log.e(TAG, "Security exception stopping location updates: " + e.getMessage());
             } catch (Exception e) {
-                android.util.Log.e(TAG, "Error stopping location updates: " + e.getMessage());
+                Log.e(TAG, "Error stopping location updates: " + e.getMessage());
             }
+        }
+    }
+
+    /**
+     * Request a single location update for event-driven GPS usage.
+     * This is called when the user initiates a send action.
+     * More power-efficient than continuous updates.
+     */
+    @SuppressLint("MissingPermission")
+    public void requestSingleLocationUpdate() {
+        if (!hasLocationPermission()) {
+            Log.e(TAG, "Location permission not granted, cannot request location");
+            return;
+        }
+
+        try {
+            // Request a single update from GPS (most accurate)
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locationManager.requestSingleUpdate(
+                        LocationManager.GPS_PROVIDER,
+                        new LocationListener() {
+                            @Override
+                            public void onLocationChanged(Location location) {
+                                Log.d(TAG, "Single GPS update received: " + location.getLatitude() + ", " +
+                                        location.getLongitude());
+                                currentLocation = location;
+                            }
+
+                            @Override
+                            public void onStatusChanged(String provider, int status, Bundle extras) {
+                            }
+
+                            @Override
+                            public void onProviderEnabled(String provider) {
+                            }
+
+                            @Override
+                            public void onProviderDisabled(String provider) {
+                            }
+                        },
+                        null);
+                Log.d(TAG, "Requested single GPS location update (event-driven)");
+            }
+
+            // Also request from Network as fallback
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestSingleUpdate(
+                        LocationManager.NETWORK_PROVIDER,
+                        new LocationListener() {
+                            @Override
+                            public void onLocationChanged(Location location) {
+                                // Only update if we don't have a recent GPS fix
+                                if (currentLocation == null ||
+                                        location.getTime() > currentLocation.getTime()) {
+                                    Log.d(TAG, "Single Network update received: " + location.getLatitude() + ", " +
+                                            location.getLongitude());
+                                    currentLocation = location;
+                                }
+                            }
+
+                            @Override
+                            public void onStatusChanged(String provider, int status, Bundle extras) {
+                            }
+
+                            @Override
+                            public void onProviderEnabled(String provider) {
+                            }
+
+                            @Override
+                            public void onProviderDisabled(String provider) {
+                            }
+                        },
+                        null);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error requesting single location update: " + e.getMessage());
         }
     }
 

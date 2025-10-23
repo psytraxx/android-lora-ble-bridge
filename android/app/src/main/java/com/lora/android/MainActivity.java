@@ -22,7 +22,6 @@ import lora.Protocol;
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_PERMISSIONS = 1;
-    private static final long GPS_UPDATE_INTERVAL_MS = 5000; // 5 seconds
     private static final double CHAR_COUNT_WARNING_THRESHOLD = 0.9; // 90% of max
 
     private ActivityMainBinding binding;
@@ -32,9 +31,6 @@ public class MainActivity extends AppCompatActivity {
     private MessageViewModel messageViewModel;
     private BleManager bleManager;
     private GpsManager gpsManager;
-
-    private android.os.Handler gpsHandler;
-    private Runnable gpsUpdateRunnable;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -104,6 +100,8 @@ public class MainActivity extends AppCompatActivity {
         binding.sendButton.setOnClickListener(v -> {
             String messageText = binding.messageEditText.getText().toString();
             if (!messageText.isEmpty()) {
+                // Request fresh GPS location when user sends message (event-driven)
+                gpsManager.requestSingleLocationUpdate();
                 messageViewModel.sendMessage(messageText);
                 binding.messageEditText.setText("");
             }
@@ -140,10 +138,9 @@ public class MainActivity extends AppCompatActivity {
             return false;
         });
 
+        // Get initial GPS location (event-driven, not periodic)
         messageViewModel.updateGps();
         updateCharCount(""); // Initialize counter
-
-        startGpsPeriodicUpdates();
     }
 
     private void checkPermissions() {
@@ -160,7 +157,7 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_PERMISSIONS) {
             if (PermissionHelper.areAllPermissionsGranted(grantResults)) {
-                gpsManager.startLocationUpdates(); // Start GPS updates when permissions granted
+                // Note: GPS updates are now event-driven, not started automatically
                 startBleScan();
             } else {
                 Toast.makeText(this, "Permissions required", Toast.LENGTH_SHORT).show();
@@ -175,9 +172,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (gpsHandler != null && gpsUpdateRunnable != null) {
-            gpsHandler.removeCallbacks(gpsUpdateRunnable);
-        }
         if (gpsManager != null) {
             gpsManager.stopLocationUpdates();
         }
@@ -191,16 +185,18 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
-        if (gpsHandler != null && gpsUpdateRunnable != null) {
-            gpsHandler.removeCallbacks(gpsUpdateRunnable);
+        // Stop GPS updates when app goes to background (power saving)
+        if (gpsManager != null) {
+            gpsManager.stopLocationUpdates();
         }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (gpsHandler != null && gpsUpdateRunnable != null) {
-            gpsHandler.postDelayed(gpsUpdateRunnable, GPS_UPDATE_INTERVAL_MS);
+        // Refresh GPS display when app comes to foreground
+        if (gpsManager != null && messageViewModel != null) {
+            messageViewModel.updateGps();
         }
     }
 
@@ -232,18 +228,6 @@ public class MainActivity extends AppCompatActivity {
         } else {
             binding.charCountTextView.setTextColor(0xFF666666); // Gray
         }
-    }
-
-    private void startGpsPeriodicUpdates() {
-        gpsHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-        gpsUpdateRunnable = new Runnable() {
-            @Override
-            public void run() {
-                messageViewModel.updateGps();
-                gpsHandler.postDelayed(this, GPS_UPDATE_INTERVAL_MS);
-            }
-        };
-        gpsHandler.postDelayed(gpsUpdateRunnable, GPS_UPDATE_INTERVAL_MS);
     }
 
     private void startForegroundService() {
