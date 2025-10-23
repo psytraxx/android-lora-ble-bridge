@@ -25,21 +25,19 @@ public class LoRaForegroundService extends Service {
     private static final String CHANNEL_ID = "LoRaServiceChannel";
     private static final int NOTIFICATION_ID = 1;
     private static final int MESSAGE_NOTIFICATION_BASE_ID = 100;
-
+    private final Observer<String> connectionStatusObserver = this::updateNotification;
     private BleManager bleManager;
     private int messageNotificationCounter = 0;
-
     private final Observer<Protocol.Message> messageReceivedObserver = this::handleReceivedMessage;
-    private final Observer<String> connectionStatusObserver = this::updateNotification;
 
     @Override
     public void onCreate() {
         super.onCreate();
         Log.d(TAG, "Service created");
-        
+
         createNotificationChannel();
-        bleManager = new BleManager(this);
-        
+        bleManager = BleManager.getInstance(this);
+
         // Observe BLE events
         bleManager.getMessageReceived().observeForever(messageReceivedObserver);
         bleManager.getConnectionStatus().observeForever(connectionStatusObserver);
@@ -84,8 +82,7 @@ public class LoRaForegroundService extends Service {
         NotificationChannel serviceChannel = new NotificationChannel(
                 CHANNEL_ID,
                 "LoRa Background Service",
-                NotificationManager.IMPORTANCE_LOW
-        );
+                NotificationManager.IMPORTANCE_LOW);
         serviceChannel.setDescription("Maintains BLE connection to receive LoRa messages");
 
         NotificationManager manager = getSystemService(NotificationManager.class);
@@ -100,8 +97,7 @@ public class LoRaForegroundService extends Service {
                 this,
                 0,
                 notificationIntent,
-                PendingIntent.FLAG_IMMUTABLE
-        );
+                PendingIntent.FLAG_IMMUTABLE);
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle(title)
@@ -113,11 +109,12 @@ public class LoRaForegroundService extends Service {
     }
 
     private void updateNotification(String status) {
-        if (status == null) return;
-        
+        if (status == null)
+            return;
+
         Log.d(TAG, "Updating notification with status: " + status);
         Notification notification = createNotification("LoRa Service", status);
-        
+
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) {
             manager.notify(NOTIFICATION_ID, notification);
@@ -125,7 +122,8 @@ public class LoRaForegroundService extends Service {
     }
 
     private void handleReceivedMessage(Protocol.Message message) {
-        if (message == null) return;
+        if (message == null)
+            return;
 
         Log.d(TAG, "Message received in background service");
 
@@ -141,13 +139,12 @@ public class LoRaForegroundService extends Service {
     private void showMessageNotification(Protocol.TextMessage textMsg) {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        
+
         PendingIntent pendingIntent = PendingIntent.getActivity(
                 this,
                 0,
                 notificationIntent,
-                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
-        );
+                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
         String notificationText = textMsg.text;
         if (textMsg.hasGps) {

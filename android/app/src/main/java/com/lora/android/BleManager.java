@@ -34,17 +34,10 @@ public class BleManager {
     private static final UUID RX_CHAR_UUID = UUID.fromString("00005679-0000-1000-8000-00805F9B34FB");
     private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
     private static final long SCAN_TIMEOUT_MS = 7000; // 7 seconds scan timeout
-
+    private static BleManager instance;
     private final Context context;
     private final android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final android.os.Handler locationCheckHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-
-    private void cleanupHandlers() {
-        mainHandler.removeCallbacksAndMessages(null);
-        locationCheckHandler.removeCallbacksAndMessages(null);
-        unregisterLocationProviderReceiver();
-    }
-
     // LiveData for state changes
     private final MutableLiveData<String> connectionStatus = new MutableLiveData<>();
     private final MutableLiveData<Protocol.Message> messageReceived = new MutableLiveData<>();
@@ -60,9 +53,22 @@ public class BleManager {
     private ScanCallback currentScanCallback = null;
     private android.content.BroadcastReceiver locationProviderReceiver;
 
-    public BleManager(Context context) {
+    private BleManager(Context context) {
         this.context = context;
         initializeBluetooth();
+    }
+
+    public static synchronized BleManager getInstance(Context context) {
+        if (instance == null) {
+            instance = new BleManager(context.getApplicationContext());
+        }
+        return instance;
+    }
+
+    private void cleanupHandlers() {
+        mainHandler.removeCallbacksAndMessages(null);
+        locationCheckHandler.removeCallbacksAndMessages(null);
+        unregisterLocationProviderReceiver();
     }
 
     // LiveData getters
@@ -328,7 +334,7 @@ public class BleManager {
 
             @Override
             public void onDescriptorWrite(BluetoothGatt gatt, android.bluetooth.BluetoothGattDescriptor descriptor,
-                    int status) {
+                                          int status) {
                 Log.d(TAG, "Descriptor write completed: status=" + status);
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     Log.d(TAG, "Notifications successfully enabled on server side!");

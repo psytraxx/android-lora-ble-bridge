@@ -19,6 +19,7 @@ public class MessageViewModel extends ViewModel {
     private final MutableLiveData<String> gpsDisplay = new MutableLiveData<>();
     private final MutableLiveData<String> showToast = new MutableLiveData<>();
     private final Observer<String> bleShowToastObserver = showToast::postValue;
+    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
     private BleManager bleManager;
     private GpsManager gpsManager;
     private MessageAdapter messageAdapter;
@@ -74,8 +75,6 @@ public class MessageViewModel extends ViewModel {
     public boolean canSendMessage() {
         return bleManager != null && bleManager.isConnected();
     }
-
-    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
 
     public void sendMessage(String text) {
         Log.d(TAG, "Send message - text: " + text);

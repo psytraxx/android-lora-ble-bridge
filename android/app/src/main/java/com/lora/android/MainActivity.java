@@ -65,7 +65,7 @@ public class MainActivity extends AppCompatActivity {
         }));
 
         messageViewModel = new ViewModelProvider(this).get(MessageViewModel.class);
-        bleManager = new BleManager(this);
+        bleManager = BleManager.getInstance(this);
         gpsManager = new GpsManager(this);
 
         messageViewModel.setManagers(bleManager, gpsManager, messageAdapter);
@@ -153,7 +153,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-            @NonNull int[] grantResults) {
+                                           @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_PERMISSIONS) {
             if (PermissionHelper.areAllPermissionsGranted(grantResults)) {
