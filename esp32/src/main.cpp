@@ -10,7 +10,6 @@
 //! - Message buffering (up to 10 messages) when BLE disconnected
 //! - Light sleep for power optimization
 //! - Interrupt-driven LoRa reception (always listening)
-
 #include <Arduino.h>
 #include "lora_config.h"
 #include "LoRaManager.h"
@@ -18,15 +17,18 @@
 #include "Protocol.h"
 #include "LEDManager.h"
 #include "MessageBuffer.h"
+#include "PowerManager.h"
 #include <freertos/queue.h>
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
 #include <LoRa.h>
 #include "Network.h"
 #include <esp_wifi.h>
+#include "esp_pm.h"
 
 // Manager objects
 LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_FREQUENCY);
+PowerManager powerManager;
 #ifdef LED_PIN
 LEDManager ledManager(LED_PIN);
 #endif
@@ -88,20 +90,43 @@ void setup()
     Serial.begin(115200);
     delay(2000);
 
-// Set CPU frequency for power savings (configurable via build flag)
-#ifndef CPU_FREQ_MHZ
-#define CPU_FREQ_MHZ 160
-#endif
-    setCpuFrequencyMhz(CPU_FREQ_MHZ);
+    Serial.println("Disabling WiFi and Bluetooth Classic for power savings...");
 
-    // Disable WiFi and Bluetooth Classic (we only use BLE)
-    esp_wifi_stop();
-    esp_wifi_deinit();
+    // Disable WiFi completely (saves ~50-80 mA)
+    // WiFi is initialized by default in ESP32 Arduino framework
+    esp_err_t err = esp_wifi_stop();
+    if (err == ESP_OK || err == ESP_ERR_WIFI_NOT_INIT) {
+        esp_wifi_deinit();
+        Serial.println("WiFi disabled successfully");
+    } else {
+        Serial.printf("WiFi stop failed: %d (may not be initialized)\n", err);
+    }
+
+    // Disable Bluetooth Classic (we only use BLE via NimBLE)
+    // Note: NimBLE doesn't use the classic Bluetooth stack
     btStop();
+    Serial.println("Bluetooth Classic disabled (using NimBLE for BLE only)");
 
-    Serial.print("CPU Frequency set to: ");
+    // Set initial CPU frequency to match power management max
+    setCpuFrequencyMhz(80);
+    Serial.print("Initial CPU Frequency set to: ");
     Serial.print(getCpuFrequencyMhz());
     Serial.println(" MHz");
+
+    // Configure power management with automatic light sleep
+    // This enables dynamic frequency scaling and automatic light sleep
+    esp_pm_config_t pm_config = {
+        .max_freq_mhz = 80,          // Maximum CPU frequency when active
+        .min_freq_mhz = 10,          // Minimum 10 MHz when idle (reduced from 40)
+        .light_sleep_enable = true,  // Enable automatic light sleep
+    };
+    ESP_ERROR_CHECK(esp_pm_configure(&pm_config));
+
+    Serial.print("Power management configured: max=");
+    Serial.print(pm_config.max_freq_mhz);
+    Serial.print(" MHz, min=");
+    Serial.print(pm_config.min_freq_mhz);
+    Serial.println(" MHz, light sleep enabled");
 
     // Initialize watchdog for robustness (30 second timeout)
     esp_task_wdt_config_t wdt_config = {
@@ -218,6 +243,11 @@ void setup()
 
     // Start continuous receive mode
     loraManager.startReceiveMode();
+
+    // Configure GPIO wake-up for LoRa interrupt (allows wake from light sleep)
+    gpio_wakeup_enable((gpio_num_t)LORA_DIO0, GPIO_INTR_HIGH_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
+    Serial.println("GPIO wake-up enabled for LoRa DIO0 - can wake from light sleep");
 
     // Initialize LED
 #ifdef LED_PIN
@@ -369,6 +399,9 @@ void processLoRaPacket(const LoRaPacket &packet)
             Serial.print("Sending ACK for seq: ");
             Serial.println(msg.textData.seq);
 
+            // Acquire high-power locks for ACK transmission
+            powerManager.acquireForLoRaTx();
+
             if (loraManager.sendPacket(ackBuf, ackLen))
             {
                 Serial.println("ACK sent successfully");
@@ -377,6 +410,9 @@ void processLoRaPacket(const LoRaPacket &packet)
             {
                 Serial.println("ACK send failed");
             }
+
+            // Release power locks after transmission
+            powerManager.releaseAfterLoRaTx();
             loraManager.startReceiveMode();
         }
 
@@ -461,6 +497,9 @@ void loop()
             Serial.print(len);
             Serial.println(" bytes via LoRa");
 
+            // Acquire high-power locks for transmission
+            powerManager.acquireForLoRaTx();
+
             bool sendSuccess = loraManager.sendPacket(buf, len);
 
             if (!sendSuccess)
@@ -469,6 +508,9 @@ void loop()
                 delay(100);
                 sendSuccess = loraManager.sendPacket(buf, len);
             }
+
+            // Release power locks after transmission
+            powerManager.releaseAfterLoRaTx();
 
             if (sendSuccess)
             {
@@ -503,8 +545,9 @@ void loop()
     // Forward queued/buffered messages from LoRa to BLE
     handleLoRaToBleForwarding();
 
-    // Adaptive delay for power savings (longer delay when idle, shorter when active)
-    // Note: Can't use light sleep as it would prevent BLE from waking the device
+    // Adaptive delay for power savings
+    // With automatic light sleep enabled, longer delays allow the system to
+    // enter light sleep mode for significant power savings
     bool hasActivity = uxQueueMessagesWaiting(bleToLoraQueue) > 0 ||
                        uxQueueMessagesWaiting(loRaQueue) > 0 ||
                        loraActivity;
@@ -516,8 +559,8 @@ void loop()
     }
     else
     {
-        // Idle - longer delay to reduce power consumption
-        // BLE and LoRa interrupts will still wake the CPU
-        vTaskDelay(pdMS_TO_TICKS(100));
+        // Idle - long delay enables automatic light sleep
+        // BLE modem and LoRa GPIO interrupts will wake the system
+        vTaskDelay(pdMS_TO_TICKS(2000)); // 2 seconds (was 100ms)
     }
 }

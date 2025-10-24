@@ -106,9 +106,10 @@ bool BLEManager::setup(const char *deviceName)
     pAdvertising->addServiceUUID(SERVICE_UUID);
     pAdvertising->enableScanResponse(true);
 
-    // Set advertising parameters for power saving while maintaining discoverability
-    pAdvertising->setMinInterval(200);  // 200ms minimum (power saving)
-    pAdvertising->setMaxInterval(1000); // 1 second maximum (power saving)
+    // Set advertising parameters for aggressive power saving when disconnected
+    // Longer intervals significantly reduce power consumption
+    pAdvertising->setMinInterval(800);  // 800ms minimum (was 200ms)
+    pAdvertising->setMaxInterval(2000); // 2 seconds maximum (was 1000ms)
 
     // Add device name to advertising data for easier identification
     pAdvertising->setName(deviceName);
