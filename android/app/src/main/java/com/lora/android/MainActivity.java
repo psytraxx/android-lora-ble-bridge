@@ -1,7 +1,6 @@
 package com.lora.android;
 
 import android.content.Context;
-import android.content.Intent;
 import android.os.Bundle;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -11,7 +10,6 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
@@ -81,21 +79,30 @@ public class MainActivity extends AppCompatActivity {
 
         // Observe BLE connection state for send button and status
         bleManager.getConnectionStatus().observe(this, status -> binding.connectionStatusTextView.setText(status));
-        bleManager.getConnected().observe(this,
-                connected -> binding.sendButton.setEnabled(connected != null ? connected : false));
-
-        // Add click listener for reconnect functionality
-        binding.connectionStatusTextView.setOnClickListener(v -> {
-            String currentStatus = binding.connectionStatusTextView.getText().toString();
-            if (currentStatus.contains("Tap here to reconnect")) {
-                bleManager.connect();
-            }
+        bleManager.getConnected().observe(this, connected -> {
+            boolean isConnected = connected != null ? connected : false;
+            // Update button text based on connection state
+            binding.sendButton.setText(isConnected ? "Send" : "Reconnect and Send");
+            // Keep button enabled regardless of connection state
+            binding.sendButton.setEnabled(true);
         });
 
         checkPermissions();
 
         binding.sendButton.setOnClickListener(v -> {
             String messageText = binding.messageEditText.getText().toString();
+
+            // Check if BLE is connected
+            Boolean isConnected = bleManager.getConnected().getValue();
+            if (isConnected == null || !isConnected) {
+                // Not connected - initiate reconnection
+                Toast.makeText(this, "Reconnecting...", Toast.LENGTH_SHORT).show();
+                bleManager.connect();
+                // Don't send message yet - user will need to click send again after connection
+                return;
+            }
+
+            // Connected - send message normally
             if (!messageText.isEmpty()) {
                 // Request fresh GPS location when user sends message (event-driven)
                 gpsManager.requestSingleLocationUpdate();
@@ -103,7 +110,6 @@ public class MainActivity extends AppCompatActivity {
                 binding.messageEditText.setText("");
             }
         });
-        binding.sendButton.setEnabled(false); // Disabled until connected
 
         // Add text watcher to update character count
         binding.messageEditText.addTextChangedListener(new android.text.TextWatcher() {
@@ -197,9 +203,7 @@ public class MainActivity extends AppCompatActivity {
         if (imm != null && getCurrentFocus() != null) {
             imm.hideSoftInputFromWindow(getCurrentFocus().getWindowToken(), 0);
         }
-        if (binding.messageEditText != null) {
-            binding.messageEditText.clearFocus();
-        }
+        binding.messageEditText.clearFocus();
     }
 
     private void updateCharCount(String text) {

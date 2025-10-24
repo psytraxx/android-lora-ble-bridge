@@ -169,7 +169,7 @@ public class BleManager {
             @Override
             public void onScanFailed(int errorCode) {
                 Log.e(TAG, "BLE scan failed with error code: " + errorCode);
-                connectionStatus.postValue("❌ Scan failed (error " + errorCode + ") - Tap here to reconnect");
+                connectionStatus.postValue("❌ Scan failed (error " + errorCode + ")");
                 isScanning = false;
                 currentScanCallback = null;
             }
@@ -200,7 +200,7 @@ public class BleManager {
             if (isScanning) {
                 Log.w(TAG, "Scan timeout - device not found");
                 stopScan();
-                connectionStatus.postValue("❌ Device not found - Tap here to reconnect");
+                connectionStatus.postValue("❌ Device not found");
             }
         }, SCAN_TIMEOUT_MS);
     }
@@ -271,7 +271,7 @@ public class BleManager {
                     // Handle disconnection (device powered off, out of range, etc.)
                     Log.d(TAG, "Disconnected. Status: " + status + ". Cleaning up GATT...");
                     connected.postValue(false);
-                    connectionStatus.postValue("❌ Disconnected - Tap here to reconnect");
+                    connectionStatus.postValue("❌ Disconnected");
 
                     // Clean up GATT connection and characteristics
                     txCharacteristic = null;
@@ -286,7 +286,7 @@ public class BleManager {
                     // Connection failed
                     Log.e(TAG, "Connection failed with status: " + status);
                     connected.postValue(false);
-                    connectionStatus.postValue("❌ Connection failed - Tap here to reconnect");
+                    connectionStatus.postValue("❌ Connection failed");
 
                     // Clean up failed connection
                     txCharacteristic = null;
@@ -346,27 +346,27 @@ public class BleManager {
                                 if (!descriptorWriteSuccess) {
                                     Log.e(TAG, "Failed to initiate descriptor write");
                                     connected.postValue(false);
-                                    connectionStatus.postValue("❌ Failed to enable notifications - Tap here to reconnect");
+                                    connectionStatus.postValue("❌ Failed to enable notifications");
                                 }
                             } else {
                                 Log.e(TAG, "CCCD descriptor not found on TX characteristic!");
                                 connected.postValue(false);
-                                connectionStatus.postValue("❌ CCCD descriptor missing - Tap here to reconnect");
+                                connectionStatus.postValue("❌ CCCD descriptor missing");
                             }
                         } else {
                             Log.e(TAG, "Characteristics not found!");
                             connected.postValue(false);
-                            connectionStatus.postValue("❌ Characteristics missing - Tap here to reconnect");
+                            connectionStatus.postValue("❌ Characteristics missing");
                         }
                     } else {
                         Log.e(TAG, "LoRa service not found! Expected UUID: " + SERVICE_UUID);
                         connected.postValue(false);
-                        connectionStatus.postValue("❌ LoRa service not found - Tap here to reconnect");
+                        connectionStatus.postValue("❌ LoRa service not found");
                     }
                 } else {
                     Log.e(TAG, "Service discovery failed with status: " + status);
                     connected.postValue(false);
-                    connectionStatus.postValue("❌ Service discovery failed - Tap here to reconnect");
+                    connectionStatus.postValue("❌ Service discovery failed");
                 }
             }
 
@@ -400,7 +400,7 @@ public class BleManager {
                 } else {
                     Log.e(TAG, "Failed to enable notifications on server side, status: " + status);
                     connected.postValue(false);
-                    connectionStatus.postValue("❌ Notification setup failed - Tap here to reconnect");
+                    connectionStatus.postValue("❌ Notification setup failed");
                 }
             }
         });
@@ -490,7 +490,7 @@ public class BleManager {
             Log.d(TAG, "State: CONNECTED");
         } else {
             connected.setValue(false);
-            connectionStatus.setValue("❌ Disconnected - Tap here to reconnect");
+            connectionStatus.setValue("❌ Disconnected");
             Log.d(TAG, "State: DISCONNECTED");
         }
     }
