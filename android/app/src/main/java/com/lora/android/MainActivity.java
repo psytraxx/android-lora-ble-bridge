@@ -30,6 +30,8 @@ public class MainActivity extends AppCompatActivity {
     private BleManager bleManager;
     private GpsManager gpsManager;
 
+    private String pendingMessage = null; // Message to send after reconnection
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -83,35 +85,52 @@ public class MainActivity extends AppCompatActivity {
             boolean isConnected = connected != null ? connected : false;
             // Update button text based on connection state
             binding.sendButton.setText(isConnected ? "Send" : "Reconnect and Send");
-            // Keep button enabled regardless of connection state
-            binding.sendButton.setEnabled(true);
+            // Update button enabled state based on text content
+            updateSendButtonState();
+
+            // Auto-send pending message after reconnection
+            if (isConnected && pendingMessage != null) {
+                String messageToSend = pendingMessage;
+                pendingMessage = null; // Clear pending message
+
+                // Request fresh GPS and send
+                gpsManager.requestSingleLocationUpdate();
+                messageViewModel.sendMessage(messageToSend);
+                binding.messageEditText.setText("");
+                dismissKeyboard();
+                Toast.makeText(this, "Message sent!", Toast.LENGTH_SHORT).show();
+            }
         });
 
         checkPermissions();
 
         binding.sendButton.setOnClickListener(v -> {
-            String messageText = binding.messageEditText.getText().toString();
+            String messageText = binding.messageEditText.getText().toString().trim();
+
+            // Don't do anything if message is empty
+            if (messageText.isEmpty()) {
+                return;
+            }
 
             // Check if BLE is connected
             Boolean isConnected = bleManager.getConnected().getValue();
             if (isConnected == null || !isConnected) {
-                // Not connected - initiate reconnection
+                // Not connected - queue message and initiate reconnection
+                pendingMessage = messageText;
                 Toast.makeText(this, "Reconnecting...", Toast.LENGTH_SHORT).show();
                 bleManager.connect();
-                // Don't send message yet - user will need to click send again after connection
                 return;
             }
 
             // Connected - send message normally
-            if (!messageText.isEmpty()) {
-                // Request fresh GPS location when user sends message (event-driven)
-                gpsManager.requestSingleLocationUpdate();
-                messageViewModel.sendMessage(messageText);
-                binding.messageEditText.setText("");
-            }
+            // Request fresh GPS location when user sends message (event-driven)
+            gpsManager.requestSingleLocationUpdate();
+            messageViewModel.sendMessage(messageText);
+            binding.messageEditText.setText("");
+            dismissKeyboard();
         });
 
-        // Add text watcher to update character count
+        // Add text watcher to update character count and button state
         binding.messageEditText.addTextChangedListener(new android.text.TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {
@@ -120,6 +139,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
                 updateCharCount(s.toString());
+                updateSendButtonState();
             }
 
             @Override
@@ -144,6 +164,7 @@ public class MainActivity extends AppCompatActivity {
         // Get initial GPS location (event-driven, not periodic)
         messageViewModel.updateGps();
         updateCharCount(""); // Initialize counter
+        updateSendButtonState(); // Initialize send button state (disabled when empty)
     }
 
     private void checkPermissions() {
@@ -227,5 +248,11 @@ public class MainActivity extends AppCompatActivity {
             binding.charCountTextView.setTextColor(
                     androidx.core.content.ContextCompat.getColor(this, R.color.char_count_normal));
         }
+    }
+
+    private void updateSendButtonState() {
+        // Enable send button only if there's text to send
+        String text = binding.messageEditText.getText().toString().trim();
+        binding.sendButton.setEnabled(!text.isEmpty());
     }
 }
