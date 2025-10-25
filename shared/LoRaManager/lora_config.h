@@ -3,9 +3,7 @@
 
 #include <stdint.h> // For fixed-width integer types
 
-// LoRa configuration parameters optimized for long-range communication
-// SF10 + BW125 provides excellent range (5-10 km) with reasonable data rate
-// SF10 at 433.92MHz: ~550ms ToA for 42 bytes (max message size with 50 char text)
+// see https://www.semtech.com/design-support/lora-calculator for LoRa settings
 
 /**
  * @brief LoRa frequency.
