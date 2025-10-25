@@ -1,4 +1,3 @@
 {
-	"chat.agent.maxRequests": 100,
-	"rust-analyzer.cargo.allTargets": false
+	"chat.agent.maxRequests": 100
 }

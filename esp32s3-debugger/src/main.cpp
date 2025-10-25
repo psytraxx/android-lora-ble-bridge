@@ -77,8 +77,8 @@ DisplayManager display(LCD_D0, LCD_D1, LCD_D2, LCD_D3, LCD_D4, LCD_D5, LCD_D6, L
 
 // State tracking
 bool firstMessageReceived = false;
-const int MAX_DISPLAY_LINES = 20; // Maximum lines to keep in history
-String messageHistory[MAX_DISPLAY_LINES];        // Store message lines
+const int MAX_DISPLAY_LINES = 20;         // Maximum lines to keep in history
+String messageHistory[MAX_DISPLAY_LINES]; // Store message lines
 int messageCount = 0;
 int lastRssi = 0;    // Last received RSSI
 float lastSnr = 0.0; // Last received SNR
@@ -100,14 +100,14 @@ unsigned long buttonPressStartTime = 0;
 const uint8_t DISPLAY_BRIGHT = 255; // Full brightness
 
 // Sleep mode settings
-unsigned long lastActivityTime = 0;              // Track last activity for sleep
+unsigned long lastActivityTime = 0;        // Track last activity for sleep
 const unsigned long SLEEP_TIMEOUT = 30000; // 30 seconds before light sleep
 RTC_DATA_ATTR int bootCount = 0;           // Persistent across deep sleep
 
 // Display layout constants
-const int LINE_HEIGHT = 18;      // Height per line for text size 2
-const int STATUS_HEIGHT = 20;    // Reserve space for status line at bottom
-const int STATUS_LINE_Y_OFFSET = 16; // Status line position from bottom
+const int LINE_HEIGHT = 18;               // Height per line for text size 2
+const int STATUS_HEIGHT = 20;             // Reserve space for status line at bottom
+const int STATUS_LINE_Y_OFFSET = 16;      // Status line position from bottom
 const int BUTTON_INDICATOR_Y_OFFSET = 32; // Button indicator position from bottom
 
 // ACK delay constant (time to wait for TX->RX mode switch)
@@ -266,7 +266,7 @@ void enterLightSleep()
     Serial.println("===================================\n");
 
     // CRITICAL: Reinitialize LoRa module after sleep
-    // The SX1276 may have lost sync or entered idle mode during sleep
+    // The SX1278 may have lost sync or entered idle mode during sleep
     Serial.println("Reinitializing LoRa module after sleep...");
     loraManager.startReceiveMode();
     delay(50); // Allow LoRa module to stabilize
@@ -498,7 +498,8 @@ void setup()
     lastActivityTime = millis();
 
     // Initialize message history
-    for (int i = 0; i < MAX_DISPLAY_LINES; i++) {
+    for (int i = 0; i < MAX_DISPLAY_LINES; i++)
+    {
         messageHistory[i] = "";
     }
     messageCount = 0;
