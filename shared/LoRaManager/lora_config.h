@@ -17,13 +17,13 @@
  * @brief LoRa bandwidth.
  * Narrower BW = better sensitivity, longer range
  */
-#define LORA_BANDWIDTH 125E3 // 125 kHz
+#define LORA_BANDWIDTH 31E3 // 31 kHz
 
 /**
  * @brief LoRa spreading factor.
  * Higher SF = longer range, slower speed
  */
-#define LORA_SPREADING_FACTOR 10 // SF10 for long range
+#define LORA_SPREADING_FACTOR 11 // SF11 for long range
 
 /**
  * @brief LoRa coding rate.
@@ -36,6 +36,6 @@
  * 14 dBm (~25 mW) - check local regulations for 433 MHz ISM band
  * SX1278 supports 2-20 dBm
  */
-#define LORA_TX_POWER 14 // dBm
+#define LORA_TX_POWER 20 // dBm
 
 #endif // LORA_CONFIG_H
