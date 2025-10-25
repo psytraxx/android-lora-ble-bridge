@@ -25,7 +25,6 @@ public:
         LoRa.setCodingRate4(LORA_CODING_RATE);
         LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR);
         LoRa.setTxPower(LORA_TX_POWER);
-        LoRa.enableCrc();
 
         if (!LoRa.begin(frequency))
         {

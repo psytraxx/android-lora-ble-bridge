@@ -9,14 +9,9 @@
 
 /**
  * @brief LoRa frequency.
- * Default: 433.92 MHz - standard frequency for 433 MHz ISM band
- * Can be configured via LORA_TX_FREQUENCY build flag
+ * 433.92 MHz - standard frequency for 433 MHz ISM band
  */
-#ifndef LORA_TX_FREQUENCY
 #define LORA_FREQUENCY 433920000UL // 433.92 MHz
-#else
-#define LORA_FREQUENCY LORA_TX_FREQUENCY
-#endif
 
 /**
  * @brief LoRa bandwidth.
@@ -38,14 +33,9 @@
 
 /**
  * @brief LoRa TX power.
- * Default: 14 dBm (~25 mW) - check local regulations for 433 MHz ISM band
+ * 14 dBm (~25 mW) - check local regulations for 433 MHz ISM band
  * SX1278 supports 2-20 dBm
- * Can be configured via LORA_TX_POWER_DBM build flag
  */
-#ifndef LORA_TX_POWER_DBM
 #define LORA_TX_POWER 14 // dBm
-#else
-#define LORA_TX_POWER LORA_TX_POWER_DBM
-#endif
 
 #endif // LORA_CONFIG_H
