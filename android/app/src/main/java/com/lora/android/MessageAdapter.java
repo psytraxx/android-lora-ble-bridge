@@ -6,13 +6,14 @@ import android.net.Uri;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
+
+import com.google.android.material.card.MaterialCardView;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -65,7 +66,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
             // Sent messages: align right, green background
             params.removeRule(RelativeLayout.ALIGN_PARENT_START);
             params.addRule(RelativeLayout.ALIGN_PARENT_END);
-            holder.messageContainer.setBackgroundResource(R.drawable.message_bubble_sent);
+            holder.messageContainer.setCardBackgroundColor(androidx.core.content.ContextCompat.getColor(context, R.color.message_sent));
             holder.messageText.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.message_text));
 
             // Show ACK status indicator
@@ -87,7 +88,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
             // Received messages: align left, white background with border
             params.removeRule(RelativeLayout.ALIGN_PARENT_END);
             params.addRule(RelativeLayout.ALIGN_PARENT_START);
-            holder.messageContainer.setBackgroundResource(R.drawable.message_bubble_received);
+            holder.messageContainer.setCardBackgroundColor(androidx.core.content.ContextCompat.getColor(context, R.color.message_received));
             holder.messageText.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.message_text));
             holder.ackStatusIcon.setVisibility(View.GONE); // No ACK indicator for received messages
         }
@@ -192,7 +193,7 @@ public class MessageAdapter extends RecyclerView.Adapter<MessageAdapter.MessageV
     }
 
     static class MessageViewHolder extends RecyclerView.ViewHolder {
-        final LinearLayout messageContainer;
+        final MaterialCardView messageContainer;
         final TextView messageText;
         final TextView messageTime;
         final TextView ackStatusIcon;

@@ -9,6 +9,7 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.util.Log;
 
+import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
 
 import java.util.Locale;
@@ -26,11 +27,7 @@ public class GpsManager {
     private final LocationManager locationManager;
     private Location currentLocation = null;
 
-    public GpsManager(Context context) {
-        this.context = context;
-        this.locationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
-        Log.d(TAG, "GpsManager initialized - event-driven single updates");
-    }    // Single reusable listener for GPS updates (prevents memory leaks)
+    // Single reusable listener for GPS updates (prevents memory leaks)
     private final LocationListener gpsListener = new LocationListener() {
         @Override
         public void onLocationChanged(Location location) {
@@ -41,12 +38,12 @@ public class GpsManager {
         }
 
         @Override
-        public void onProviderEnabled(String provider) {
+        public void onProviderEnabled(@NonNull String provider) {
             Log.d(TAG, "GPS provider enabled");
         }
 
         @Override
-        public void onProviderDisabled(String provider) {
+        public void onProviderDisabled(@NonNull String provider) {
             Log.d(TAG, "GPS provider disabled");
         }
 
@@ -55,10 +52,7 @@ public class GpsManager {
         }
     };
 
-    public boolean hasLocationPermission() {
-        return ActivityCompat.checkSelfPermission(context,
-                Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
-    }    // Single reusable listener for Network updates (prevents memory leaks)
+    // Single reusable listener for Network updates (prevents memory leaks)
     private final LocationListener networkListener = new LocationListener() {
         @Override
         public void onLocationChanged(Location location) {
@@ -69,12 +63,12 @@ public class GpsManager {
         }
 
         @Override
-        public void onProviderEnabled(String provider) {
+        public void onProviderEnabled(@NonNull String provider) {
             Log.d(TAG, "Network provider enabled");
         }
 
         @Override
-        public void onProviderDisabled(String provider) {
+        public void onProviderDisabled(@NonNull String provider) {
             Log.d(TAG, "Network provider disabled");
         }
 
@@ -82,6 +76,17 @@ public class GpsManager {
         public void onStatusChanged(String provider, int status, android.os.Bundle extras) {
         }
     };
+
+    public GpsManager(Context context) {
+        this.context = context;
+        this.locationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
+        Log.d(TAG, "GpsManager initialized - event-driven single updates");
+    }
+
+    public boolean hasLocationPermission() {
+        return ActivityCompat.checkSelfPermission(context,
+                Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
 
     /**
      * Update current location only if newer
@@ -203,16 +208,4 @@ public class GpsManager {
 
         return bestLocation;
     }
-
-    public String getLastKnownLocationString() {
-        Location location = getLastKnownLocation();
-        if (location != null) {
-            return String.format(Locale.US, "%.6f, %.6f", location.getLatitude(), location.getLongitude());
-        }
-        return "No GPS fix";
-    }
-
-
-
-
 }

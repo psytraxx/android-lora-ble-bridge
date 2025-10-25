@@ -8,14 +8,13 @@
     tools:context=".MainActivity">
 
     <!-- Status Bar at the Top -->
-    <LinearLayout
+    <com.google.android.material.card.MaterialCardView
         android:id="@+id/statusBar"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:background="#F5F5F5"
-        android:elevation="4dp"
-        android:orientation="vertical"
-        android:padding="8dp"
+        android:layout_margin="8dp"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="2dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
@@ -23,58 +22,66 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="vertical"
+            android:padding="12dp">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginEnd="6dp"
-                android:text="📡"
-                android:textSize="16sp" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <TextView
-                android:id="@+id/connectionStatusTextView"
-                android:layout_width="0dp"
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="6dp"
+                    android:text="📡"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/connectionStatusTextView"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="Initializing..."
+                    android:textColor="#2196F3"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:text="Initializing..."
-                android:textColor="#2196F3"
-                android:textSize="13sp"
-                android:textStyle="bold" />
+                android:layout_marginTop="4dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="6dp"
+                    android:text="📍"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/gpsTextView"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="middle"
+                    android:maxLines="1"
+                    android:text="Waiting for fix..."
+                    android:textColor="#666666"
+                    android:textSize="11sp" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="6dp"
-                android:text="📍"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/gpsTextView"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:ellipsize="middle"
-                android:maxLines="1"
-                android:text="Waiting for fix..."
-                android:textColor="#666666"
-                android:textSize="11sp" />
-
-        </LinearLayout>
-
-    </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
     <!-- Scrollable Messages List (Chat) -->
     <androidx.recyclerview.widget.RecyclerView
@@ -90,65 +97,81 @@
         app:layout_constraintTop_toBottomOf="@+id/statusBar" />
 
     <!-- Input Container at the Bottom -->
-    <LinearLayout
+    <com.google.android.material.card.MaterialCardView
         android:id="@+id/inputContainer"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:background="#FFFFFF"
-        android:elevation="8dp"
-        android:orientation="vertical"
-        android:padding="8dp"
+        android:layout_margin="8dp"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="4dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
 
-        <TextView
-            android:id="@+id/charCountTextView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="4dp"
-            android:text="0/50 chars (0 bytes)"
-            android:textColor="#666666"
-            android:textSize="12sp" />
-
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="vertical"
+            android:padding="12dp">
 
-            <EditText
-                android:id="@+id/messageEditText"
-                android:layout_width="0dp"
+
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:autofillHints=""
-                android:background="@android:drawable/edit_text"
-                android:digits=" ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'&quot;@#$%&amp;*()[]{}=+/&lt;&gt;_"
-                android:hint="Enter message..."
-                android:imeOptions="actionDone|flagNoExtractUi"
-                android:inputType="text|textCapCharacters|textNoSuggestions"
-                android:maxLength="50"
-                android:maxLines="1"
-                android:padding="12dp"
-                android:singleLine="true" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <ImageButton
-                android:id="@+id/sendButton"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:layout_gravity="center_vertical"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/send_button_background"
-                android:contentDescription="Send message"
-                android:enabled="false"
-                android:padding="12dp"
-                android:scaleType="fitCenter"
-                android:src="@android:drawable/ic_menu_send"
-                app:tint="@color/send_button_icon_color" />
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="Message"
+                    app:boxStrokeColor="#2196F3"
+                    app:hintTextColor="#2196F3">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/messageEditText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:autofillHints=""
+                        android:digits=" ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'&quot;@#$%&amp;*()[]{}=+/&lt;&gt;_"
+                        android:imeOptions="actionDone|flagNoExtractUi"
+                        android:inputType="text|textCapCharacters|textNoSuggestions"
+                        android:maxLength="50"
+                        android:maxLines="1"
+                        android:singleLine="true" />
+
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <ImageButton
+                    android:id="@+id/sendButton"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/send_button_background"
+                    android:contentDescription="Send message"
+                    android:enabled="false"
+                    android:padding="12dp"
+                    android:scaleType="fitCenter"
+                    android:src="@android:drawable/ic_menu_send"
+                    app:tint="@color/send_button_icon_color" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/charCountTextView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text="0/50 chars (0 bytes)"
+                android:textColor="#666666"
+                android:textSize="12sp" />
+
 
         </LinearLayout>
 
-    </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
