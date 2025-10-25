@@ -1,6 +1,7 @@
+
 # Android LoRa BLE Bridge
 
-A long-range communication system for sending text messages (up to 50 characters) and GPS coordinates via 433 MHz LoRa using ESP32-S3 and Android devices.
+A long-range communication system for sending text messages (up to 50 characters) and GPS coordinates via 433 MHz LoRa using ESP32-S3 (C++/Arduino firmware) and Android devices.
 
 ## Features
 
@@ -20,9 +21,9 @@ A long-range communication system for sending text messages (up to 50 characters
 ```mermaid
 graph TD
     A[Android Phone 1<br/>- Internal GPS<br/>- Text Input<br/>- Display<br/>- Java App] -->|Text + GPS Data| B[BLE]
-    B --> C[ESP32-S3<br/>LoRa Transmitter<br/>- Sx1276 Module<br/>- Pins: SCK12, MISO13, MOSI11, CS10, RST43, DIO044<br/>- Firmware: Rust/Embassy]
+  B --> C[ESP32-S3<br/>LoRa Transmitter<br/>- Sx1276 Module<br/>- Pins: SCK12, MISO13, MOSI11, CS10, RST43, DIO044<br/>- Firmware: C++/Arduino]
     C -->|LoRa Transmission| D[LoRa Radio Waves]
-    D -->     E[ESP32-S3<br/>LoRa Receiver<br/>- Same hardware/firmware<br/>- Rust/Embassy]
+  D -->     E[ESP32-S3<br/>LoRa Receiver<br/>- Same hardware/firmware<br/>- C++/Arduino]
     E -->|Forwarded Data| F[BLE]
     F --> G[Android Phone 2<br/>- Display<br/>- Receives Text + GPS<br/>- Same Java App]
     
@@ -48,12 +49,12 @@ graph TD
 
 ```
 android-lora-ble-bridge/
+├── android/              # Android application (Java)
 ├── esp32/                # ESP32 firmware (C++/Arduino) - Transceiver with BLE
 ├── esp32s3-debugger/     # ESP32-S3 LoRa receiver with display (C++/Arduino)
-├── android/              # Android application (Java)
 ├── protocol.md           # Protocol specification
 ├── CHANGELOG.md          # Project changelog
-└── README.md            # This file (you are here)
+└── README.md             # This file (you are here)
 ```
 
 ## Building & Installation
@@ -423,7 +424,6 @@ adb logcat -s LoRaApp
 - [ESP32-S3 Documentation](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/)
 - [SX1278 Datasheet](https://www.semtech.com/products/wireless-rf/lora-core/sx1276)
 - [LoRa Calculator](https://www.loratools.nl/#/airtime) - Time on Air calculator
-- [ESP-RS Book](https://esp-rs.github.io/book/) - Rust on ESP32
 
 ## License
 
@@ -433,15 +433,13 @@ adb logcat -s LoRaApp
 
 [Add contribution guidelines here]
 
+
 ## Acknowledgments
 
 Built with:
-- [Embassy](https://embassy.dev/) - Async Rust framework for embedded systems
-- [esp-hal](https://github.com/esp-rs/esp-hal) - ESP32 Hardware Abstraction Layer (v1.0.0-rc.1)
-- [esp-rtos](https://crates.io/crates/esp-rtos) - ESP32 RTOS integration with Embassy
-- [trouble-host](https://github.com/embassy-rs/trouble) - BLE Host stack (v0.5.0)
-- [lora-phy](https://github.com/lora-rs/lora-rs) - LoRa PHY driver (v3.0.1)
-- [esp-radio](https://crates.io/crates/esp-radio) - Wi-Fi/BLE radio controller
+- [ESP32 Arduino Core](https://github.com/espressif/arduino-esp32) - ESP32 C++/Arduino framework
+- [LoRa Library](https://github.com/sandeepmistry/arduino-LoRa) - Arduino LoRa driver
+- [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) - BLE stack for Arduino
 
 ---
 
