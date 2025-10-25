@@ -18,15 +18,26 @@ public class MessageViewModel extends ViewModel {
 
     private final MutableLiveData<String> gpsDisplay = new MutableLiveData<>();
     private final MutableLiveData<String> showToast = new MutableLiveData<>();
+    private final MutableLiveData<Boolean> canSendNewMessage = new MutableLiveData<>(true);
     private final Observer<String> bleShowToastObserver = showToast::postValue;
     private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
     private BleManager bleManager;
+    private final Runnable disconnectRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (bleManager != null && bleManager.isConnected()) {
+                Log.d(TAG, "Disconnecting BLE after inactivity timeout");
+                bleManager.disconnect();
+            }
+        }
+    };
     private GpsManager gpsManager;
     private MessageAdapter messageAdapter;
-    // Observers for BLE manager
-    private final Observer<Protocol.Message> messageReceivedObserver = this::handleReceivedMessage;
     private byte seqCounter = 0;
     private boolean observersRegistered = false;
+    private byte pendingAckSeq = -1;
+    // Observers for BLE manager
+    private final Observer<Protocol.Message> messageReceivedObserver = this::handleReceivedMessage;
 
     public void setManagers(BleManager bleManager, GpsManager gpsManager, MessageAdapter messageAdapter) {
         // Prevent multiple registrations
@@ -55,6 +66,10 @@ public class MessageViewModel extends ViewModel {
 
     public LiveData<String> getShowToast() {
         return showToast;
+    }
+
+    public LiveData<Boolean> getCanSendNewMessage() {
+        return canSendNewMessage;
     }
 
     public void updateGps() {
@@ -126,6 +141,7 @@ public class MessageViewModel extends ViewModel {
         try {
             // Send unified text message with optional GPS
             final byte textSeq = seqCounter++;
+            pendingAckSeq = textSeq;
             Protocol.TextMessage textMsg;
 
             if (location != null) {
@@ -138,6 +154,9 @@ public class MessageViewModel extends ViewModel {
                 textMsg = new Protocol.TextMessage(textSeq, text);
                 messageAdapter.addMessage(text, true, textSeq);
             }
+
+            // Disable send button until ACK or timeout
+            canSendNewMessage.postValue(false);
 
             boolean success = bleManager.sendMessage(textMsg);
             if (!success) {
@@ -152,6 +171,15 @@ public class MessageViewModel extends ViewModel {
                 }, 1000);
             }
 
+            // Schedule re-enable after timeout (5 seconds) if no ACK received
+            handler.postDelayed(() -> {
+                if (pendingAckSeq == textSeq) {
+                    Log.d(TAG, "Timeout waiting for ACK, re-enabling send");
+                    canSendNewMessage.postValue(true);
+                    pendingAckSeq = -1;
+                }
+            }, 5000);
+
             // Schedule disconnect after longer delay (to await ACK) - increased from 5 to
             // 30 seconds
             disconnectAfterDelay(30000);
@@ -159,18 +187,9 @@ public class MessageViewModel extends ViewModel {
         } catch (Exception e) {
             Log.e(TAG, "Error sending message: " + e.getMessage());
             showToast.postValue("Error: " + e.getMessage());
+            canSendNewMessage.postValue(true);
         }
     }
-
-    private final Runnable disconnectRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (bleManager != null && bleManager.isConnected()) {
-                Log.d(TAG, "Disconnecting BLE after inactivity timeout");
-                bleManager.disconnect();
-            }
-        }
-    };
 
     private void disconnectAfterDelay(long delayMs) {
         // Cancel any previously scheduled disconnect first
@@ -201,6 +220,12 @@ public class MessageViewModel extends ViewModel {
             Log.d(TAG, "ACK received for seq: " + ackMsg.seq);
             messageAdapter.updateAckStatus(ackMsg.seq, MessageAdapter.AckStatus.DELIVERED);
             showToast.postValue("✓ Message delivered (seq " + ackMsg.seq + ")");
+
+            // Re-enable send button if this ACK is for the pending message
+            if (pendingAckSeq == ackMsg.seq) {
+                canSendNewMessage.postValue(true);
+                pendingAckSeq = -1;
+            }
         }
     }
 

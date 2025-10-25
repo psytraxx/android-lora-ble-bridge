@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Disabled state: light gray circle -->
+    <item android:state_enabled="false">
+        <shape android:shape="oval">
+            <solid android:color="#E0E0E0" />
+        </shape>
+    </item>
+
+    <!-- Enabled state: blue circle with ripple -->
+    <item android:state_enabled="true">
+        <ripple android:color="#80448AFF">
+            <item>
+                <shape android:shape="oval">
+                    <solid android:color="#2196F3" />
+                </shape>
+            </item>
+        </ripple>
+    </item>
+</selector>

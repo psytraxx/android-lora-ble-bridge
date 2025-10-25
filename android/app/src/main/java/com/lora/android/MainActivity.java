@@ -82,11 +82,10 @@ public class MainActivity extends AppCompatActivity {
         // Observe BLE connection state for send button and status
         bleManager.getConnectionStatus().observe(this, status -> binding.connectionStatusTextView.setText(status));
         bleManager.getConnected().observe(this, connected -> {
-            boolean isConnected = connected != null ? connected : false;
-            // Update button text based on connection state
-            binding.sendButton.setText(isConnected ? "Send" : "Reconnect and Send");
-            // Update button enabled state based on text content
+            // Update button enabled state based on connection and text content
             updateSendButtonState();
+
+            boolean isConnected = connected != null ? connected : false;
 
             // Auto-send pending message after reconnection
             if (isConnected && pendingMessage != null) {
@@ -99,6 +98,17 @@ public class MainActivity extends AppCompatActivity {
                 binding.messageEditText.setText("");
                 dismissKeyboard();
                 Toast.makeText(this, "Message sent!", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        // Observe canSendNewMessage state to enable/disable button
+        messageViewModel.getCanSendNewMessage().observe(this, canSend -> {
+            if (canSend != null && !canSend) {
+                // Disable button while waiting for ACK
+                binding.sendButton.setEnabled(false);
+            } else {
+                // Re-enable based on text content
+                updateSendButtonState();
             }
         });
 
@@ -251,8 +261,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateSendButtonState() {
-        // Enable send button only if there's text to send
+        // Enable send button only if there's text to send and can send new message
         String text = binding.messageEditText.getText().toString().trim();
-        binding.sendButton.setEnabled(!text.isEmpty());
+        Boolean canSend = messageViewModel.getCanSendNewMessage().getValue();
+        boolean canSendValue = canSend != null && canSend;
+        binding.sendButton.setEnabled(!text.isEmpty() && canSendValue);
     }
 }
