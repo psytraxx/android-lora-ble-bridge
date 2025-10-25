@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Disabled state: darker gray icon -->
+    <item android:color="#9E9E9E" android:state_enabled="false" />
+
+    <!-- Enabled state: white icon -->
+    <item android:color="#FFFFFF" android:state_enabled="true" />
+</selector>

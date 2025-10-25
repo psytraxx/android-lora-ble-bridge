@@ -114,6 +114,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:gravity="center_vertical"
             android:orientation="horizontal">
 
             <EditText
@@ -132,13 +133,19 @@
                 android:padding="12dp"
                 android:singleLine="true" />
 
-            <Button
+            <ImageButton
                 android:id="@+id/sendButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_gravity="center_vertical"
                 android:layout_marginStart="8dp"
+                android:background="@drawable/send_button_background"
+                android:contentDescription="Send message"
                 android:enabled="false"
-                android:text="Send" />
+                android:padding="12dp"
+                android:scaleType="fitCenter"
+                android:src="@android:drawable/ic_menu_send"
+                app:tint="@color/send_button_icon_color" />
 
         </LinearLayout>
 

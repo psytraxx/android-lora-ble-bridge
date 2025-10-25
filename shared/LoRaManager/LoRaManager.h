@@ -20,18 +20,19 @@ public:
         SPI.begin(sckPin, misoPin, mosiPin, ssPin);
         LoRa.setPins(ssPin, rstPin, dio0Pin);
 
-        // Configure LoRa parameters from lora_config.h
-        LoRa.setSignalBandwidth(LORA_BANDWIDTH);
-        LoRa.setCodingRate4(LORA_CODING_RATE);
-        LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR);
-        LoRa.setTxPower(LORA_TX_POWER);
-        LoRa.enableCrc();
-
         if (!LoRa.begin(frequency))
         {
             Serial.println("LoRa initialization failed!");
             return false;
         }
+
+        // Configure LoRa parameters from lora_config.h
+        LoRa.setSignalBandwidth(LORA_BANDWIDTH);
+        LoRa.setCodingRate4(LORA_CODING_RATE);
+        LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR);
+        LoRa.setTxPower(LORA_TX_POWER);
+        LoRa.disableCrc();
+
         Serial.println("LoRa initialized successfully.");
         return true;
     }
@@ -159,7 +160,6 @@ public:
         config += "  Spreading Factor: " + String(LORA_SPREADING_FACTOR) + "\n";
         config += "  Coding Rate: 4/" + String(LORA_CODING_RATE) + "\n";
         config += "  TX Power: " + String(LORA_TX_POWER) + " dBm\n";
-        config += "  CRC: Enabled\n";
         return config;
     }
 

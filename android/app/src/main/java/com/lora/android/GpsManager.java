@@ -26,7 +26,11 @@ public class GpsManager {
     private final LocationManager locationManager;
     private Location currentLocation = null;
 
-    // Single reusable listener for GPS updates (prevents memory leaks)
+    public GpsManager(Context context) {
+        this.context = context;
+        this.locationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
+        Log.d(TAG, "GpsManager initialized - event-driven single updates");
+    }    // Single reusable listener for GPS updates (prevents memory leaks)
     private final LocationListener gpsListener = new LocationListener() {
         @Override
         public void onLocationChanged(Location location) {
@@ -51,7 +55,10 @@ public class GpsManager {
         }
     };
 
-    // Single reusable listener for Network updates (prevents memory leaks)
+    public boolean hasLocationPermission() {
+        return ActivityCompat.checkSelfPermission(context,
+                Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }    // Single reusable listener for Network updates (prevents memory leaks)
     private final LocationListener networkListener = new LocationListener() {
         @Override
         public void onLocationChanged(Location location) {
@@ -75,17 +82,6 @@ public class GpsManager {
         public void onStatusChanged(String provider, int status, android.os.Bundle extras) {
         }
     };
-
-    public GpsManager(Context context) {
-        this.context = context;
-        this.locationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
-        Log.d(TAG, "GpsManager initialized - event-driven single updates");
-    }
-
-    public boolean hasLocationPermission() {
-        return ActivityCompat.checkSelfPermission(context,
-                Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
-    }
 
     /**
      * Update current location only if newer
@@ -215,4 +211,8 @@ public class GpsManager {
         }
         return "No GPS fix";
     }
+
+
+
+
 }

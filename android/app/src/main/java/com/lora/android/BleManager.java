@@ -442,7 +442,7 @@ public class BleManager {
     /**
      * Validates that the LiveData connection state matches the actual GATT connection state.
      * Call this when app resumes to ensure UI reflects reality.
-     *
+     * <p>
      * CRITICAL: Must run synchronously on main thread to prevent race conditions.
      */
     public void validateConnectionState() {
@@ -459,11 +459,11 @@ public class BleManager {
         boolean gattConnected = false;
         if (bluetoothGatt != null) {
             android.bluetooth.BluetoothManager bluetoothManager =
-                (android.bluetooth.BluetoothManager) context.getSystemService(android.content.Context.BLUETOOTH_SERVICE);
+                    (android.bluetooth.BluetoothManager) context.getSystemService(android.content.Context.BLUETOOTH_SERVICE);
             if (bluetoothManager != null && bluetoothGatt.getDevice() != null) {
                 int connectionState = bluetoothManager.getConnectionState(
-                    bluetoothGatt.getDevice(),
-                    android.bluetooth.BluetoothProfile.GATT
+                        bluetoothGatt.getDevice(),
+                        android.bluetooth.BluetoothProfile.GATT
                 );
                 gattConnected = (connectionState == android.bluetooth.BluetoothProfile.STATE_CONNECTED);
             }
@@ -476,12 +476,12 @@ public class BleManager {
         boolean liveDataSaysConnected = currentLiveDataValue != null && currentLiveDataValue;
 
         Log.w(TAG, "Validating connection state: " +
-                  "LiveData=" + liveDataSaysConnected +
-                  ", GATT=" + (bluetoothGatt != null) +
-                  ", GATTConnected=" + gattConnected +
-                  ", TX=" + (txCharacteristic != null) +
-                  ", RX=" + (rxCharacteristic != null) +
-                  ", Actual=" + actuallyConnected);
+                "LiveData=" + liveDataSaysConnected +
+                ", GATT=" + (bluetoothGatt != null) +
+                ", GATTConnected=" + gattConnected +
+                ", TX=" + (txCharacteristic != null) +
+                ", RX=" + (rxCharacteristic != null) +
+                ", Actual=" + actuallyConnected);
 
         // ALWAYS update to force observers to fire
         if (actuallyConnected) {
