@@ -1,4 +1,3 @@
-use defmt::{error, info, warn};
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_futures::select::{Either, select};
 use embassy_sync::{
@@ -6,12 +5,13 @@ use embassy_sync::{
     channel::{Receiver, Sender},
     mutex::Mutex,
 };
-use embassy_time::Delay;
+use embassy_time::{with_timeout, Delay, Duration, Instant, Timer};
 use esp_hal::{
     Async,
     gpio::{AnyPin, Input, InputConfig, Output, OutputConfig},
     time::Rate,
 };
+use log::{error, info, warn};
 use lora_phy::mod_params::*;
 use lora_phy::{
     LoRa, RxMode,
@@ -215,17 +215,24 @@ pub async fn lora_task(
     // Using 64 bytes (power of 2) for alignment
     let mut rx_buffer = [0u8; 64];
 
+    // Activity tracking for power management
+    let mut last_activity = Instant::now();
+
     loop {
         let ble_recv = ble_to_lora.receive();
-        let lora_recv = lora.rx(&rx_packet_params, &mut rx_buffer);
+        // Timeout-based RX allows CPU to idle periodically (power savings)
+        let lora_recv = with_timeout(Duration::from_millis(100), lora.rx(&rx_packet_params, &mut rx_buffer));
 
         match select(ble_recv, lora_recv).await {
             Either::First(msg) => {
+                // Update activity timestamp
+                last_activity = Instant::now();
                 info!("Received message from BLE to transmit via LoRa: {:?}", msg);
                 // Transmit message over LoRa
                 let mut buf = [0u8; 64];
                 match msg.serialize(&mut buf) {
                     Ok(len) => {
+                        info!("Message serialized to {} bytes, preparing for TX...", len);
                         match lora
                             .prepare_for_tx(
                                 &modulation_params,
@@ -235,23 +242,28 @@ pub async fn lora_task(
                             )
                             .await
                         {
-                            Ok(_) => match lora.tx().await {
-                                Ok(_) => {
-                                    info!("LoRa TX successful");
-                                    // Return to RX mode after transmission
-                                    if let Err(e) = lora
-                                        .prepare_for_rx(
-                                            RxMode::Continuous,
-                                            &modulation_params,
-                                            &rx_packet_params,
-                                        )
-                                        .await
-                                    {
-                                        error!("Failed to return to RX mode after TX: {:?}", e);
+                            Ok(_) => {
+                                info!("Prepared for TX, calling tx() and waiting for DIO0...");
+                                match lora.tx().await {
+                                    Ok(_) => {
+                                        info!("LoRa TX successful! Returning to RX mode...");
+                                        // Return to RX mode after transmission
+                                        if let Err(e) = lora
+                                            .prepare_for_rx(
+                                                RxMode::Continuous,
+                                                &modulation_params,
+                                                &rx_packet_params,
+                                            )
+                                            .await
+                                        {
+                                            error!("Failed to return to RX mode after TX: {:?}", e);
+                                        } else {
+                                            info!("Back in RX mode, ready for next message");
+                                        }
                                     }
+                                    Err(e) => error!("LoRa TX failed: {:?}", e),
                                 }
-                                Err(e) => error!("LoRa TX failed: {:?}", e),
-                            },
+                            }
                             Err(e) => error!("LoRa prepare_for_tx failed: {:?}", e),
                         }
                     }
@@ -259,9 +271,11 @@ pub async fn lora_task(
                 }
             }
             Either::Second(result) => {
-                // Handle received LoRa packet
+                // Handle received LoRa packet (with timeout)
                 match result {
-                    Ok((len, status)) => {
+                    Ok(Ok((len, status))) => {
+                        // Update activity timestamp on successful RX
+                        last_activity = Instant::now();
                         info!("LoRa RX: received {} bytes, RSSI: {:?}", len, status.rssi);
                         let data = &rx_buffer[..len as usize];
                         match Message::deserialize(data) {
@@ -274,6 +288,7 @@ pub async fn lora_task(
                                         info!("Sending ACK for seq: {}", text_msg.seq);
                                         let mut buf = [0u8; 64];
                                         if let Ok(ack_len) = ack.serialize(&mut buf) {
+                                            info!("ACK serialized to {} bytes, preparing for TX...", ack_len);
                                             if let Err(e) = lora
                                                 .prepare_for_tx(
                                                     &modulation_params,
@@ -287,7 +302,7 @@ pub async fn lora_task(
                                             } else if let Err(e) = lora.tx().await {
                                                 error!("Failed to send ACK: {:?}", e);
                                             } else {
-                                                info!("ACK sent successfully");
+                                                info!("ACK sent successfully! Returning to RX mode...");
                                                 // Return to RX mode after ACK transmission
                                                 if let Err(e) = lora
                                                     .prepare_for_rx(
@@ -301,6 +316,8 @@ pub async fn lora_task(
                                                         "Failed to return to RX mode after ACK TX: {:?}",
                                                         e
                                                     );
+                                                } else {
+                                                    info!("Back in RX mode after ACK");
                                                 }
                                             }
                                         }
@@ -332,9 +349,25 @@ pub async fn lora_task(
                             Err(e) => warn!("Failed to deserialize LoRa message: {:?}", e),
                         }
                     }
-                    Err(e) => warn!("LoRa RX error: {:?}", e),
+                    Ok(Err(e)) => warn!("LoRa RX error: {:?}", e),
+                    Err(_) => {
+                        // Timeout is normal - no packet received in 100ms window
+                        // Continue to next iteration
+                    }
                 }
             }
+        }
+
+        // Adaptive delay for power savings
+        // Check time since last activity
+        let idle_duration = Instant::now().duration_since(last_activity);
+
+        if idle_duration.as_millis() > 1000 {
+            // Idle for >1s: use long delay to enable deep light sleep
+            Timer::after(Duration::from_millis(2000)).await;
+        } else {
+            // Recent activity: use short delay for responsiveness
+            Timer::after(Duration::from_millis(10)).await;
         }
     }
 }

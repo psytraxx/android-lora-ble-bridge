@@ -1,8 +1,8 @@
 [target.xtensa-esp32s3-none-elf]
-runner = "probe-rs run --chip=esp32s3 --preverify --always-print-stacktrace --no-location --catch-hardfault"
+runner = "espflash flash -c esp32s3 -s 16mb -m dio -f 80mhz --no-skip --monitor"
 
 [env]
-DEFMT_LOG = "info"
+ESP_LOG = "INFO"
 LORA_TX_POWER_DBM = "14"
 LORA_TX_FREQUENCY = "433920000"
 

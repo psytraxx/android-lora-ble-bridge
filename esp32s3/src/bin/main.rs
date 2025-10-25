@@ -16,12 +16,12 @@
     holding buffers for the duration of a data transfer."
 )]
 
-use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
 use esp_alloc::heap_allocator;
+use esp_backtrace as _;
 use esp_hal::Config;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::Pin;
@@ -29,7 +29,7 @@ use esp_hal::timer::timg::TimerGroup;
 use esp32s3::ble::ble_task;
 use esp32s3::lora::{LoraGpios, lora_task};
 use esp32s3::protocol::Message;
-use panic_rtt_target as _;
+use log::{error, info};
 use static_cell::StaticCell;
 
 extern crate alloc;
@@ -40,15 +40,16 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) -> ! {
-    // Initialize ESP32-S3 peripherals and clock
+    // Initialize ESP32-S3 peripherals and clock FIRST
     // Using 160MHz instead of max (240MHz) saves 20-30% power without range impact
     let config = Config::default().with_cpu_clock(CpuClock::_160MHz);
     let peripherals = esp_hal::init(config);
 
+    // Initialize logger AFTER clock config so UART baud rate is calculated correctly
+    esp_println::logger::init_logger_from_env();
+
     // Allocate heap memory for dynamic allocations
     heap_allocator!(#[unsafe(link_section = ".dram2_uninit")] size: 73744);
-    // Initialize logging
-    rtt_target::rtt_init_defmt!();
 
     info!("ESP32-S3 LoRa-BLE Bridge starting...");
 
@@ -89,13 +90,14 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     // Spawn LoRa task with SPI peripheral and GPIO pins
+    // GPIO pins match esp32s3-debugger (LilyGO T-Display-S3) configuration
     info!("Spawning LoRa task...");
     if let Err(e) = spawner.spawn(lora_task(
         peripherals.SPI2,
         LoraGpios {
             cs: peripherals.GPIO10.degrade(),
             reset: peripherals.GPIO43.degrade(),
-            dio0: peripherals.GPIO44.degrade(),
+            dio0: peripherals.GPIO3.degrade(),  // DIO0 is GPIO3, not GPIO44!
             sck: peripherals.GPIO12.degrade(),
             miso: peripherals.GPIO13.degrade(),
             mosi: peripherals.GPIO11.degrade(),
