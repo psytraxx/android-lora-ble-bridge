@@ -1,4 +1,3 @@
-use defmt::{error, info, warn};
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_futures::select::{Either, select};
 use embassy_sync::{
@@ -12,6 +11,7 @@ use esp_hal::{
     gpio::{AnyPin, Input, InputConfig, Output, OutputConfig},
     time::Rate,
 };
+use log::{error, info, warn};
 use lora_phy::mod_params::*;
 use lora_phy::{
     LoRa, RxMode,

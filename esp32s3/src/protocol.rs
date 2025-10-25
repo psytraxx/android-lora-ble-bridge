@@ -1,5 +1,4 @@
 use alloc::vec::Vec;
-use defmt::Format;
 use heapless::String;
 
 /// Maximum text length in characters for optimal long-range LoRa transmission.
@@ -122,7 +121,7 @@ pub enum MessageType {
 }
 
 /// Text message with optional GPS coordinates
-#[derive(Debug, Clone, PartialEq, Format)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TextMessage {
     pub seq: u8,
     pub text: String<64>, // Max 50 chars (optimized for long-range transmission)
@@ -132,13 +131,13 @@ pub struct TextMessage {
 }
 
 /// Acknowledgment message
-#[derive(Debug, Clone, Copy, PartialEq, Format)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AckMessage {
     pub seq: u8,
 }
 
 /// Union of all message types
-#[derive(Debug, Clone, PartialEq, Format)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Message {
     Text(TextMessage),
     Ack(AckMessage),
