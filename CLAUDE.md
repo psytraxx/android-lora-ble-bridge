@@ -10,7 +10,7 @@ A long-range messaging system enabling text messages (up to 50 characters) and G
 
 - **esp32/** - ESP32/ESP32S3 firmware (C++/Arduino/PlatformIO)
 - **esp32s3-debugger/** - LoRa receiver with display support (C++/Arduino/PlatformIO)
-- **android/** - Android application (Java) with ViewBinding and background service
+- **android/** - Android application (Java) with ViewBinding
 - **protocol.md** - Binary protocol specification (v3.0 with 6-bit text encoding)
 
 ## Build Commands
@@ -72,7 +72,6 @@ cd android
 - **GpsManager** - Location services (GPS + Network providers)
 - **MessageAdapter** - RecyclerView adapter for chat display
 - **Protocol** - Binary serialization (matches ESP32 protocol)
-- **LoRaForegroundService** - Background service for receiving messages
 
 **BLE Configuration:**
 - Scans for device name: "ESP32S3-LoRa"
@@ -82,8 +81,6 @@ cd android
 - MTU negotiation: 512 bytes
 
 **Key Features:**
-- Background service maintains BLE connection when app minimized
-- Notifications for incoming messages
 - GPS coordinates clickable → opens Google Maps
 - Auto-disconnect after 30 seconds of inactivity
 - Message validation: 50 char max, 6-bit charset only
@@ -110,10 +107,10 @@ cd android
 - Lowercase automatically converted to uppercase
 - Unsupported characters rejected
 
-**Time on Air (SF10, BW125kHz):**
-- Empty text: ~350 ms
-- 50 chars + GPS: ~600 ms
-- ACK: ~330 ms
+**Time on Air (SF11, BW31kHz):**
+- Note: Actual values depend on SF11 + BW31kHz configuration
+- Significantly longer than SF10+BW125kHz
+- See protocol.md for detailed calculations
 
 ## Configuration
 
@@ -150,7 +147,7 @@ cd android
 
 **ESP32-S3:**
 - CPU clock: 160 MHz (not 240 MHz max) for power savings
-- SF10 LoRa: Long time-on-air (~600ms) = low duty cycle
+- SF11 LoRa: Long time-on-air (longer than SF10) = low duty cycle
 - WiFi disabled during setup
 - BLE advertising only when disconnected
 
@@ -167,7 +164,7 @@ cd android
 5. Increment protocol version number
 
 **Changing LoRa Parameters:**
-- Edit `platformio.ini`
+- Edit `shared/LoRaManager/lora_config.h`
 - Rebuild firmware and reflash all devices
 - Verify Time on Air in logs
 - Test range with new parameters
@@ -180,7 +177,7 @@ cd android
 ## Testing
 
 **Android Tests (9 unit tests):**
-- TextMessage, GpsMessage, AckMessage serialization
+- TextMessage (with/without GPS), AckMessage serialization
 - 6-bit character packing/unpacking
 - Round-trip encoding/decoding
 - Character validation
@@ -190,13 +187,15 @@ cd android
 
 
 **TX Power Limits:**
-- EU/Switzerland 433 MHz: 10 dBm max
+- EU/Switzerland 433 MHz: 2 dBm max
 - US 433 MHz: 17 dBm max
 - Australia 433 MHz: 14 dBm max
+- **Current firmware:** 20 dBm (complies with US/Australia, exceeds EU limit)
 
 
 **Duty Cycle (EU/Switzerland: 1%):**
 - 36 seconds per hour transmission time
-- 50-char message + GPS: ~600ms → ~60 messages/hour
+- Note: Message airtime depends on SF11+BW31kHz (longer than previous estimates)
+- Calculate using https://www.loratools.nl/#/airtime
 
 Use proper antenna for frequency (433 MHz = ~17 cm quarter-wave).

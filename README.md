@@ -6,7 +6,6 @@ A long-range communication system for sending text messages (up to 50 characters
 ## Features
 
 - 📱 **Android App**: Modern Java app with ViewBinding, GPS integration, and BLE communication
-- 🔔 **Background Service**: Receives messages even when app is minimized (Android 8.0+)
 - 📡 **Long Range**: 5-10 km typical range (up to 15+ km in ideal conditions)
 - 🔋 **Power Optimized**: 40-50% power savings (70-100 hours on 2500 mAh battery)
 - 📦 **Message Buffering**: Buffers up to 10 messages when phone is disconnected
@@ -93,7 +92,7 @@ cd android
 ### Test Coverage
 - **ESP32**: Protocol serialization/deserialization, 6-bit packing
 - **Android**: 9 comprehensive unit tests covering:
-  - TextMessage, GpsMessage, AckMessage serialization
+  - TextMessage (with/without GPS), AckMessage serialization
   - 6-bit character packing/unpacking
   - Round-trip encoding/decoding
   - Character validation and support
@@ -155,12 +154,12 @@ The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
 
 1. **Launch app** on both Android devices
 2. **Grant permissions**: Bluetooth, Location (GPS)
-3. **Wait for BLE connection**: App automatically scans for "ESP32-LoRa"
+3. **Wait for BLE connection**: App automatically scans for "ESP32S3-LoRa"
 4. **Send message**:
    - Type message (max 50 characters, uppercase A-Z, 0-9, punctuation)
    - GPS is optional - app will send text even without GPS
    - Press "Send"
-   - App sends text message first, then GPS (if available) 100ms later
+   - App sends unified message with text and GPS (if available)
 5. **Receive message**: Messages appear automatically on receiving device
 6. **View GPS location**: Coordinates displayed if GPS coordinates received
 
@@ -183,12 +182,12 @@ The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
 - **Range**: 5-10 km typical (up to 15+ km ideal conditions)
 - **Latency**: 1-2 seconds end-to-end
 - **Battery**: 70-100 hours on 2500 mAh
-- **Time on Air**: 
-  - Text only: ~350-550ms (empty to 50 chars) at SF10
-  - Text + GPS: ~420-600ms (varies by text length)
-  - ACK: ~330ms at SF10
-- **LoRa Config**: SF10, BW125kHz, CR4/5, 433.92 MHz default, 14 dBm
-- **Duty Cycle**: ~38-100 messages/hour depending on message type (EU 1% compliance)
+- **Time on Air**:
+  - Note: Actual values depend on SF11 + BW31kHz configuration
+  - Significantly longer than previous SF10+BW125kHz estimates
+  - See protocol.md and use [LoRa Calculator](https://www.loratools.nl/#/airtime)
+- **LoRa Config**: SF11, BW31kHz, CR4/5, 433.92 MHz default, 20 dBm
+- **Duty Cycle**: Calculate using actual Time on Air values (EU 1% = 36s/hour)
 
 See **[protocol.md](protocol.md)** for detailed Time on Air calculations and duty cycle compliance.
 
@@ -205,13 +204,13 @@ sequenceDiagram
     participant ER as ESP32 Receiver
     participant AR as Android Receiver
 
-    Note over AS,AR: Unified Text + GPS Message Flow (~800-1000ms)
-    
+    Note over AS,AR: Unified Text + GPS Message Flow (timing varies by SF/BW)
+
     AS->>ES: 1. Send Text + GPS (BLE)
     Note right of AS: ~10-50ms
-    
+
     ES->>ER: 2. Forward to LoRa
-    Note right of ES: ~400-600ms airtime
+    Note right of ES: Airtime varies (SF11+BW31kHz)
     
     ER->>AR: 3. Forward via BLE
     Note right of ER: ~10-50ms
@@ -220,43 +219,43 @@ sequenceDiagram
     ER-->>ER: delay(500ms)
     
     ER->>ES: 5. Send ACK (LoRa)
-    Note left of ER: ~330ms airtime<br/>+ 50ms mode switch
-    
+    Note left of ER: ACK airtime (SF11+BW31kHz)<br/>+ 50ms mode switch
+
     ES->>AS: 6. Receive ACK (BLE)
     Note left of ES: ~10-50ms + notify
-    
+
     Note over AS: ✓ Show checkmark
-    
-    Note over AS,AR: Total Time: ~1300-1500ms
+
+    Note over AS,AR: Total Time: Varies by configuration
 ```
 
 ### Timing Phases Breakdown
 
 ```mermaid
 gantt
-    title Unified Message Flow Timeline (~1300-1500ms)
+    title Unified Message Flow Timeline (timing varies by SF/BW config)
     dateFormat X
     axisFormat %L ms
 
     section Android→ESP32
     BLE Transfer          :a1, 0, 50
-    
+
     section LoRa TX
-    Text+GPS Transmission :a2, 50, 550
-    
+    Text+GPS Transmission :a2, 50, 800
+
     section Receiver
-    Process & Forward     :a3, 600, 100
-    ACK Delay (500ms)     :a4, 700, 500
-    
+    Process & Forward     :a3, 850, 100
+    ACK Delay (500ms)     :a4, 950, 500
+
     section LoRa RX
-    ACK Transmission      :a5, 1200, 200
-    Mode Switch Settle    :a6, 1400, 50
-    
+    ACK Transmission      :a5, 1450, 300
+    Mode Switch Settle    :a6, 1750, 50
+
     section ESP32→Android
-    BLE Notify            :a7, 1450, 50
-    
+    BLE Notify            :a7, 1800, 50
+
     section Result
-    Show Checkmark        :crit, a8, 1500, 50
+    Show Checkmark        :crit, a8, 1850, 50
 ```
 
 ### Critical Timing Parameters
@@ -287,11 +286,11 @@ delay(50);  // Ensure radio is fully in RX mode
 | Phase | Time | Description |
 |-------|------|-------------|
 | **BLE Transfer** | 10-50ms | Android ↔ ESP32 via Bluetooth LE |
-| **LoRa Airtime** | 350-600ms | Text+GPS packet at SF10, BW125 (varies by length) |
+| **LoRa Airtime** | Varies | Text+GPS packet at SF11, BW31kHz (depends on message length) |
 | **Mode Switch (TX→RX)** | 10-50ms | SX1278 radio mode transition |
 | **RX Settle** | 50ms | Additional settle time in code |
 | **ACK Wait** | 500ms | Deliberate delay before ACK sent |
-| **ACK Airtime** | ~330ms | ACK packet (2 bytes) at SF10 |
+| **ACK Airtime** | Varies | ACK packet (2 bytes) at SF11, BW31kHz |
 
 ### Why These Timings Matter
 
@@ -326,8 +325,8 @@ delay(1000);  // Increase from 500ms
 **Formula for safe ACK timing:**
 ```
 ACK_Delay = LoRa_TX_Time + RX_Mode_Switch + Processing_Buffer
-         ≈ 600ms + 100ms + 200ms
-         ≈ 900ms (round up to 500ms with optimizations)
+         ≈ TX_Time + 100ms + 200ms
+         Current: 500ms (may need adjustment based on actual Time on Air)
 ```
 
 ### Debugging Timing Issues
