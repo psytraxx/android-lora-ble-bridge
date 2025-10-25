@@ -90,13 +90,14 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     // Spawn LoRa task with SPI peripheral and GPIO pins
+    // GPIO pins match esp32s3-debugger (LilyGO T-Display-S3) configuration
     info!("Spawning LoRa task...");
     if let Err(e) = spawner.spawn(lora_task(
         peripherals.SPI2,
         LoraGpios {
             cs: peripherals.GPIO10.degrade(),
             reset: peripherals.GPIO43.degrade(),
-            dio0: peripherals.GPIO44.degrade(),
+            dio0: peripherals.GPIO3.degrade(),  // DIO0 is GPIO3, not GPIO44!
             sck: peripherals.GPIO12.degrade(),
             miso: peripherals.GPIO13.degrade(),
             mosi: peripherals.GPIO11.degrade(),
