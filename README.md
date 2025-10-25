@@ -49,7 +49,6 @@ graph TD
 ```
 android-lora-ble-bridge/
 ├── esp32/                # ESP32 firmware (C++/Arduino) - Transceiver with BLE
-├── esp32s3/              # ESP32-S3 firmware (Rust/Embassy) - Alternative implementation
 ├── esp32s3-debugger/     # ESP32-S3 LoRa receiver with display (C++/Arduino)
 ├── android/              # Android application (Java)
 ├── protocol.md           # Protocol specification
@@ -61,46 +60,10 @@ android-lora-ble-bridge/
 
 ### Prerequisites
 
-#### ESP32 Firmware
-- [Rust](https://rustup.rs/) (stable)
-- [espup](https://github.com/esp-rs/espup) - ESP32 Rust toolchain installer
-- ESP32-S3 development board
-- SX1276 LoRa module
-
 #### Android App
 - [Android Studio](https://developer.android.com/studio) or Android SDK
 - JDK 17 or higher (for ViewBinding support)
 - Gradle (included in Android Studio)
-
-### ESP32 Firmware Build
-
-1. **Install ESP32 Rust toolchain:**
-   ```bash
-   cargo install espup
-   espup install
-   . ~/export-esp.sh  # Source the environment
-   ```
-
-2. **Build firmware:**
-   ```bash
-   cd esp32s3
-   cargo build --release
-   ```
-
-3. **Flash to ESP32-S3:**
-   ```bash
-   # Recommended (uses .cargo/config.toml runner):
-   cargo run --release
-   
-   # Alternative using espflash directly:
-   espflash flash target/xtensa-esp32s3-none-elf/release/esp32s3 --monitor --chip esp32s3
-   ```
-
-4. **Monitor logs:**
-   ```bash
-   espflash monitor
-   # Logs show: BLE advertising, LoRa TX/RX, message routing
-   ```
 
 ### Android App Build
 
@@ -118,13 +81,6 @@ cd android
 ```
 
 ### Running Tests
-
-**ESP32 Firmware:**
-```bash
-cd esp32s3
-cargo check                        # Type checking
-cargo clippy                       # Linting
-```
 
 **Android App:**
 ```bash
@@ -144,9 +100,9 @@ cd android
 
 ## Hardware Setup
 
-### ESP32-S3 to SX1276 Wiring
+### ESP32-S3 to SX1278 Wiring
 
-| SX1276 Pin | ESP32-S3 Pin | Function |
+| SX1278 Pin | ESP32-S3 Pin | Function |
 |------------|--------------|----------|
 | SCK | GPIO12 | SPI Clock |
 | MISO | GPIO13 | SPI MISO |
@@ -158,14 +114,6 @@ cd android
 | GND | GND | Ground |
 
 ### LoRa Module Configuration
-
-Edit `esp32s3/.cargo/config.toml`:
-
-```toml
-[env]
-LORA_TX_POWER_DBM = "14"        # Power in dBm (-4 to 20)
-LORA_TX_FREQUENCY = "433920000" # Frequency in Hz
-```
 
 **Common Frequencies:**
 - 433 MHz: 433920000 (worldwide)
@@ -199,21 +147,6 @@ The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
 **If Buffer is Full:**
 - Messages 11+ are dropped with warning log
 - ESP32 continues receiving (doesn't block)
-
-**Adjusting Buffer Size:**
-
-Edit `esp32s3/src/bin/main.rs`:
-```rust
-// BLE to LoRa channel (for text+GPS bursts)
-static BLE_TO_LORA: StaticCell<Channel<CriticalSectionRawMutex, Message, 5>> = StaticCell::new();
-
-// LoRa to BLE channel (for phone disconnection)
-static LORA_TO_BLE: StaticCell<Channel<CriticalSectionRawMutex, Message, 10>> = StaticCell::new();
-```
-
-Also update function signatures in `esp32s3/src/ble.rs` and `esp32s3/src/lora.rs`.
-
-**Memory Impact:** ~64 bytes per message
 
 ## Usage
 
@@ -346,7 +279,7 @@ loraManager.startReceiveMode();
 delay(50);  // Ensure radio is fully in RX mode
 ```
 - **Purpose**: Radio hardware needs time to stabilize in receive mode
-- **Why 50ms**: SX1276 mode transitions require 10-30ms, 50ms ensures stability
+- **Why 50ms**: SX1278 mode transitions require 10-30ms, 50ms ensures stability
 
 ### Timing Breakdown by Phase
 
@@ -354,7 +287,7 @@ delay(50);  // Ensure radio is fully in RX mode
 |-------|------|-------------|
 | **BLE Transfer** | 10-50ms | Android ↔ ESP32 via Bluetooth LE |
 | **LoRa Airtime** | 350-600ms | Text+GPS packet at SF10, BW125 (varies by length) |
-| **Mode Switch (TX→RX)** | 10-50ms | SX1276 radio mode transition |
+| **Mode Switch (TX→RX)** | 10-50ms | SX1278 radio mode transition |
 | **RX Settle** | 50ms | Additional settle time in code |
 | **ACK Wait** | 500ms | Deliberate delay before ACK sent |
 | **ACK Airtime** | ~330ms | ACK packet (2 bytes) at SF10 |
@@ -439,7 +372,7 @@ ACK_Delay = LoRa_TX_Time + RX_Mode_Switch + Processing_Buffer
 
 **Radio init failed:**
 - Check RESET and DIO0 pin connections
-- Verify SX1276 module is 433 MHz capable
+- Verify SX1278 module is 433 MHz capable
 - Check power supply (some modules need more current)
 
 ### Android Issues
@@ -488,7 +421,7 @@ adb logcat -s LoRaApp
 
 ## External Resources
 - [ESP32-S3 Documentation](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/)
-- [SX1276 Datasheet](https://www.semtech.com/products/wireless-rf/lora-core/sx1276)
+- [SX1278 Datasheet](https://www.semtech.com/products/wireless-rf/lora-core/sx1276)
 - [LoRa Calculator](https://www.loratools.nl/#/airtime) - Time on Air calculator
 - [ESP-RS Book](https://esp-rs.github.io/book/) - Rust on ESP32
 

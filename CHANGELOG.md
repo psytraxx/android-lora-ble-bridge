@@ -131,7 +131,7 @@
 
 #### Critical Bug Fixes
 - **CRITICAL - LoRa Reinitialization After Sleep**: Fixed LoRa module state corruption when waking from light sleep
-  - Problem: SX1276 LoRa module lost RX mode state after ESP32-S3 light sleep, preventing message reception
+  - Problem: SX1278 LoRa module lost RX mode state after ESP32-S3 light sleep, preventing message reception
   - Solution: Added `loraManager.startReceiveMode()` + 50ms stabilization delay after wake-up
   - Impact: LoRa reception now works reliably across sleep/wake cycles
   - File: `esp32s3-debugger/src/main.cpp:244-249`

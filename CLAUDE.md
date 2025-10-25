@@ -8,36 +8,12 @@ A long-range messaging system enabling text messages (up to 50 characters) and G
 
 ## Project Structure
 
-- **esp32s3/** - Primary ESP32-S3 firmware (Rust/Embassy) - Modern async implementation - IGNORE THIS IN ALL TASKS/ ANALAYSIS
-- **esp32/** - Legacy ESP32 firmware (C++/Arduino/PlatformIO) - Alternative implementation
+- **esp32/** - ESP32/ESP32S3 firmware (C++/Arduino/PlatformIO)
 - **esp32s3-debugger/** - LoRa receiver with display support (C++/Arduino/PlatformIO)
 - **android/** - Android application (Java) with ViewBinding and background service
 - **protocol.md** - Binary protocol specification (v3.0 with 6-bit text encoding)
 
 ## Build Commands
-
-### ESP32-S3 Firmware (Rust)
-
-```bash
-cd esp32s3
-
-# Install toolchain (first time only)
-cargo install espup
-espup install
-. ~/export-esp.sh
-
-# Build and flash
-. ~/export-esp.sh
-cargo build --release
-cargo run --release  # Builds, flashes, and monitors
-
-# Monitor logs
-espflash monitor
-
-# Type checking and linting
-cargo check
-cargo clippy
-```
 
 ### ESP32 Firmware (C++/Arduino - Legacy)
 
@@ -86,53 +62,6 @@ cd android
 ```
 
 ## High-Level Architecture
-
-### ESP32-S3 Firmware (Rust/Embassy)
-
-**Async Runtime Model:**
-- Single-threaded cooperative multitasking via Embassy executor
-- Three main async tasks: `ble_task`, `lora_task`, and main loop
-- Inter-task communication via Embassy channels (thread-safe, capacity-limited)
-
-**Core Modules:**
-- **main.rs** (116 lines) - System initialization, task spawning, channel setup
-  - Creates two channels: BLE→LoRa (capacity 5) and LoRa→BLE (capacity 10)
-  - Initializes peripherals at 160 MHz for power optimization
-  - Location: `esp32s3/src/bin/main.rs`
-
-- **ble.rs** (278 lines) - BLE peripheral and GATT server
-  - Advertises as "ESP32S3-LoRa"
-  - GATT Service UUID: 0x1234
-  - TX characteristic (0x5678): Sends notifications to Android
-  - RX characteristic (0x5679): Receives writes from Android
-  - Non-blocking writes to LoRa channel, blocking reads from LoRa channel
-  - Location: `esp32s3/src/ble.rs`
-
-- **lora.rs** (358 lines) - LoRa radio operations
-  - Uses `embassy_futures::select()` for dual-channel operation
-  - Continuously switches between TX and RX modes
-  - Automatically sends ACKs for received text messages
-  - Configuration: SF10, BW125kHz, CR4/5, 433.92 MHz, 14 dBm
-  - SPI interface to SX1276: GPIO10 (CS), GPIO43 (RST), GPIO44 (DIO0)
-  - Location: `esp32s3/src/lora.rs`
-
-- **protocol.rs** (447 lines) - Message serialization with 6-bit encoding
-  - Two message types: TextMessage (0x01), AckMessage (0x02)
-  - 6-bit character packing: 64-char charset (A-Z, 0-9, punctuation)
-  - Compression: 50 chars = 38 bytes (vs 50 bytes UTF-8)
-  - Optional GPS coordinates (lat/lon as i32 * 1,000,000)
-  - Location: `esp32s3/src/protocol.rs`
-
-**Data Flow:**
-```
-Android (BLE) → ble_to_lora channel → LoRa TX → Remote ESP32
-Remote ESP32 → LoRa RX → lora_to_ble channel → BLE notification → Android
-```
-
-**Message Buffering:**
-- LoRa→BLE channel has capacity of 10 messages
-- Buffers messages when phone disconnected
-- Delivers all buffered messages when phone reconnects (FIFO)
 
 ### Android App (Java)
 
@@ -188,41 +117,6 @@ Remote ESP32 → LoRa RX → lora_to_ble channel → BLE notification → Androi
 
 ## Configuration
 
-### LoRa Parameters (ESP32-S3)
-
-Edit `esp32s3/.cargo/config.toml`:
-
-```toml
-[env]
-LORA_TX_POWER_DBM = "14"        # -4 to 20 dBm
-LORA_TX_FREQUENCY = "433920000" # Hz (433 MHz default)
-DEFMT_LOG = "info"              # Logging level
-```
-
-### GPIO Pin Mapping (ESP32-S3)
-
-Defined in `esp32s3/src/bin/main.rs:69-74`:
-- LoRa CS: GPIO10
-- LoRa Reset: GPIO43
-- LoRa DIO0: GPIO44
-- LoRa SCK: GPIO12
-- LoRa MISO: GPIO13
-- LoRa MOSI: GPIO11
-
-### Message Buffer Sizes
-
-Edit `esp32s3/src/bin/main.rs:59-62`:
-
-```rust
-// BLE to LoRa channel (for text+GPS bursts)
-static BLE_TO_LORA: StaticCell<Channel<CriticalSectionRawMutex, Message, 5>> = StaticCell::new();
-
-// LoRa to BLE channel (for phone disconnection buffering)
-static LORA_TO_BLE: StaticCell<Channel<CriticalSectionRawMutex, Message, 10>> = StaticCell::new();
-```
-
-Also update function signatures in `ble.rs` and `lora.rs` when changing capacity.
-
 ## Development Notes
 
 ### Critical Timing Parameters
@@ -235,7 +129,7 @@ Also update function signatures in `ble.rs` and `lora.rs` when changing capacity
 
 **RX Mode Settle Time:**
 - 50ms delay after switching to RX mode
-- Allows SX1276 radio hardware to stabilize
+- Allows SX1278 radio hardware to stabilize
 - Location: `esp32/src/main.cpp` after `startReceiveMode()`
 
 ### Protocol Evolution
@@ -267,14 +161,13 @@ Also update function signatures in `ble.rs` and `lora.rs` when changing capacity
 ### Common Development Tasks
 
 **Adding New Message Types:**
-1. Update `protocol.rs` enum and serialization
 2. Update Android `Protocol.java` to match
 3. Write unit tests for serialization (both platforms)
 4. Update `protocol.md` specification
 5. Increment protocol version number
 
 **Changing LoRa Parameters:**
-- Edit `.cargo/config.toml` or `platformio.ini`
+- Edit `platformio.ini`
 - Rebuild firmware and reflash all devices
 - Verify Time on Air in logs
 - Test range with new parameters
@@ -285,10 +178,6 @@ Also update function signatures in `ble.rs` and `lora.rs` when changing capacity
 - Look for: "BLE advertising", "LoRa TX successful", "LoRa RX: received X bytes"
 
 ## Testing
-
-**ESP32 Tests:**
-- Protocol serialization: `cargo check` (compile-time validation)
-- Manual testing via serial monitor
 
 **Android Tests (9 unit tests):**
 - TextMessage, GpsMessage, AckMessage serialization

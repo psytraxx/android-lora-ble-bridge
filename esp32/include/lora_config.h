@@ -39,7 +39,7 @@
 /**
  * @brief LoRa TX power.
  * Default: 14 dBm (~25 mW) - check local regulations for 433 MHz ISM band
- * SX1276 supports 2-20 dBm
+ * SX1278 supports 2-20 dBm
  * Can be configured via LORA_TX_POWER_DBM build flag
  */
 #ifndef LORA_TX_POWER_DBM
