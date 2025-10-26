@@ -1,5 +1,30 @@
 # LoRa Bridge - Changelog
 
+## [1.0.2] - 2025-10-26
+
+### Added
+- **Use Case Implementation Tracking**
+  - Created `USE_CASE_IMPLEMENTATION_MAP.md` - comprehensive mapping of all 25 use cases to code
+  - Added `@see UC-X.X` references throughout codebase for traceability
+  - Coverage: 92% fully implemented (23/25), 4% partially implemented (1/25)
+  - Files annotated:
+    - `BleRepository.kt` - UC-1.1, UC-1.2, UC-1.4
+    - `LocationRepository.kt` - UC-2.1, UC-2.2
+    - `LoRaProtocol.kt` - UC-5.1, UC-5.2, UC-5.3
+    - `ChatViewModel.kt` - UC-1.5, UC-2.3, UC-3.1, UC-3.2, UC-3.3, UC-3.4, UC-4.1
+    - `MessageRepository.kt` - UC-6.1, UC-6.2
+    - `ChatScreen.kt` - UC-7.1, UC-7.2, UC-6.3, UC-8.1
+    - `MessageBubble.kt` - UC-6.1, UC-6.2, UC-4.2
+    - `MainActivity.kt` - UC-8.2
+
+### Documentation
+- Detailed implementation status for each use case
+- Line number references for all implementations
+- Testing recommendations
+- Known limitations (UC-7.3 partially implemented)
+
+---
+
 ## [1.0.1] - 2025-10-26
 
 ### Fixed

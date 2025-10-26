@@ -28,6 +28,9 @@ import java.util.Locale
 
 /**
  * Message bubble component for chat display
+ * @see UC-6.1: Display Chat Message
+ * @see UC-6.2: Update ACK Status Indicator
+ * @see UC-4.2: Open Location in Maps
  */
 @Composable
 fun MessageBubble(

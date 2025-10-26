@@ -140,6 +140,7 @@ class ChatViewModel @Inject constructor(
 
     /**
      * Update GPS location
+     * @see UC-2.3: Display GPS Coordinates
      */
     fun updateGps() {
         viewModelScope.launch {
@@ -188,6 +189,7 @@ class ChatViewModel @Inject constructor(
 
     /**
      * Internal send message function (after validation and connection check)
+     * @see UC-3.1: Send Text Message with GPS
      */
     private fun sendMessageInternal(text: String) {
 
@@ -256,6 +258,8 @@ class ChatViewModel @Inject constructor(
 
     /**
      * Handle received message
+     * @see UC-3.2: Handle ACK Reception
+     * @see UC-4.1: Receive Text Message
      */
     private fun handleReceivedMessage(message: Message) {
         when (message) {
@@ -292,6 +296,7 @@ class ChatViewModel @Inject constructor(
 
     /**
      * Schedule ACK timeout (5 seconds)
+     * @see UC-3.3: Handle ACK Timeout
      */
     private fun scheduleAckTimeout(seq: Byte) {
         ackTimeoutJob?.cancel()
@@ -307,6 +312,7 @@ class ChatViewModel @Inject constructor(
 
     /**
      * Validate connection state (called on resume)
+     * @see UC-1.5: Validate Connection State on Resume
      */
     fun validateConnectionState() {
         // Connection state is automatically tracked via bleRepository.connectionState
@@ -315,6 +321,7 @@ class ChatViewModel @Inject constructor(
 
     /**
      * Update message input text and character count
+     * @see UC-3.4: Validate Message Input
      */
     fun updateMessageInput(text: String) {
         val charCount = text.length

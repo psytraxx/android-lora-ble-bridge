@@ -54,6 +54,7 @@ class LocationRepository @Inject constructor(
     /**
      * Request a single fresh GPS update (event-driven)
      * Used when user sends a message
+     * @see UC-2.1: Request Single GPS Update
      */
     @SuppressLint("MissingPermission")
     fun requestSingleUpdate() {
@@ -113,6 +114,7 @@ class LocationRepository @Inject constructor(
 
     /**
      * Get last known location (from cache or system)
+     * @see UC-2.2: Get Last Known Location
      */
     @SuppressLint("MissingPermission")
     suspend fun getLastKnownLocation(): LocationData? {

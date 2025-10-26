@@ -78,6 +78,7 @@ class BleRepository @Inject constructor(
 
     /**
      * Start BLE scan for ESP32S3-LoRa device
+     * @see UC-1.1: Scan for ESP32S3 Device
      */
     @SuppressLint("MissingPermission")
     fun startScan() {
@@ -152,6 +153,7 @@ class BleRepository @Inject constructor(
 
     /**
      * Connect to BLE device
+     * @see UC-1.2: Connect to ESP32S3 Device
      */
     @SuppressLint("MissingPermission")
     private fun connectToDevice(device: BluetoothDevice) {
@@ -328,6 +330,7 @@ class BleRepository @Inject constructor(
 
     /**
      * Schedule auto-disconnect after inactivity
+     * @see UC-1.4: Auto-Disconnect After Inactivity
      */
     private fun scheduleAutoDisconnect() {
         autoDisconnectJob?.cancel()

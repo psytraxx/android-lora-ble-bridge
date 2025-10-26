@@ -45,6 +45,10 @@ import com.google.accompanist.permissions.rememberMultiplePermissionsState
 
 /**
  * Main chat screen with Compose
+ * @see UC-7.1: Request BLE Permissions
+ * @see UC-7.2: Request Location Permissions
+ * @see UC-6.3: Auto-Scroll Chat
+ * @see UC-8.1: Dismiss Keyboard on Send
  */
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable

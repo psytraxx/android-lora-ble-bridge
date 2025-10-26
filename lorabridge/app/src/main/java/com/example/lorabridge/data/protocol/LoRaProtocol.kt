@@ -19,6 +19,7 @@ object LoRaProtocol {
 
     /**
      * Serialize a message to bytes for BLE/LoRa transmission
+     * @see UC-5.1: Serialize Text Message
      */
     fun serialize(message: Message): ByteArray {
         return when (message) {
@@ -29,6 +30,7 @@ object LoRaProtocol {
 
     /**
      * Deserialize bytes from BLE/LoRa to Message object
+     * @see UC-5.2: Deserialize Received Message
      */
     fun deserialize(data: ByteArray): Message {
         require(data.isNotEmpty()) { "Data too short" }
@@ -42,6 +44,7 @@ object LoRaProtocol {
 
     /**
      * Validate if text contains only supported characters
+     * @see UC-5.3: Validate Character Support
      */
     fun isTextSupported(text: String): Boolean {
         return text.all { isCharacterSupported(it) }

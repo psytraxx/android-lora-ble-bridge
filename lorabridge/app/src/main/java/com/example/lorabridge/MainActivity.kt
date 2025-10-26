@@ -12,6 +12,7 @@ import dagger.hilt.android.AndroidEntryPoint
 
 /**
  * Main activity with Hilt dependency injection
+ * @see UC-8.2: Show Status Bar with Dark Icons
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {

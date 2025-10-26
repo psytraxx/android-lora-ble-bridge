@@ -123,8 +123,11 @@ class LoRaProtocolTest {
         // 50 chars * 6 bits = 300 bits = 37.5 bytes -> 38 bytes
         assertEquals(38, LoRaProtocol.calculatePackedSize("A".repeat(50)))
 
+        // "HELLO WORLD" = 11 chars * 6 bits = 66 bits = 8.25 bytes -> 9 bytes
+        assertEquals(9, LoRaProtocol.calculatePackedSize("HELLO WORLD"))
+
         // 10 chars * 6 bits = 60 bits = 7.5 bytes -> 8 bytes
-        assertEquals(8, LoRaProtocol.calculatePackedSize("HELLO WORLD"))  // 11 chars = 9 bytes
+        assertEquals(8, LoRaProtocol.calculatePackedSize("A".repeat(10)))
     }
 
     @Test

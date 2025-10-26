@@ -20,6 +20,7 @@ class MessageRepository @Inject constructor() {
 
     /**
      * Add a new message to the chat
+     * @see UC-6.1: Display Chat Message
      */
     fun addMessage(message: ChatMessage) {
         _messages.value = _messages.value + message
@@ -27,6 +28,7 @@ class MessageRepository @Inject constructor() {
 
     /**
      * Update ACK status for a sent message
+     * @see UC-6.2: Update ACK Status Indicator
      */
     fun updateAckStatus(seq: Byte, status: AckStatus) {
         _messages.value = _messages.value.map { msg ->
