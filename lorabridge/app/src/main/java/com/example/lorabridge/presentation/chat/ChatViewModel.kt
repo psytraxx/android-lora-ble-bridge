@@ -47,6 +47,9 @@ class ChatViewModel @Inject constructor(
     private var pendingAckSeq: Byte? = null
     private var ackTimeoutJob: Job? = null
 
+    // Pending message for reconnection (UC-1.3)
+    private var pendingMessageText: String? = null
+
     companion object {
         private const val TAG = "ChatViewModel"
     }
@@ -64,10 +67,23 @@ class ChatViewModel @Inject constructor(
     private fun observeBleConnection() {
         viewModelScope.launch {
             bleRepository.connectionState.collect { connectionState ->
+                // UC-1.3: Check if we have a pending message and just connected
+                if (connectionState is BleConnectionState.Connected && pendingMessageText != null) {
+                    val messageToSend = pendingMessageText!!
+                    pendingMessageText = null
+                    Log.d(TAG, "Connection established - sending queued message")
+                    _toastMessage.tryEmit("Connected! Sending message...")
+                    sendMessageInternal(messageToSend)
+                }
+
+                // Allow sending when connected OR disconnected (for queue & reconnect)
+                // Only disable when waiting for ACK
+                val canSend = pendingAckSeq == null
+
                 _uiState.value = _uiState.value.copy(
                     connectionState = connectionState,
                     connectionStatusText = connectionState.toDisplayString(),
-                    canSendMessage = connectionState is BleConnectionState.Connected && pendingAckSeq == null
+                    canSendMessage = canSend
                 )
             }
         }
@@ -136,6 +152,7 @@ class ChatViewModel @Inject constructor(
 
     /**
      * Send a text message with optional GPS
+     * UC-1.3: If disconnected, queue message and reconnect
      */
     fun sendMessage(text: String) {
         if (text.isBlank()) {
@@ -157,10 +174,22 @@ class ChatViewModel @Inject constructor(
 
         // Check if connected
         if (!bleRepository.isConnected()) {
-            _toastMessage.tryEmit("Not connected - reconnecting...")
+            // UC-1.3: Queue message and reconnect
+            Log.d(TAG, "Not connected - queueing message and reconnecting")
+            pendingMessageText = text
+            _toastMessage.tryEmit("Reconnecting...")
             bleRepository.startScan()
             return
         }
+
+        // Connected - send immediately
+        sendMessageInternal(text)
+    }
+
+    /**
+     * Internal send message function (after validation and connection check)
+     */
+    private fun sendMessageInternal(text: String) {
 
         viewModelScope.launch {
             // Request fresh GPS update

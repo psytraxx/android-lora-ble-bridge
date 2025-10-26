@@ -1,0 +1,79 @@
+# LoRa Bridge - Changelog
+
+## [1.0.1] - 2025-10-26
+
+### Fixed
+- **UC-1.3: Auto-Reconnect on Disconnection** - Implemented queue-and-reconnect behavior
+  - Send button now enabled when disconnected (not just when connected)
+  - When user sends message while disconnected:
+    - Message is queued
+    - "Reconnecting..." toast displayed
+    - BLE scan initiated
+    - Input field cleared immediately
+    - Message automatically sent when connection established
+    - "Connected! Sending message..." toast displayed
+  - Updated `ChatViewModel.kt`:
+    - Added `pendingMessageText` field to queue messages
+    - Modified `canSendMessage` logic: enabled when NOT waiting for ACK (regardless of connection state)
+    - Split `sendMessage` into validation + `sendMessageInternal` for reuse
+    - Auto-send queued message in `observeBleConnection` when connected
+  - Files changed:
+    - `presentation/chat/ChatViewModel.kt`
+
+### Implementation Details
+```kotlin
+// Before: Could only send when connected
+canSendMessage = connectionState is BleConnectionState.Connected && pendingAckSeq == null
+
+// After: Can send when disconnected (for queue) or connected (for immediate send)
+canSendMessage = pendingAckSeq == null  // Only blocked when waiting for ACK
+```
+
+**User Flow:**
+1. User types message while disconnected
+2. User clicks Send button (now enabled)
+3. Message queued + input cleared
+4. "Reconnecting..." toast shown
+5. BLE scan starts
+6. [Connection established]
+7. "Connected! Sending message..." toast shown
+8. Queued message sent automatically
+9. Normal ACK flow continues
+
+---
+
+## [1.0.0] - 2025-10-26
+
+### Added
+- Initial modern re-implementation with Kotlin + Jetpack Compose
+- Clean Architecture (Domain/Data/Presentation layers)
+- Kotlin Coroutines + StateFlow for reactive state
+- Hilt dependency injection
+- BLE connection management with state machine
+- GPS location with FusedLocationProvider
+- Protocol v3.0 with 6-bit encoding
+- Chat UI with Jetpack Compose + Material 3
+- Permissions handling with Accompanist
+- Unit tests for protocol layer
+- Comprehensive documentation:
+  - USE_CASES.md (31 use cases)
+  - STATE_DIAGRAM.md (6 Mermaid diagrams)
+  - IMPLEMENTATION_SUMMARY.md
+
+### Technology Stack
+- Kotlin 2.0.21
+- Jetpack Compose with Material 3
+- Hilt 2.51.1
+- Coroutines 1.8.1
+- StateFlow/Flow
+- Compile SDK 35, Min SDK 29
+
+### Features
+- ✅ BLE scanning, connection, auto-reconnect, auto-disconnect
+- ✅ GPS single updates with provider fallback
+- ✅ Message serialization with 6-bit encoding
+- ✅ ACK tracking with timeout
+- ✅ Chat UI with message bubbles, status indicators
+- ✅ Clickable GPS messages → Google Maps
+- ✅ Character counter with validation
+- ✅ Real-time connection status
