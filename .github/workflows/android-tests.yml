@@ -2,7 +2,7 @@ name: Android Tests
 
 on:
   pull_request:
-    branches: [main]
+    types: [opened, synchronize, reopened]
     paths:
       - "android/**"
       - ".github/workflows/android-tests.yml"
