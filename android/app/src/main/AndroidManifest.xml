@@ -17,6 +17,10 @@
     <!-- BLE Feature -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
+    <queries>
+        <package android:name="com.google.android.apps.maps" />
+    </queries>
+
     <application
         android:name=".LoRaBridgeApplication"
         android:allowBackup="true"
@@ -31,7 +35,6 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
             android:theme="@style/Theme.Lorabridge">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

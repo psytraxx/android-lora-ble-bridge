@@ -2,7 +2,6 @@ package com.example.lorabridge.presentation.chat
 
 import android.Manifest
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.layout.Box
@@ -38,7 +37,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.core.net.toUri
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.example.lorabridge.presentation.components.MessageBubble
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
@@ -106,8 +106,8 @@ fun ChatScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("LoRa Chat", fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
                 )
             )
         }
@@ -154,7 +154,7 @@ fun ChatScreen(
                             onMapClick = { lat, lon ->
                                 // Open Google Maps
                                 try {
-                                    val gmmIntentUri = Uri.parse("geo:$lat,$lon?q=$lat,$lon")
+                                    val gmmIntentUri = "geo:$lat,$lon?q=$lat,$lon".toUri()
                                     val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri)
                                     mapIntent.setPackage("com.google.android.apps.maps")
 
@@ -162,7 +162,8 @@ fun ChatScreen(
                                         context.startActivity(mapIntent)
                                     } else {
                                         // Fallback to browser
-                                        val browserUri = Uri.parse("https://www.google.com/maps/search/?api=1&query=$lat,$lon")
+                                        val browserUri =
+                                            "https://www.google.com/maps/search/?api=1&query=$lat,$lon".toUri()
                                         context.startActivity(Intent(Intent.ACTION_VIEW, browserUri))
                                     }
                                 } catch (e: Exception) {

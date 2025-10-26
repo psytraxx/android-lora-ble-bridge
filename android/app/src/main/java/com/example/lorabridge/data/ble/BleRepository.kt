@@ -306,7 +306,7 @@ class BleRepository @Inject constructor(
      * Send message via BLE
      */
     @SuppressLint("MissingPermission")
-    suspend fun sendMessage(message: Message): Boolean {
+    fun sendMessage(message: Message): Boolean {
         if (!isConnected()) {
             Log.e(TAG, "Cannot send: not connected")
             return false
