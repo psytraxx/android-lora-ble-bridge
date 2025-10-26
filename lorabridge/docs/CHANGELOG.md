@@ -1,5 +1,45 @@
 # LoRa Bridge - Changelog
 
+## [1.0.3] - 2025-10-26
+
+### Added - Unit Tests
+- **43 Unit Tests Across 4 Test Files**
+  - `LoRaProtocolTest.kt` - 13 tests (fixed calculation bug)
+  - `LocationDataTest.kt` - 9 tests (NEW)
+  - `ChatMessageTest.kt` - 10 tests (NEW)
+  - `MessageRepositoryTest.kt` - 11 tests (NEW)
+
+### Fixed
+- **LoRaProtocolTest** calculation comment - "HELLO WORLD" is 11 chars, not 10
+  - Fixed expected packed size: 9 bytes (was incorrectly commented as 8)
+  - Added explicit test for 10-char string
+
+### Coverage
+- **Use Cases Tested:** 6/25 (24%)
+  - UC-5.1: Serialize Text Message ✅
+  - UC-5.2: Deserialize Received Message ✅
+  - UC-5.3: Validate Character Support ✅
+  - UC-2.2: Get Last Known Location (model) ✅
+  - UC-6.1: Display Chat Message (model + repository) ✅
+  - UC-6.2: Update ACK Status Indicator ✅
+
+### Dependencies
+- Added `kotlinx-coroutines-test:1.8.1` for coroutine testing
+
+### Documentation
+- Created `TESTING_SUMMARY.md` - comprehensive testing guide
+  - Test coverage by use case
+  - How to run tests
+  - Future testing recommendations
+  - CI/CD integration examples
+
+### Run Tests
+```bash
+./gradlew test
+```
+
+---
+
 ## [1.0.2] - 2025-10-26
 
 ### Added

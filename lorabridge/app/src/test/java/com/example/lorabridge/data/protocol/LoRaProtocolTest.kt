@@ -48,8 +48,8 @@ class LoRaProtocolTest {
         assertNotNull(deserialized.longitude)
 
         // GPS coordinates should be accurate to 6 decimal places (1 meter precision)
-        assertEquals(original.latitude, deserialized.latitude!!, 0.000001)
-        assertEquals(original.longitude, deserialized.longitude!!, 0.000001)
+        assertEquals(original.latitude!!, deserialized.latitude!!, 0.000001)
+        assertEquals(original.longitude!!, deserialized.longitude!!, 0.000001)
     }
 
     @Test
