@@ -4,17 +4,18 @@
 void MyServerCallbacks::onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo)
 {
     Serial.print("BLE client connected: ");
-    Serial.println(connInfo.getAddress().toString().c_str());
-    Serial.print("Connection ID: ");
-    Serial.println(connInfo.getConnHandle());
-    Serial.print("MTU: ");
-    Serial.println(connInfo.getMTU());
+    Serial.print(connInfo.getAddress().toString().c_str());
+    Serial.print(" (conn=");
+    Serial.print(connInfo.getConnHandle());
+    Serial.print(", mtu=");
+    Serial.print(connInfo.getMTU());
+    Serial.println(")");
 
     bleManager->onConnected();
 
     // Stop advertising when connected
     NimBLEDevice::getAdvertising()->stop();
-    Serial.println("Stopped advertising (connected)");
+    Serial.println("BLE connected - advertising stopped");
 }
 
 void MyServerCallbacks::onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo, int reason)
@@ -30,19 +31,9 @@ void MyCharacteristicCallbacks::onWrite(NimBLECharacteristic *pCharacteristic, N
     std::string value = pCharacteristic->getValue();
     if (value.length() > 0)
     {
-        Serial.print("Received BLE write on RX characteristic, ");
+        Serial.print("BLE write received (");
         Serial.print(value.length());
-        Serial.print(" bytes from client: ");
-        Serial.println(connInfo.getAddress().toString().c_str());
-
-        // Add hex dump for debugging
-        Serial.print("Data (hex): ");
-        for (size_t i = 0; i < value.length(); i++)
-        {
-            Serial.printf("%02X ", (uint8_t)value[i]);
-        }
-        Serial.println();
-
+        Serial.println(" bytes)");
         bleManager->onMessageReceived((const uint8_t *)value.data(), value.length());
     }
 }
@@ -53,8 +44,6 @@ BLEManager::BLEManager(QueueHandle_t queue)
       pTxCharacteristic(nullptr),
       pRxCharacteristic(nullptr),
       pAdvertising(nullptr),
-      deviceConnected(false),
-      oldDeviceConnected(false),
       bleToLoraQueue(queue),
       deviceNameStr(""),
       serverCallbacks(nullptr),
@@ -65,7 +54,7 @@ BLEManager::BLEManager(QueueHandle_t queue)
 
 bool BLEManager::setup(const char *deviceName)
 {
-    Serial.println("Initializing BLE...");
+    Serial.println("Initializing BLE");
 
     // Store device name for debugging
     deviceNameStr = String(deviceName);
@@ -106,10 +95,10 @@ bool BLEManager::setup(const char *deviceName)
     pAdvertising->addServiceUUID(SERVICE_UUID);
     pAdvertising->enableScanResponse(true);
 
-    // Set advertising parameters for aggressive power saving when disconnected
-    // Longer intervals significantly reduce power consumption
-    pAdvertising->setMinInterval(800);  // 800ms minimum (was 200ms)
-    pAdvertising->setMaxInterval(2000); // 2 seconds maximum (was 1000ms)
+    // Set advertising parameters to be more responsive (debug/discovery friendly)
+    // Lower values -> more frequent advertising packets -> faster discovery
+    pAdvertising->setMinInterval(200); // ~200ms
+    pAdvertising->setMaxInterval(400); // ~400ms
 
     // Add device name to advertising data for easier identification
     pAdvertising->setName(deviceName);
@@ -118,37 +107,18 @@ bool BLEManager::setup(const char *deviceName)
     NimBLEDevice::setPower(ESP_PWR_LVL_P9); // +9dBm
 
     Serial.println("BLE service created");
-    Serial.print("Device name: ");
-    Serial.println(deviceName);
-    Serial.print("Service UUID: ");
-    Serial.println(SERVICE_UUID);
-    Serial.print("TX Characteristic UUID: ");
-    Serial.println(TX_CHARACTERISTIC_UUID);
-    Serial.print("RX Characteristic UUID: ");
-    Serial.println(RX_CHARACTERISTIC_UUID);
 
     return true;
 }
 
 void BLEManager::startAdvertising()
 {
-    Serial.println("Starting BLE advertising...");
-
-    // Additional debugging information
-    Serial.print("Advertising with device name: ");
-    Serial.println(deviceNameStr);
-    Serial.print("MAC Address: ");
-    Serial.println(NimBLEDevice::getAddress().toString().c_str());
-
+    Serial.println("Starting BLE advertising");
     NimBLEDevice::startAdvertising();
-    Serial.println("BLE advertising started, waiting for connection...");
-    Serial.print("Device should now be discoverable as '");
-    Serial.print(deviceNameStr);
-    Serial.println("'");
 }
 bool BLEManager::sendMessage(const Message &msg)
 {
-    if (!deviceConnected)
+    if (!isConnected())
     {
         Serial.println("Cannot send message: BLE not connected");
         return false;
@@ -163,39 +133,54 @@ bool BLEManager::sendMessage(const Message &msg)
         return false;
     }
 
-    Serial.print("Sending ");
-    Serial.print(len);
-    Serial.println(" bytes via BLE notification");
-
     pTxCharacteristic->setValue(buf, len);
     pTxCharacteristic->notify();
-
-    Serial.println("Message forwarded from LoRa to BLE via notification");
+    Serial.print("BLE notify sent (");
+    Serial.print(len);
+    Serial.println(" bytes)");
     return true;
 }
 
 void BLEManager::process()
 {
-    // Handle disconnection/reconnection
-    if (!deviceConnected && oldDeviceConnected)
+    // Stateless connection detection: compare current server connection count
+    static bool prevConnected = false;
+    bool curConnected = isConnected();
+
+    if (!curConnected && prevConnected)
     {
-        delay(500); // give the bluetooth stack the chance to get things ready
+        // Transition: was connected, now disconnected
+        delay(300); // brief pause for the BLE stack
         startAdvertising();
-        Serial.println("Restarted advertising after disconnect");
-        oldDeviceConnected = deviceConnected;
+        Serial.println("BLE disconnected - restarting advertising");
     }
 
-    // Handle connection
-    if (deviceConnected && !oldDeviceConnected)
+    if (curConnected && !prevConnected)
     {
-        oldDeviceConnected = deviceConnected;
-        Serial.println("Connection state updated");
+        // Transition: newly connected
+        Serial.println("BLE connected");
     }
 
-    // Note: Removed BLE advertising inactivity timeout
-    // Requirement: Always able to receive LoRa messages and deliver to Android
-    // Therefore, advertising must never stop automatically
+    prevConnected = curConnected;
 }
+
+bool BLEManager::isConnected() const
+{
+    // Query NimBLE server for active connections
+    NimBLEServer *srv = NimBLEDevice::getServer();
+    if (!srv)
+        return false;
+#ifdef ARDUINO_ARCH_ESP32
+    // NimBLEServer provides getConnectedCount()
+    return srv->getConnectedCount() > 0;
+#else
+    // Fallback: assume false on other platforms
+    return false;
+#endif
+}
+// Note: Removed BLE advertising inactivity timeout
+// Requirement: Always able to receive LoRa messages and deliver to Android
+// Therefore, advertising must never stop automatically
 
 void BLEManager::stopAdvertising()
 {
@@ -213,13 +198,11 @@ void BLEManager::updateActivity()
 
 void BLEManager::disconnect()
 {
-    if (deviceConnected)
+    if (isConnected())
     {
         Serial.println("Disconnecting BLE client...");
         NimBLEDevice::stopAdvertising();
         NimBLEDevice::deinit(true);
-        deviceConnected = false;
-        oldDeviceConnected = false;
         Serial.println("BLE client disconnected and BLE stack reset");
     }
 
@@ -264,9 +247,7 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
 
 void BLEManager::onConnected()
 {
-    deviceConnected = true;
-
-    // Update activity callback if set
+    // Stateless: just notify activity
     if (activityCallback)
     {
         activityCallback();
@@ -275,5 +256,5 @@ void BLEManager::onConnected()
 
 void BLEManager::onDisconnected()
 {
-    deviceConnected = false;
+    // Stateless: nothing to track here
 }
