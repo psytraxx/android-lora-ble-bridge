@@ -26,7 +26,6 @@
 #include "esp_pm.h"
 #include <esp_sleep.h>
 #include "PowerController.h"
-#include "Logging.h"
 
 // Manager objects
 LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_FREQUENCY);
@@ -199,9 +198,6 @@ void setup()
 
     // Initialize power controller with BLE manager and message buffer
     powerController.begin(bleManager, &messageBuffer);
-
-    // Default: verbose logging off (enable via setVerboseLogging(true) for troubleshooting)
-    setVerboseLogging(false);
 
     // Initialize LoRa
     Serial.println("Initializing LoRa radio");
@@ -497,7 +493,7 @@ void loop()
                 sendSuccess = loraManager.sendPacket(buf, len);
             }
 
-                        if (sendSuccess)
+            if (sendSuccess)
             {
                 Serial.println("LoRa TX successful");
 #ifdef LED_PIN

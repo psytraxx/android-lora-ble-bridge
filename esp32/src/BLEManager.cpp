@@ -95,16 +95,18 @@ bool BLEManager::setup(const char *deviceName)
     pAdvertising->addServiceUUID(SERVICE_UUID);
     pAdvertising->enableScanResponse(true);
 
-    // Set advertising parameters to be more responsive (debug/discovery friendly)
-    // Lower values -> more frequent advertising packets -> faster discovery
-    pAdvertising->setMinInterval(200); // ~200ms
-    pAdvertising->setMaxInterval(400); // ~400ms
+    // Set advertising parameters tuned for battery life.
+    // Larger interval values reduce radio duty cycle and save power.
+    // Use 1-2s intervals for polite battery usage while remaining discoverable.
+    pAdvertising->setMinInterval(1000); // ~1000ms
+    pAdvertising->setMaxInterval(2000); // ~2000ms
 
     // Add device name to advertising data for easier identification
     pAdvertising->setName(deviceName);
 
-    // Set TX power to balance range and power consumption
-    NimBLEDevice::setPower(ESP_PWR_LVL_P9); // +9dBm
+    // Lower TX power to save energy; adjust as needed for your range requirements.
+    // ESP_PWR_LVL_P3 is about +3dBm which is a good trade-off for many use cases.
+    NimBLEDevice::setPower(ESP_PWR_LVL_P3); // ~+3dBm
 
     Serial.println("BLE service created");
 
