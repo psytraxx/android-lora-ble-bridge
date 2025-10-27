@@ -2,13 +2,27 @@
 #ifndef LED_MANAGER_H
 #define LED_MANAGER_H
 
+/**
+ * @file LEDManager.h
+ * @brief Simple helper to control a status LED connected to a single GPIO.
+ *
+ * The LEDManager is intentionally minimal: it provides setup, on/off and a
+ * convenience blink method used for user-visible status indications. The
+ * implementation uses Arduino-style APIs (pinMode, digitalWrite) for portability
+ * across ESP32 Arduino-based builds.
+ */
+
 class LEDManager
 {
 public:
-    LEDManager(int pin) : ledPin(pin) {}
+    /**
+     * @brief Construct a new LEDManager
+     * @param pin GPIO pin number the LED is connected to
+     */
+    explicit LEDManager(int pin) : ledPin(pin) {}
 
     /**
-     * @brief Initializes the LED.
+     * @brief Initialize the LED GPIO. Sets the pin mode and ensures LED is off.
      */
     void setup()
     {
@@ -17,10 +31,15 @@ public:
     }
 
     /**
-     * @brief Blinks the LED a specified number of times.
-     * @param times Number of blinks (default: 1).
-     * @param duration Duration of each blink in milliseconds (default: 50 - reduced for power saving).
-     * @param delayBetween Delay between blinks in milliseconds (default: 200 - increased for power saving).
+     * @brief Blink the LED a number of times.
+     *
+     * This is a blocking convenience method intended for simple status
+     * indications during setup or error reporting. For non-blocking patterns
+     * use the setOn/setOff methods and an application-level timer.
+     *
+     * @param times Number of blinks (default: 1)
+     * @param duration Time LED stays on in each blink in milliseconds (default: 50)
+     * @param delayBetween Delay between blinks in milliseconds (default: 200)
      */
     void blink(int times = 1, int duration = 50, int delayBetween = 200)
     {
@@ -37,7 +56,7 @@ public:
     }
 
     /**
-     * @brief Turns the LED on.
+     * @brief Turn the LED on (drive pin HIGH).
      */
     void setOn()
     {
@@ -45,7 +64,7 @@ public:
     }
 
     /**
-     * @brief Turns the LED off.
+     * @brief Turn the LED off (drive pin LOW).
      */
     void setOff()
     {

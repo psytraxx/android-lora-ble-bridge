@@ -4,17 +4,31 @@
 #include "Protocol.h"
 
 /**
- * Circular buffer for storing LoRa messages when BLE is disconnected
- * Holds up to 10 messages, drops oldest when full
+ * @file MessageBuffer.h
+ * @brief Simple fixed-size circular buffer for Message objects.
+ *
+ * The MessageBuffer is used to hold outbound LoRa messages while a BLE
+ * connection is not available. It has a small fixed capacity and uses
+ * a drop-oldest policy when full to avoid unbounded memory growth on the
+ * embedded device.
  */
+
 class MessageBuffer
 {
 public:
+    /**
+     * @brief Create an empty MessageBuffer.
+     */
     MessageBuffer() : head(0), tail(0), count(0) {}
 
     /**
-     * Add a message to the buffer
-     * Drops oldest message if buffer is full
+     * @brief Add a message to the buffer.
+     *
+     * If the buffer is full the oldest message is overwritten (drop-oldest).
+     * This makes the buffer suitable for best-effort telemetry where the most
+     * recent messages are preferred.
+     *
+     * @param msg Message to add (copied into internal storage)
      */
     void add(const Message &msg)
     {
@@ -26,7 +40,7 @@ public:
         }
         else
         {
-            // Buffer full - drop oldest message
+            // Buffer full - overwrite oldest message
             buffer[tail] = msg;
             tail = (tail + 1) % MAX_MESSAGES;
             head = (head + 1) % MAX_MESSAGES;
@@ -34,8 +48,10 @@ public:
     }
 
     /**
-     * Get next message from buffer
-     * Returns true if message retrieved, false if buffer empty
+     * @brief Retrieve the next (oldest) message from the buffer.
+     *
+     * @param[out] msg Destination reference where the message will be copied.
+     * @return true if a message was returned, false if buffer was empty.
      */
     bool get(Message &msg)
     {
@@ -51,7 +67,8 @@ public:
     }
 
     /**
-     * Get number of messages in buffer
+     * @brief Number of messages currently stored.
+     * @return int Count of messages (0..MAX_MESSAGES)
      */
     int getCount() const
     {
@@ -59,7 +76,7 @@ public:
     }
 
     /**
-     * Check if buffer is empty
+     * @brief True if the buffer contains no messages.
      */
     bool isEmpty() const
     {
@@ -67,7 +84,7 @@ public:
     }
 
     /**
-     * Clear all messages from buffer
+     * @brief Remove all messages from the buffer.
      */
     void clear()
     {
@@ -79,9 +96,9 @@ public:
 private:
     static const int MAX_MESSAGES = 10;
     Message buffer[MAX_MESSAGES];
-    int head; // Next message to read
-    int tail; // Next position to write
-    int count; // Number of messages in buffer
+    int head;  // Index of next message to read
+    int tail;  // Index of next write position
+    int count; // Number of messages stored
 };
 
 #endif // MESSAGE_BUFFER_H
