@@ -93,6 +93,12 @@ void setup()
 
     Serial.println("Disabling WiFi and Bluetooth Classic for power savings");
 
+    esp_pm_configure(&((esp_pm_config_esp32_t){
+        .max_freq_mhz = 80,
+        .min_freq_mhz = 10,
+        .light_sleep_enable = true,
+    }));
+
     // Disable WiFi completely (saves ~50-80 mA)
     // WiFi is initialized by default in ESP32 Arduino framework
     esp_err_t err = esp_wifi_stop();
