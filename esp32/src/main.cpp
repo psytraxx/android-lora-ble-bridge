@@ -21,7 +21,6 @@
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
 #include <LoRa.h>
-#include "Network.h"
 #include <esp_wifi.h>
 #include "esp_pm.h"
 #include <esp_sleep.h>
@@ -118,23 +117,8 @@ void setup()
     Serial.print(getCpuFrequencyMhz());
     Serial.println(" MHz");
 
-    // Configure power management with automatic light sleep
-    // This enables dynamic frequency scaling and automatic light sleep
-    esp_pm_config_t pm_config = {
-        .max_freq_mhz = 80,         // Maximum CPU frequency when active
-        .min_freq_mhz = 10,         // Minimum 10 MHz when idle (reduced from 40)
-        .light_sleep_enable = true, // Enable automatic light sleep
-    };
-    ESP_ERROR_CHECK(esp_pm_configure(&pm_config));
-
     Serial.println("Power management configured (light sleep enabled)");
 
-    // Initialize watchdog for robustness (30 second timeout)
-    esp_task_wdt_config_t wdt_config = {
-        .timeout_ms = 30000, // 30 seconds
-        .trigger_panic = true,
-    };
-    esp_task_wdt_init(&wdt_config);
     esp_task_wdt_add(xTaskGetCurrentTaskHandle());
 
     Serial.println("ESP32 LoRa-BLE Bridge starting");
