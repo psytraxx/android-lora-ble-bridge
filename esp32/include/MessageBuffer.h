@@ -17,9 +17,10 @@ class MessageBuffer
 {
 public:
     /**
-     * @brief Create an empty MessageBuffer.
+     * @brief Create a MessageBuffer. Do NOT reinitialize RTC-backed storage here
+     * to avoid clearing preserved data after deep-sleep wake.
      */
-    MessageBuffer() : head(0), tail(0), count(0) {}
+    MessageBuffer() {}
 
     /**
      * @brief Add a message to the buffer.
@@ -95,10 +96,12 @@ public:
 
 private:
     static const int MAX_MESSAGES = 10;
-    Message buffer[MAX_MESSAGES];
-    int head;  // Index of next message to read
-    int tail;  // Index of next write position
-    int count; // Number of messages stored
+    // Storage and indices are defined in the implementation file and placed in
+    // RTC slow memory so they survive deep sleep. See MessageBuffer.cpp.
+    static Message buffer[MAX_MESSAGES];
+    static int head;  // Index of next message to read
+    static int tail;  // Index of next write position
+    static int count; // Number of messages stored
 };
 
 #endif // MESSAGE_BUFFER_H

@@ -1,133 +1,100 @@
-# **ESP32 LoRa-BLE Gateway: Use Cases**
+# ESP32 LoRa-BLE Gateway: Deep-sleep-first Power Policy (updated)
 
-This document outlines the primary user scenarios and system behaviors based on the power-saving architecture.
+This document describes the new low-power design: the device spends most of its time in deep sleep. It wakes on a boot/button press or LoRa activity, briefly opens a BLE pairing window, and otherwise returns to deep sleep. LoRa messages received while the device is asleep must survive deep sleep so they can be forwarded later when paired.
 
-## **1\. Device Startup**
+## Summary of new policy
 
-* **Action:** The device is powered on or reset.  
-* **Response:** The system initializes and immediately enters "Active Advertising" mode for 30 seconds to allow a user to connect.
+- Default mode: DEEP SLEEP (lowest power). The device only wakes for explicit events.
+- Wake sources:
+  - Boot / user boot-button press (GPIO wake) — used to start a BLE pairing window.
+  - LoRa DIO0 (GPIO) — a LoRa receive event should wake the chip from deep sleep.
+  - Optional RTC timer (used for short post-forward delays).
+- BLE pairing window: 60 seconds after boot-button wake. If no pairing occurs within 60s, device returns to deep sleep.
+- Paired/connected state: when a BLE client connects, the device stays awake for up to 60 seconds (paired window). Each received BLE message from the client restarts this 60s window. If the client disconnects, the device immediately goes back to deep sleep.
+- LoRa behavior while sleeping: LoRa DIO0 wake will cause the MCU to wake, read and store all pending LoRa messages, persist them across deep sleep, and then go back to deep sleep (or follow forwarding logic described below).
+- Forwarding behavior when paired: If the device is currently paired (connected) when it wakes for LoRa, buffered messages should be forwarded to the Android app. After forwarding (or if forwarding was attempted), the device returns to deep sleep after a short grace period (10 seconds) to allow the app to receive/acknowledge.
 
-## **2\. Disconnected & Idle**
+## Timers and windows
 
-* **Scenario:** The device is on but not connected to the Android app.  
-* **Behavior:** The device is in a power-saving loop:  
-  1. **Advertise:** Actively advertises via BLE for 30 seconds.  
-  2. **Sleep:** Enters Light Sleep for 30 seconds.  
-  3. This cycle repeats, ensuring the device is periodically discoverable while saving power.
+- Pairing/advertise window after boot-button: 60 seconds.
+- Paired (connected) maximum idle window: 60 seconds. Any BLE RX activity resets this 60s window.
+- After forwarding buffered LoRa messages while paired, wait 10 seconds then re-enter deep sleep.
 
-## **3\. Receiving LoRa Data (While Disconnected)**
+## Message buffer persistence across deep sleep
 
-* **Scenario:** A LoRa message arrives while the device is in its 30-second Light Sleep state.  
-* **Behavior:**  
-  1. The LoRa module triggers a GPIO pin, instantly waking the ESP32.  
-  2. The device receives the LoRa message.  
-  3. The message is stored in an internal buffer (to be delivered later).  
-  4. The device immediately goes back to Light Sleep (it does not wait for the 30-second sleep timer to finish).
+We must ensure LoRa messages survive deep sleep. Options:
 
-## **4\. Connecting the Android App**
+- RTC slow memory (RTC_DATA_ATTR): Fast and simple for small buffers and short deep-sleep cycles. Data in RTC slow memory remains across deep sleep cycles.
+- NVS (non-volatile storage): Persistent across power cycles; good for larger buffers or if messages must survive a full power loss.
 
-* **Scenario:** The user opens the Android app and connects to the device (during its 30-second advertising window).  
-* **Behavior:**  
-  1. A BLE connection is established.  
-  2. The device *immediately* uploads the entire buffer of stored LoRa messages to the app.  
-  3. After the sync is complete, the device enters the "Always Active" connected mode.
+Recommendation: use RTC slow memory (RTC_DATA_ATTR) for the in-RAM circular buffer when message size and capacity are modest (the existing `MessageBuffer` is small — e.g. 10 messages). If you need durability across power-off, add optional NVS persistence as a fallback when RTC buffer becomes full or on graceful shutdown.
 
-## **5\. Relaying App Message to LoRa (While Connected)**
+Implementation notes:
 
-* **Scenario:** The user is connected and sends a message from the app.  
-* **Behavior:**  
-  1. The device is in "Always Active" mode (no power saving).  
-  2. It receives the message via BLE.  
-  3. It immediately transmits that message over the LoRa radio.  
-  4. It stays active, awaiting the next command.
-
-## **6\. Disconnecting the App (Manual)**
-
-* **Scenario:** The user manually disconnects from the device within the app.  
-* **Behavior:**  
-  1. The BLE connection is terminated.  
-  2. The device immediately reverts to the "Disconnected & Idle" power-saving loop (starting with 30 seconds of advertising).
-
-## **7\. Disconnecting (Automatic Inactivity)**
-
-* **Scenario:** The device is connected, but there is no communication (no BLE or LoRa activity) for 60 seconds.  
-* **Behavior:**  
-  1. The 60-second inactivity timer expires.  
-  2. The device *automatically* terminates the BLE connection to save power.  
-  3. The device reverts to the "Disconnected & Idle" power-saving loop (starting with 30 seconds of advertising).
-
-```mermaid
-graph TD
-    A[Start / Initialization] --> F(Active Advertising: 30 Sec)
-
-    subgraph Power Modes
-        B(Cyclic Light Sleep)
-        D(BLE Connected Mode: Always Active)
-        F
-    end
-
-    %% Disconnected Loop: F <--> B
-    F -- 30 Sec Timeout --> B
-    F -- Successful BLE Connection --> I(Send Buffered Messages to App)
-
-    B -- 30 Sec RTC Timer Wakeup --> F
-    B -- LoRa Event (GPIO Wake) --> G(Handle LoRa RX + Buffer Message)
-
-    G -- Response Complete --> B
-
-    %% Sync State
-    I -- Sync Complete --> D
-
-    %% Connected Mode D
-    D -- Data from Android (BLE RX) --> H(LoRa TX Message)
-
-    D -- BLE Disconnect --> F
-    D -- 60 Sec Inactivity Timeout --> F
-
-    H -- Message Sent --> D
-
-```
+- Mark the in-memory buffer structure with `RTC_DATA_ATTR` so it survives deep sleep. Ensure pointers are simple offsets/indices (no raw heap pointers across deep sleep).
+- Keep the buffer bounded and lock-free for ISR + main context (use critical sections around head/tail updates). Overwrite oldest on overflow.
 
 ## State-machine contract (concise)
 
-- Inputs: BLE connect/disconnect events, BLE RX messages, LoRa RX (GPIO/ISR), RTC timer wake (30s), manual disconnect, inactivity timer (60s).
-- Outputs: Start/stop BLE advertising, enter/exit light-sleep, send buffered messages to BLE on connect, enable "always active" mode while connected, forward BLE->LoRa messages immediately.
-- Error modes: buffer overflow (drop oldest message), BLE send failure (retry limited, stop on repeated failure), wake while processing (process then return to sleep as appropriate).
+- Inputs: boot-button wake, LoRa GPIO wake (DIO0), BLE connect/disconnect events, BLE RX messages, RTC timer wake for short grace delays.
+- Outputs: start/stop BLE advertising, enter deep sleep, persist or load message buffer, forward buffered messages on connect.
 
 Success criteria:
-- While disconnected the device alternates: Advertise 30s -> Light Sleep 30s (RTC wake). During sleep, a LoRa GPIO interrupt must wake the MCU, the LoRa payload must be buffered and the MCU may return to sleep immediately after buffering.
-- On BLE connect the device uploads all buffered LoRa messages to the app (as soon as BLE is ready) and remains always-active until a manual disconnect or a 60s inactivity timeout.
 
-### Edge cases to watch
+- Device remains in deep sleep unless explicitly woken by boot-button or LoRa.
+- Boot-button wake opens BLE advertising for 60s; if connected, device remains awake for up to 60s of inactivity, reset by BLE RXs; manual or automatic disconnect -> immediate deep sleep.
+- LoRa messages received while asleep wake the device and are persisted across deep sleep; if device is paired, messages are forwarded and device re-enters deep sleep 10s after forwarding.
 
-- LoRa RX arrives while BLE is connected: handle as live-forward (no buffering) and do not enter sleep. Ensure concurrency between IRQ and BLE TX.
-- Multiple LoRa messages during sleep: GPIO wake should cause the MCU to process all pending LoRa packets from the LoRa queue and buffer them if disconnected; buffer overflow policy: overwrite oldest.
-- BLE connect race: phone connects while buffered messages are being delivered — ensure delivery is atomic from buffer perspective (send everything present at connect time, then continue live forwarding).
-- Inactivity timer vs manual disconnect: manual disconnect should immediately cancel inactivity timer and go to disconnected loop; inactivity timer reached should forcefully disconnect BLE and start the disconnected loop.
-- Failure to send buffered messages (BLE TX fail): stop the upload, keep remaining messages in buffer and retry on next connect.
+## Edge cases and constraints
 
-## File mapping (where behaviors live today)
+- LoRa RX arrival while BLE connected: treat as live-forward (do not deep-sleep). Make sure forwarding is thread-safe with ISR.
+- Buffer overflow: overwrite oldest message and log warning.
+- BLE connect race during forwarding: only forward the snapshot of buffer present at connect start, leaving new arrivals in buffer for future wakes.
+- Ensure buffer uses RTC-safe primitives (no malloc/references across deep sleep).
 
-- `src/main.cpp`
-  - Initializes BLE, LoRa, power management and wake GPIOs.
-  - Registers `onLoRaReceive` ISR which queues LoRa packets.
-  - Contains `handleLoRaToBleForwarding()` and `processLoRaPacket()` which implement buffering and forwarding logic (buffer stored in global `MessageBuffer messageBuffer`).
+## Testing checklist
 
+1. Power on the device normally: it should immediately enter deep sleep unless powered by serial/debugger.
+2. Press the boot button: device should wake and advertise for BLE for 60s.
+3. If no pairing in 60s: device should return to deep sleep.
+4. Pair from the Android app within 60s: device should stay awake and be in a paired window for up to 60s; sending BLE messages from the app should reset that 60s window.
+5. If the app disconnects: device should immediately go to deep sleep.
+6. While the device is deep sleeping, send a LoRa message that triggers DIO0: device must wake, buffer the message in RTC memory, and return to deep sleep promptly.
+7. After pairing, ensure buffered LoRa messages are delivered; after forwarding, device should go back to deep sleep after ~10s.
+8. Test buffer overflow by sending >capacity LoRa messages while asleep; oldest messages should be overwritten and the behavior logged.
 
-  - Implements esp_pm locks for temporarily disabling light sleep and boosting CPU during LoRa TX. Does not orchestrate advertise/sleep cycles.
+## Next steps I will take now
 
-- `include/MessageBuffer.h`
-  - Circular buffer for up to 10 messages. Ready for use by the power flow.
+1. Inspect `PowerController.h`/`.cpp` and `MessageBuffer.h`/`.cpp` to determine how to mark the buffer with `RTC_DATA_ATTR` and where to add wake-cause logic.
+2. Implement the deep-sleep control in `PowerController` and adapt `MessageBuffer` to be RTC-safe.
 
-- `src/BLEManager.cpp` and `include/BLEManager.h`
-  - BLE GATT server, advertising control, connection callbacks, `sendMessage()` and `onMessageReceived()`.
-  - Exposes `updateActivity()` and `isConnected()` which are useful for inactivity handling.
+## State diagram
 
-## Next implementation steps (short)
+Below is a mermaid state diagram that visualizes the deep-sleep-first behavior and the main wake/transition paths.
 
-1. Add a small `PowerController` (or extend main loop) to implement the disconnected advertising/light-sleep cycle (30s advertise, 30s light-sleep) using RTC timer wake and `gpio_wakeup_enable` for LoRa DIO0.
-2. Modify BLE connection handling to immediately upload the `messageBuffer` contents on connect (remove the current 2s hold unless a short stabilization delay is required). Ensure partial failures keep remaining messages in buffer.
-3. Add a 60s inactivity timer that resets on BLE/LoRa activity; when expired, force disconnect and revert to the disconnected cycle.
-4. Add small test instructions to validate: (a) LoRa RX during sleep causes wake and buffering, (b) BLE connect triggers immediate buffer sync, (c) inactivity disconnect works.
+```mermaid
+stateDiagram-v2
+    [*] --> DEEP_SLEEP
 
-If you want I can now implement step 1 and 3 (PowerController + inactivity timer) in code and run a quick build to ensure no compile errors. After that I'll implement immediate buffered upload behavior.
+    DEEP_SLEEP --> BOOT_WAKE: Boot / Boot-button GPIO
+    DEEP_SLEEP --> LORA_WAKE: LoRa DIO0 GPIO
+
+    BOOT_WAKE --> ADVERTISING: start BLE advertise (60s)
+    ADVERTISING --> PAIRED: BLE client connects
+    ADVERTISING --> DEEP_SLEEP: advertise timeout (60s) / no pairing
+
+    PAIRED --> PAIRED_IDLE: reset paired timer on BLE RX
+    PAIRED --> DEEP_SLEEP: BLE disconnect -> immediate deep sleep
+    PAIRED --> FORWARDING: LoRa arrives or buffered messages present
+
+    FORWARDING --> PAIRED: forwarding complete, wait 10s
+    FORWARDING --> DEEP_SLEEP: if not paired or after grace wait
+
+    LORA_WAKE --> PROCESS_LORA: read & persist LoRa packets
+    PROCESS_LORA --> BUFFER_STORED: store in RTC buffer
+    PROCESS_LORA --> FORWARDING: if currently paired, forward immediately
+    BUFFER_STORED --> DEEP_SLEEP: return to deep sleep after processing
+
+   
+```
+

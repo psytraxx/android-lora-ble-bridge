@@ -8,7 +8,7 @@
 //! - LoRa radio for long-range communication (5-10 km typical)
 //! - Message queue for inter-task communication
 //! - Message buffering (up to 10 messages) when BLE disconnected
-//! - Light sleep for power optimization
+//! - Deep sleep for power optimization (deep-sleep-first policy)
 //! - Interrupt-driven LoRa reception (always listening)
 #include <Arduino.h>
 #include "lora_config.h"
@@ -125,7 +125,7 @@ void setup()
     Serial.print(getCpuFrequencyMhz());
     Serial.println(" MHz");
 
-    Serial.println("Power management configured (light sleep enabled)");
+    Serial.println("Power management configured (deep-sleep-first policy; light-sleep support enabled)");
 
     esp_task_wdt_add(xTaskGetCurrentTaskHandle());
 
@@ -237,10 +237,21 @@ void setup()
     // Start continuous receive mode
     loraManager.startReceiveMode();
 
-    // Configure GPIO wake-up for LoRa interrupt (allows wake from light sleep)
+    // Configure GPIO wake-up for LoRa interrupt (allows wake from deep sleep via GPIO)
     gpio_wakeup_enable((gpio_num_t)LORA_DIO0, GPIO_INTR_HIGH_LEVEL);
     esp_sleep_enable_gpio_wakeup();
-    Serial.println("GPIO wake-up enabled for LoRa DIO0 - can wake from light sleep");
+    Serial.println("GPIO wake-up enabled for LoRa DIO0 - can wake from deep sleep");
+
+    // Optionally configure a boot/button GPIO to allow the user to wake and open a pairing window
+#ifdef BOOT_BUTTON_PIN
+    pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
+    gpio_wakeup_enable((gpio_num_t)BOOT_BUTTON_PIN, GPIO_INTR_LOW_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
+    Serial.print("Boot button wake enabled on pin ");
+    Serial.println(BOOT_BUTTON_PIN);
+#else
+    Serial.println("No BOOT_BUTTON_PIN defined - boot button wake disabled");
+#endif
 
     // Initialize LED
 #ifdef LED_PIN
@@ -248,6 +259,31 @@ void setup()
 #endif
 
     Serial.println("All systems initialized");
+
+    // Decide initial behavior based on wake cause: if boot-button wake -> start pairing window
+    esp_sleep_wakeup_cause_t wake_cause = esp_sleep_get_wakeup_cause();
+    Serial.print("Wake cause: ");
+    Serial.println((int)wake_cause);
+
+#ifdef BOOT_BUTTON_PIN
+    if (wake_cause == ESP_SLEEP_WAKEUP_GPIO)
+    {
+        // Determine which GPIO caused the wake - for simplicity assume BOOT_BUTTON_PIN or LORA_DIO0
+        // Start pairing window if boot button pressed
+        // Note: finer-grained GPIO wake source inspection can be added if necessary
+        Serial.println("Woke from GPIO - starting pairing window");
+        powerController.startPairingWindow();
+    }
+    else
+    {
+        // Default: go to deep sleep until an event (LoRa DIO0 or boot button) wakes us
+        Serial.println("Startup: entering deep sleep (waiting for boot-button or LoRa)");
+        powerController.enterDeepSleepNow();
+    }
+#else
+    // If no boot button available, stay awake and continue normal operation (legacy behavior)
+    Serial.println("No BOOT_BUTTON_PIN - continuing normal startup (legacy awake mode)");
+#endif
 }
 
 /**
@@ -436,20 +472,20 @@ void processLoRaPacket(const LoRaPacket &packet)
     }
     }
 
-    // If we were woken by GPIO (LoRa) and we're still disconnected, go back to immediate light sleep
+    // If we were woken by GPIO (LoRa) and we're still disconnected, go back to deep sleep
     if (!bleManager->isConnected())
     {
         esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
         if (cause == ESP_SLEEP_WAKEUP_GPIO)
         {
-            Serial.println("processLoRaPacket: woke from GPIO - re-entering light sleep");
-            powerController.enterLightSleepNow(30ULL * 1000000ULL);
+            Serial.println("processLoRaPacket: woke from GPIO - re-entering deep sleep");
+            powerController.enterDeepSleepNow(30ULL * 1000000ULL);
         }
     }
 }
 
 /**
- * @brief Main loop - handles BLE<->LoRa message bridging with light sleep for power savings
+ * @brief Main loop - handles BLE<->LoRa message bridging with deep-sleep-first power policy
  */
 void loop()
 {
@@ -529,8 +565,9 @@ void loop()
                        loraActivity;
 
     // Adaptive delay for power savings
-    // With automatic light sleep enabled, longer delays allow the system to
-    // enter light sleep mode for significant power savings
+    // Longer delays allow the system to be idle while wake sources (BLE/LoRa GPIO/RTC)
+    // can bring it back when work arrives. The system uses a deep-sleep-first policy
+    // for long idle periods; light-sleep support remains available for short idle work.
 
     if (hasActivity)
     {
@@ -539,8 +576,8 @@ void loop()
     }
     else
     {
-        // Idle - long delay enables automatic light sleep
-        // BLE modem and LoRa GPIO interrupts will wake the system
+        // Idle - long delay allows the system to remain idle; BLE modem and LoRa GPIO
+        // interrupts will wake the system
         vTaskDelay(pdMS_TO_TICKS(2000)); // 2 seconds (was 100ms)
     }
 }

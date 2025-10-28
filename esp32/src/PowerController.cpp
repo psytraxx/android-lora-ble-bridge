@@ -4,12 +4,10 @@
 
 PowerController *PowerController::instance = nullptr;
 
-// Configuration: advertise and light-sleep durations (ms)
-static const unsigned long ADVERTISE_MS = 30000UL;   // 30 seconds advertise window
-static const unsigned long LIGHT_SLEEP_MS = 30000UL; // 30 seconds light sleep (change to 5000 for quick debug)
+// Note: New deep-sleep-first policy uses pairing windows and RTC-backed buffer
 
 PowerController::PowerController()
-    : bleManager(nullptr), messageBuffer(nullptr), state(STATE_DISCONNECTED_ADVERTISING), advertiseStartMillis(0), lastActivityMillis(0)
+    : bleManager(nullptr), messageBuffer(nullptr), state(STATE_DEEP_SLEEP), advertiseStartMillis(0), lastActivityMillis(0)
 {
     instance = this;
 }
@@ -25,10 +23,9 @@ void PowerController::begin(BLEManager *bleMgr, MessageBuffer *buf)
         bleManager->setActivityCallback(&PowerController::activityCallbackStatic);
     }
 
-    // Start in advertising state
-    // Leave advertiseStartMillis zero so update() sets it when advertising actually starts
+    // Start in deep sleep by default; main will decide whether to start pairing window
     advertiseStartMillis = 0;
-    state = STATE_DISCONNECTED_ADVERTISING;
+    state = STATE_DEEP_SLEEP;
 }
 
 void PowerController::activityCallbackStatic()
@@ -44,97 +41,94 @@ void PowerController::resetInactivityTimer()
 
 void PowerController::update()
 {
-    (void)0; // no-op to avoid unused warnings
-    // Check connection state and handle transitions
+    (void)0;
     bool connected = (bleManager && bleManager->isConnected());
 
+    // If connected -> ensure we're in CONNECTED state and manage paired timeout
     if (connected)
     {
         if (state != STATE_CONNECTED)
         {
-            Serial.println("PowerController: Entering CONNECTED state (always active)");
+            Serial.println("PowerController: Entering CONNECTED (paired) state");
             state = STATE_CONNECTED;
-            // When connected, ensure advertising is stopped
             bleManager->stopAdvertising();
         }
 
-        // If we haven't received activity recently, reset timer
         if (lastActivityMillis == 0)
             lastActivityMillis = millis();
 
-        // 60s inactivity timeout -> force disconnect
-        if ((millis() - lastActivityMillis) > 60000UL)
+        // Paired idle timeout -> disconnect and go to deep sleep
+        if ((millis() - lastActivityMillis) > PAIRED_TIMEOUT_MS)
         {
-            Serial.println("PowerController: Inactivity timeout - disconnecting BLE client");
+            Serial.println("PowerController: Paired idle timeout - disconnecting and deep sleep");
             bleManager->disconnect();
-            state = STATE_DISCONNECTED_ADVERTISING;
-            advertiseStartMillis = millis();
+            // Immediately enter deep sleep
+            enterDeepSleepNow();
         }
 
         return;
     }
 
-    // If we reach here, BLE is not connected. If we were previously in CONNECTED state
-    // we need to transition back to the disconnected advertising state so the
-    // advertise timer is (re-)initialized and sleep cycles resume.
-    if (!connected && state == STATE_CONNECTED)
+    // Not connected
+    if (state == STATE_CONNECTED)
     {
-        Serial.println("PowerController: BLE disconnected - switching to DISCONNECTED_ADVERTISING");
-        state = STATE_DISCONNECTED_ADVERTISING;
-        // Clear advertiseStartMillis so update() will re-start advertising and set the timer
-        advertiseStartMillis = 0;
+        // We were connected but now disconnected -> go to deep sleep immediately
+        Serial.println("PowerController: BLE disconnected - entering deep sleep");
+        enterDeepSleepNow();
+        return;
     }
 
-    // Disconnected states: advertising for 30s, then light sleep for 30s
-    if (state == STATE_DISCONNECTED_ADVERTISING)
+    // If we're in advertising window, check timeout
+    if (state == STATE_ADVERTISING_WINDOW)
     {
-        // Ensure advertising is active; set advertiseStartMillis when advertising begins
         if (advertiseStartMillis == 0)
         {
-            Serial.println("PowerController: startAdvertising");
+            // Ensure advertising is active
+            Serial.println("PowerController: startAdvertising (pairing window)");
             bleManager->startAdvertising();
             advertiseStartMillis = millis();
         }
 
-        // (Removed periodic debug logs to reduce console noise)
-
-        if (millis() - advertiseStartMillis >= ADVERTISE_MS)
+        // If pairing window expired -> go to deep sleep
+        if ((millis() - advertiseStartMillis) >= PAIR_WINDOW_MS)
         {
-            Serial.print("PowerController: Advertising period ended (timeout=");
-            Serial.print(ADVERTISE_MS);
-            Serial.print(" ms) - entering light sleep for ");
-            Serial.print(LIGHT_SLEEP_MS);
-            Serial.println(" ms");
-
-            // Prepare for light sleep. Let LoRa GPIO wake the chip or timer wake after LIGHT_SLEEP_MS
-            esp_sleep_enable_timer_wakeup(LIGHT_SLEEP_MS * 1000ULL);
-            // Note: main.cpp already enabled GPIO wake for LoRa DIO0 via gpio_wakeup_enable
-
-            // Small delay to let BLE stop advertising gracefully
-            delay(20);
-
-            // Enter light sleep (this will block until wake)
-            esp_light_sleep_start();
-
-            // Woke up
-            Serial.println("PowerController: Woke from light sleep");
-            // Reset advertise timer and return to advertising state
-            advertiseStartMillis = millis();
-            state = STATE_DISCONNECTED_ADVERTISING;
+            Serial.println("PowerController: Pairing window expired - entering deep sleep");
+            enterDeepSleepNow();
         }
     }
 }
 
-void PowerController::enterLightSleepNow(uint64_t microseconds)
+void PowerController::startPairingWindow()
 {
-    Serial.print("PowerController: enterLightSleepNow for ");
-    Serial.print(microseconds / 1000000ULL);
-    Serial.println(" seconds");
+    Serial.println("PowerController: startPairingWindow requested");
+    state = STATE_ADVERTISING_WINDOW;
+    advertiseStartMillis = 0; // will be set in update when advertising starts
+    lastActivityMillis = 0;
+    // Ensure BLE advertising will be started by update() path
+}
 
-    esp_sleep_enable_timer_wakeup(microseconds);
-    // Clear advertise timer so when we wake the advertising window restarts
-    advertiseStartMillis = 0;
-    delay(10);
-    esp_light_sleep_start();
-    Serial.println("PowerController: woke from immediate light sleep");
+void PowerController::enterDeepSleepNow(uint64_t microseconds)
+{
+    Serial.println("PowerController: Preparing to enter deep sleep");
+
+    if (microseconds > 0)
+    {
+        esp_sleep_enable_timer_wakeup(microseconds);
+        Serial.print("Deep sleep with RTC timer for ");
+        Serial.print(microseconds / 1000000ULL);
+        Serial.println(" seconds");
+    }
+
+    // Ensure BLE is stopped to allow lowest power
+    if (bleManager)
+    {
+        bleManager->stopAdvertising();
+    }
+
+    // Small delay to let stacks settle
+    delay(20);
+
+    Serial.println("Entering deep sleep now");
+    // Block until wake
+    esp_deep_sleep_start();
 }

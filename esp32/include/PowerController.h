@@ -12,7 +12,7 @@
  *
  * The PowerController observes BLE activity (via a callback) and drives a
  * simple state machine that decides when to advertise, remain connected, or
- * enter light sleep to conserve battery. The implementation is intentionally
+ * enter deep sleep to conserve battery. The implementation is intentionally
  * lightweight and suitable for devices with limited power budgets.
  */
 
@@ -39,9 +39,9 @@ public:
     /**
      * @brief Periodic update called from the main loop.
      *
-     * The PowerController may put the CPU into light sleep from within this
-     * method when conditions indicate the device should conserve power. Keep
-     * the call frequency reasonable (e.g., once every 100..500 ms).
+     * The PowerController implements a deep-sleep-first policy and will
+     * transition the system into deep sleep where appropriate. Keep the call
+     * frequency reasonable (e.g., once every 100..500 ms).
      */
     void update();
 
@@ -54,10 +54,16 @@ public:
     static void activityCallbackStatic();
 
     /**
-     * @brief Enter light sleep immediately for the specified duration.
-     * @param microseconds Sleep duration in microseconds.
+     * @brief Start a BLE pairing/advertising window (called after a boot-button wake)
+     * The window duration is PAIR_WINDOW_MS (60 seconds).
      */
-    void enterLightSleepNow(uint64_t microseconds);
+    void startPairingWindow();
+
+    /**
+     * @brief Enter deep sleep immediately (optionally set a short RTC timer wake)
+     * @param microseconds If non-zero, set RTC timer wake for this duration before deep-sleep
+     */
+    void enterDeepSleepNow(uint64_t microseconds = 0);
 
 private:
     BLEManager *bleManager{nullptr};
@@ -65,10 +71,15 @@ private:
 
     enum State
     {
-        STATE_DISCONNECTED_ADVERTISING,
-        STATE_DISCONNECTED_SLEEPING,
+        STATE_DEEP_SLEEP,
+        STATE_ADVERTISING_WINDOW,
         STATE_CONNECTED
-    } state{STATE_DISCONNECTED_ADVERTISING};
+    } state{STATE_DEEP_SLEEP};
+
+    // Timing constants (ms)
+    static const unsigned long PAIR_WINDOW_MS = 60000UL;    // 60s pairing/advertise window
+    static const unsigned long PAIRED_TIMEOUT_MS = 60000UL; // 60s paired idle timeout
+    static const unsigned long POST_FORWARD_MS = 10000UL;   // 10s grace after forwarding
 
     unsigned long advertiseStartMillis{0};
     unsigned long lastActivityMillis{0};
