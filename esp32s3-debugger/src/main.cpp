@@ -407,12 +407,6 @@ void setup()
     Serial.print(getCpuFrequencyMhz());
     Serial.println(" MHz");
 
-    // Initialize watchdog for robustness (30 second timeout)
-    esp_task_wdt_config_t wdt_config = {
-        .timeout_ms = 30000, // 30 seconds
-        .trigger_panic = true,
-    };
-    esp_task_wdt_init(&wdt_config);
     esp_task_wdt_add(xTaskGetCurrentTaskHandle());
 
     Serial.println("===================================");

@@ -11,9 +11,14 @@ public:
                    int writePin, int readPin, int dataCommandPin, int chipSelectPin, int resetPin, int backlightPin)
         : blPin(backlightPin), currentBrightness(255)
     {
-        // Configure PWM for backlight control (ESP32 Arduino 3.x API)
-        ledcAttach(backlightPin, 5000, 8); // Pin, 5kHz frequency, 8-bit resolution
-        ledcWrite(backlightPin, 255);      // Full brightness initially
+        // Configure PWM for backlight control (ESP32 Arduino API)
+        // Use a dedicated LEDC channel. ledcAttach(backlightPin, ...) is not part of
+        // the ESP32 Arduino API; use ledcSetup + ledcAttachPin instead.
+        const int DEFAULT_BL_CH = 0; /* use channel 0 by default */
+        blChannel = DEFAULT_BL_CH;
+        ledcSetup(blChannel, 5000, 8); // channel, frequency (Hz), resolution (bits)
+        ledcAttachPin(backlightPin, blChannel);
+        ledcWrite(blChannel, 255); // Full brightness initially
 
         Arduino_DataBus *bus = new Arduino_ESP32PAR8Q(dataCommandPin, chipSelectPin, writePin, readPin,
                                                       dataPin0, dataPin1, dataPin2, dataPin3,
@@ -148,7 +153,7 @@ public:
     void setBrightness(uint8_t brightness)
     {
         currentBrightness = brightness;
-        ledcWrite(blPin, brightness);
+        ledcWrite(blChannel, brightness);
     }
 
     /**
@@ -164,6 +169,7 @@ private:
     Arduino_GFX *gfx;          // Pointer to Arduino_GFX object
     int blPin;                 // Backlight pin
     uint8_t currentBrightness; // Current brightness level
+    int blChannel;             // LEDC channel used for backlight PWM
 };
 
 #endif // DISPLAY_MANAGER_H
