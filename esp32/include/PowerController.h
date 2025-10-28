@@ -60,10 +60,9 @@ public:
     void startPairingWindow();
 
     /**
-     * @brief Enter deep sleep immediately (optionally set a short RTC timer wake)
-     * @param microseconds If non-zero, set RTC timer wake for this duration before deep-sleep
+     * @brief Enter deep sleep immediately
      */
-    void enterDeepSleepNow(uint64_t microseconds = 0);
+    void enterDeepSleepNow();
 
 private:
     BLEManager *bleManager{nullptr};
@@ -79,7 +78,6 @@ private:
     // Timing constants (ms)
     static const unsigned long PAIR_WINDOW_MS = 60000UL;    // 60s pairing/advertise window
     static const unsigned long PAIRED_TIMEOUT_MS = 60000UL; // 60s paired idle timeout
-    static const unsigned long POST_FORWARD_MS = 10000UL;   // 10s grace after forwarding
 
     unsigned long advertiseStartMillis{0};
     unsigned long lastActivityMillis{0};

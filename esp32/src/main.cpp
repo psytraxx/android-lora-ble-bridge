@@ -24,6 +24,7 @@
 #include <esp_wifi.h>
 #include "esp_pm.h"
 #include <esp_sleep.h>
+#include <esp_system.h>
 #include "PowerController.h"
 
 // Manager objects
@@ -237,23 +238,19 @@ void setup()
     // Start continuous receive mode
     loraManager.startReceiveMode();
 
-    // Configure GPIO wake-up for LoRa interrupt (allows wake from deep sleep via GPIO)
-    gpio_wakeup_enable((gpio_num_t)LORA_DIO0, GPIO_INTR_HIGH_LEVEL);
-    esp_sleep_enable_gpio_wakeup();
-    Serial.println("GPIO wake-up enabled for LoRa DIO0 - can wake from deep sleep");
+    esp_err_t err_wake = esp_sleep_enable_ext1_wakeup(1ULL << LORA_DIO0, ESP_EXT1_WAKEUP_ANY_HIGH);
+    if (err_wake == ESP_OK)
+    {
+        Serial.println("EXT1 wake-up enabled for LoRa DIO0");
+    }
+    else
+    {
+        Serial.println("Failed to enable EXT1 wake");
+    }
 
-    // Optionally configure a boot/button GPIO to allow the user to wake and open a pairing window
-#ifdef BOOT_BUTTON_PIN
-    pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
-    gpio_wakeup_enable((gpio_num_t)BOOT_BUTTON_PIN, GPIO_INTR_LOW_LEVEL);
-    esp_sleep_enable_gpio_wakeup();
-    Serial.print("Boot button wake enabled on pin ");
-    Serial.println(BOOT_BUTTON_PIN);
-#else
-    Serial.println("No BOOT_BUTTON_PIN defined - boot button wake disabled");
-#endif
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON, 0);
 
-    // Initialize LED
+// Initialize LED
 #ifdef LED_PIN
     ledManager.setup();
 #endif
@@ -263,27 +260,38 @@ void setup()
     // Decide initial behavior based on wake cause: if boot-button wake -> start pairing window
     esp_sleep_wakeup_cause_t wake_cause = esp_sleep_get_wakeup_cause();
     Serial.print("Wake cause: ");
-    Serial.println((int)wake_cause);
+    switch (wake_cause)
+    {
+    case ESP_SLEEP_WAKEUP_UNDEFINED:
+        Serial.println("UNDEFINED");
+        break;
+    case ESP_SLEEP_WAKEUP_ALL: // deprecated alias
+        Serial.println("ALL (deprecated)");
+        break;
+    case ESP_SLEEP_WAKEUP_EXT0:
+        Serial.println("EXT0 (single-pin GPIO)");
+        break;
+    case ESP_SLEEP_WAKEUP_EXT1:
+        Serial.println("EXT1 (multi-pin GPIO)");
+        break;
+    case ESP_SLEEP_WAKEUP_TIMER:
+        Serial.println("TIMER (RTC timer)");
+        break;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD:
+        Serial.println("TOUCHPAD");
+        break;
+    case ESP_SLEEP_WAKEUP_ULP:
+        Serial.println("ULP (ultra low power coprocessor)");
+        break;
+    case ESP_SLEEP_WAKEUP_GPIO:
+        Serial.println("GPIO (legacy gpio wake)");
+        break;
+    default:
+        Serial.println((int)wake_cause);
+        break;
+    }
 
-#ifdef BOOT_BUTTON_PIN
-    if (wake_cause == ESP_SLEEP_WAKEUP_GPIO)
-    {
-        // Determine which GPIO caused the wake - for simplicity assume BOOT_BUTTON_PIN or LORA_DIO0
-        // Start pairing window if boot button pressed
-        // Note: finer-grained GPIO wake source inspection can be added if necessary
-        Serial.println("Woke from GPIO - starting pairing window");
-        powerController.startPairingWindow();
-    }
-    else
-    {
-        // Default: go to deep sleep until an event (LoRa DIO0 or boot button) wakes us
-        Serial.println("Startup: entering deep sleep (waiting for boot-button or LoRa)");
-        powerController.enterDeepSleepNow();
-    }
-#else
-    // If no boot button available, stay awake and continue normal operation (legacy behavior)
-    Serial.println("No BOOT_BUTTON_PIN - continuing normal startup (legacy awake mode)");
-#endif
+    powerController.startPairingWindow();
 }
 
 /**
@@ -470,17 +478,6 @@ void processLoRaPacket(const LoRaPacket &packet)
 #endif
         break;
     }
-    }
-
-    // If we were woken by GPIO (LoRa) and we're still disconnected, go back to deep sleep
-    if (!bleManager->isConnected())
-    {
-        esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-        if (cause == ESP_SLEEP_WAKEUP_GPIO)
-        {
-            Serial.println("processLoRaPacket: woke from GPIO - re-entering deep sleep");
-            powerController.enterDeepSleepNow(30ULL * 1000000ULL);
-        }
     }
 }
 

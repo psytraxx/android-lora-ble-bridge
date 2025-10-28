@@ -107,28 +107,12 @@ void PowerController::startPairingWindow()
     // Ensure BLE advertising will be started by update() path
 }
 
-void PowerController::enterDeepSleepNow(uint64_t microseconds)
+void PowerController::enterDeepSleepNow()
 {
-    Serial.println("PowerController: Preparing to enter deep sleep");
-
-    if (microseconds > 0)
-    {
-        esp_sleep_enable_timer_wakeup(microseconds);
-        Serial.print("Deep sleep with RTC timer for ");
-        Serial.print(microseconds / 1000000ULL);
-        Serial.println(" seconds");
-    }
-
-    // Ensure BLE is stopped to allow lowest power
-    if (bleManager)
-    {
-        bleManager->stopAdvertising();
-    }
+    Serial.println("PowerController: EEntering deep sleep");
 
     // Small delay to let stacks settle
     delay(20);
-
-    Serial.println("Entering deep sleep now");
     // Block until wake
     esp_deep_sleep_start();
 }
