@@ -313,6 +313,16 @@ void restorePersistentMessages()
         return;
     }
 
+    // Initialize message history (in-memory) first so restoring persistent
+    // messages from RTC memory appends into this buffer instead of being
+    // cleared afterwards.
+    for (int i = 0; i < MAX_DISPLAY_LINES; i++)
+    {
+        messageHistory[i] = "";
+    }
+    messageCount = 0;
+    Serial.println("Message history initialized");
+
     Serial.print("Restoring ");
     Serial.print(rtc_msg_count);
     Serial.println(" persistent messages from RTC memory");
@@ -439,21 +449,13 @@ void setup()
     Serial.println("===================================\n");
 
     delay(2000);
+
     // Restore any messages persisted across deep sleep
     restorePersistentMessages();
 
     // Initialize activity timer
     lastActivityTime = millis();
     Serial.printf("State: lastActivityTime initialized to %lu\n", lastActivityTime);
-
-    // Initialize message history
-    for (int i = 0; i < MAX_DISPLAY_LINES; i++)
-    {
-        messageHistory[i] = "";
-    }
-    messageCount = 0;
-
-    Serial.println("Message history initialized");
 }
 
 /**
