@@ -35,7 +35,7 @@ public:
         gfx->setRotation(1); // Adjust rotation as needed (0-3)
         gfx->fillScreen(BLACK);
         gfx->setTextColor(WHITE, BLACK); // Set text color (foreground, background)
-        gfx->setTextSize(1);             // Set text size
+        setFontGeneral();                // Set default font for general text
         gfx->setCursor(0, 0);
     }
 
@@ -54,6 +54,7 @@ public:
      */
     void printLine(const String &text)
     {
+        Serial.println(text);
         gfx->println(text);
     }
 
@@ -105,12 +106,19 @@ public:
     }
 
     /**
-     * @brief Sets the text size.
-     * @param size The text size.
+     * @brief Sets the font to tiny size (~8px) for small UI elements/labels.
      */
-    void setTextSize(int size)
+    void setFontTiny()
     {
-        gfx->setTextSize(size);
+        gfx->setTextSize(1);
+    }
+
+    /**
+     * @brief Sets the font to general size (~16px) for text/menus.
+     */
+    void setFontGeneral()
+    {
+        gfx->setTextSize(2);
     }
 
     /**
@@ -170,6 +178,15 @@ private:
     int blPin;                 // Backlight pin
     uint8_t currentBrightness; // Current brightness level
     int blChannel;             // LEDC channel used for backlight PWM
+
+    /**
+     * @brief Sets the text size.
+     * @param size The text size.
+     */
+    void setTextSize(int size)
+    {
+        gfx->setTextSize(size);
+    }
 };
 
 #endif // DISPLAY_MANAGER_H
