@@ -172,9 +172,6 @@ void enterDeepSleep()
 
     delay(2000); // Show message for 2 seconds
 
-    // Turn off display backlight
-    display.setBrightness(0);
-
     // Configure wake-up sources (button only for deep sleep)
     configureDeepSleepWakeup();
 
@@ -345,7 +342,6 @@ void restorePersistentMessages()
 void setup()
 {
     Serial.begin(SERIAL_BAUD_RATE);
-    delay(2000);
 
     bootCount++; // Increment boot counter (persists in RTC memory)
 
@@ -360,9 +356,6 @@ void setup()
     display.printLine("TFT Initialized.");
 
     printWakeupReason();
-
-    // Restore any messages persisted across deep sleep
-    restorePersistentMessages();
 
 // Set CPU frequency for power savings (configurable via build flag)
 #ifndef CPU_FREQ_MHZ
@@ -384,7 +377,7 @@ void setup()
 
     if (loRaQueue == nullptr)
     {
-        display.printLine("Queue creation failed!");
+        Serial.println("Queue creation failed!");
         while (1)
         {
             delay(1000);
@@ -445,7 +438,9 @@ void setup()
     Serial.println("Short press wakes or sends test message when awake");
     Serial.println("===================================\n");
 
-    // Don't clear screen - keep init messages until first message arrives
+    delay(2000);
+    // Restore any messages persisted across deep sleep
+    restorePersistentMessages();
 
     // Initialize activity timer
     lastActivityTime = millis();

@@ -70,49 +70,6 @@ public:
     }
 
     /**
-     * @brief Checks for and reads a packet into a byte buffer.
-     * @param buffer The buffer to store the received packet data.
-     * @param maxLen The maximum number of bytes to read into the buffer.
-     * @return The number of bytes received (packet size), or 0 if no packet was received or buffer is too small.
-     */
-    int receivePacket(byte *buffer, size_t maxLen)
-    {
-        int packetSize = LoRa.parsePacket();
-        if (packetSize == 0 || packetSize > maxLen)
-        {
-            // No packet or buffer too small
-            // Clear any remaining data if packetSize > maxLen? LoRa lib might handle this.
-            // For now, just return 0. If packetSize > maxLen, we might lose data.
-            if (packetSize > maxLen)
-            {
-                Serial.printf("Received packet size (%d) exceeds buffer size (%d). Packet discarded.\n", packetSize, maxLen);
-                // Read and discard the packet data to clear the LoRa buffer
-                while (LoRa.available())
-                {
-                    LoRa.read();
-                }
-            }
-            return 0;
-        }
-
-        // Read packet data into the buffer
-        int bytesRead = 0;
-        while (LoRa.available() && bytesRead < packetSize) // Ensure we don't read more than packetSize
-        {
-            buffer[bytesRead++] = (byte)LoRa.read();
-        }
-
-        // Check if we read the expected number of bytes
-        if (bytesRead != packetSize)
-        {
-            Serial.printf("Error reading packet: expected %d bytes, read %d bytes.\n", packetSize, bytesRead);
-            // Handle error, maybe return -1 or 0? For now, return bytesRead but log error.
-        }
-
-        return bytesRead; // Return the actual number of bytes read
-    }
-
-    /**
      * @brief Gets the received signal strength indicator (RSSI) of the last packet.
      * @return The RSSI value.
      */
