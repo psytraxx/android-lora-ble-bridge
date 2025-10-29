@@ -164,7 +164,7 @@ void enterDeepSleep()
     display.clearScreen();
     display.setFontGeneral();
     display.setCursor(10, 40);
-    display.printLine("Entering deepl sleep mode...");
+    display.printLine("Entering deep sleep mode...");
     display.setCursor(10, 70);
     display.setFontTiny();
     display.printLine("Wake-up via Button (GPIO 14)");
