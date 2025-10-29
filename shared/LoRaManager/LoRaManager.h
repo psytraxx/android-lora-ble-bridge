@@ -2,38 +2,50 @@
 #define LORA_MANAGER_H
 
 #include <SPI.h>
-#include <LoRa.h>
+#include <RadioLib.h>
 #include "lora_config.h"
+
+// Struct for LoRa packets with metadata
+struct LoRaPacket
+{
+    uint8_t buffer[256];
+    int len;
+    int rssi;
+    float snr;
+};
 
 class LoRaManager
 {
 public:
     LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, long frequency)
-        : sckPin(sck), misoPin(miso), mosiPin(mosi), ssPin(ss), rstPin(rst), dio0Pin(dio0), frequency(frequency) {}
+        : sckPin(sck), misoPin(miso), mosiPin(mosi), ssPin(ss), rstPin(rst), dio0Pin(dio0),
+          frequency(frequency), module(nullptr), radio(nullptr) {}
 
     /**
-     * @brief Initializes the LoRa module.
+     * @brief Initializes the LoRa module (RadioLib).
      * @return True if the LoRa module was initialized successfully, false otherwise.
      */
     bool setup()
     {
+        // initialize SPI with specified pins
         SPI.begin(sckPin, misoPin, mosiPin, ssPin);
-        LoRa.setPins(ssPin, rstPin, dio0Pin);
 
-        if (!LoRa.begin(frequency))
+        // create Module and SX1278 instances
+        // Module arguments: cs, dio0, reset (adjust if your RadioLib version expects a different order)
+        module = new Module(ssPin, dio0Pin, rstPin);
+        radio = new SX1278(module);
+
+        int state = radio->begin(frequency, LORA_BANDWIDTH, LORA_SPREADING_FACTOR, LORA_CODING_RATE, 0x12, LORA_TX_POWER, 20, 1);
+        if (state != RADIOLIB_ERR_NONE)
         {
-            Serial.println("LoRa initialization failed!");
+            Serial.print(F("LoRa (RadioLib) init failed, code: "));
+            Serial.println(state);
             return false;
         }
 
-        // Configure LoRa parameters from lora_config.h
-        LoRa.setSignalBandwidth(LORA_BANDWIDTH);
-        LoRa.setCodingRate4(LORA_CODING_RATE);
-        LoRa.setSpreadingFactor(LORA_SPREADING_FACTOR);
-        LoRa.setTxPower(LORA_TX_POWER);
-        LoRa.disableCrc();
+        radio->setCRC(false); // disable CRC for compatibility
 
-        Serial.println("LoRa initialized successfully.");
+        Serial.println("LoRa (RadioLib) initialized successfully.");
         return true;
     }
 
@@ -45,18 +57,24 @@ public:
      */
     bool sendPacket(const byte *buffer, size_t length)
     {
-        LoRa.beginPacket();
-        LoRa.write(buffer, length);         // Use LoRa.write for byte arrays
-        int success = LoRa.endPacket(true); // true for synchronous mode
-        if (success)
+        if (!radio)
+        {
+            Serial.println("Radio not initialized.");
+            return false;
+        }
+
+        int state = radio->startTransmit(buffer, length);
+        if (state == RADIOLIB_ERR_NONE)
         {
             Serial.println("Packet sent successfully!");
+            return true;
         }
         else
         {
-            Serial.println("Failed to send packet.");
+            Serial.print("Failed to send packet, code: ");
+            Serial.println(state);
+            return false;
         }
-        return success > 0;
     }
 
     /**
@@ -66,43 +84,43 @@ public:
      */
     void startReceiveMode()
     {
-        LoRa.receive();
+        // TODO: this where it fails https://github.com/jgromes/RadioLib/blob/master/examples/SX127x/SX127x_PingPong/SX127x_PingPong.ino
+        if (!radio)
+            return;
+        // startReceive can be used for continuous receive in RadioLib
+        int16_t state = radio->startReceive();
+        if (state == RADIOLIB_ERR_NONE)
+        {
+            Serial.println(F("success!"));
+        }
+        else
+        {
+            Serial.print(F("failed, code "));
+            Serial.println(state);
+            while (true)
+            {
+                delay(10);
+            }
+        }
     }
 
-    /**
-     * @brief Gets the received signal strength indicator (RSSI) of the last packet.
-     * @return The RSSI value.
-     */
-    int getPacketRssi()
+    void onReceive(void (*callback)(void))
     {
-        return LoRa.packetRssi();
+        if (!radio)
+            return;
+        // set the packet received action callback
+        radio->setPacketReceivedAction(callback);
     }
 
-    /**
-     * @brief Gets the signal-to-noise ratio (SNR) of the last packet.
-     * @return The SNR value.
-     */
-    float getPacketSnr()
+    LoRaPacket getPacketData()
     {
-        return LoRa.packetSnr();
-    }
-
-    /**
-     * @brief Gets the RSSI (Received Signal Strength Indicator) of the last received packet.
-     * @return RSSI value in dBm.
-     */
-    int getRssi()
-    {
-        return LoRa.packetRssi();
-    }
-
-    /**
-     * @brief Gets the SNR (Signal-to-Noise Ratio) of the last received packet.
-     * @return SNR value in dB.
-     */
-    float getSnr()
-    {
-        return LoRa.packetSnr();
+        if (!radio)
+            return LoRaPacket{0};
+        LoRaPacket packet;
+        packet.len = radio->readData(packet.buffer, sizeof(packet.buffer));
+        packet.rssi = radio->getRSSI();
+        packet.snr = radio->getSNR();
+        return packet;
     }
 
     /**
@@ -111,7 +129,7 @@ public:
      */
     String getConfigurationString() const
     {
-        String config = "LoRa Configuration:\n";
+        String config = "LoRa (RadioLib) Configuration:\n";
         config += "  Frequency: " + String(frequency / 1000000.0, 2) + " MHz\n";
         config += "  Bandwidth: " + String(LORA_BANDWIDTH / 1000.0, 1) + " kHz\n";
         config += "  Spreading Factor: " + String(LORA_SPREADING_FACTOR) + "\n";
@@ -128,6 +146,9 @@ private:
     int rstPin;
     int dio0Pin;
     long frequency;
+
+    Module *module;
+    SX1278 *radio;
 };
 
 #endif // LORA_MANAGER_H

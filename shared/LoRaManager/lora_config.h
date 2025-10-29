@@ -9,13 +9,13 @@
  * @brief LoRa frequency.
  * 433.92 MHz - standard frequency for 433 MHz ISM band
  */
-#define LORA_FREQUENCY 433920000UL // 433.92 MHz
+#define LORA_FREQUENCY 433.92 // 433.92 MHz
 
 /**
  * @brief LoRa bandwidth.
  * Narrower BW = better sensitivity, longer range
  */
-#define LORA_BANDWIDTH 31E3 // 31 kHz
+#define LORA_BANDWIDTH 31.25 // 31.25 kHz
 
 /**
  * @brief LoRa spreading factor.

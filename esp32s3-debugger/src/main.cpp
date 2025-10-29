@@ -17,7 +17,6 @@
 #include <freertos/queue.h>
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
-#include <LoRa.h>
 #include <DisplayManager.h>
 
 // --- Pin Definitions ---
@@ -60,15 +59,6 @@
 
 // Manager objects
 LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_FREQUENCY);
-
-// Struct for LoRa packets with metadata
-struct LoRaPacket
-{
-    uint8_t buffer[256];
-    int len;
-    int rssi;
-    float snr;
-};
 
 QueueHandle_t loRaQueue;
 
@@ -123,19 +113,15 @@ const unsigned long ACK_DELAY_MS = 50; // 50ms delay before sending ACK
 /**
  * @brief LoRa receive callback - handles incoming LoRa packets event-driven
  */
-void onLoRaReceive(int packetSize)
+#if defined(ESP8266) || defined(ESP32)
+ICACHE_RAM_ATTR
+#endif
+void onLoRaReceive()
 {
-    if (packetSize == 0)
-        return;
-
-    LoRaPacket packet;
-    packet.len = LoRa.readBytes(packet.buffer, sizeof(packet.buffer));
-    packet.rssi = LoRa.packetRssi();
-    packet.snr = LoRa.packetSnr();
+    LoRaPacket packet = loraManager.getPacketData();
 
     if (packet.len > 0)
     {
-
         xQueueSend(loRaQueue, &packet, 0);
     }
 }
@@ -436,7 +422,7 @@ void setup()
     }
 
     // Set up event-driven LoRa reception
-    LoRa.onReceive(onLoRaReceive);
+    loraManager.onReceive(onLoRaReceive);
 
     // Start continuous receive mode
     loraManager.startReceiveMode();

@@ -20,7 +20,6 @@
 #include <freertos/queue.h>
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
-#include <LoRa.h>
 #include <esp_wifi.h>
 #include "esp_pm.h"
 #include <esp_sleep.h>
@@ -38,16 +37,6 @@ const int LORA_TO_BLE_QUEUE_SIZE = 15;
 
 QueueHandle_t bleToLoraQueue;
 QueueHandle_t loraToBleQueue;
-
-// Struct for LoRa packets with metadata
-struct LoRaPacket
-{
-    uint8_t buffer[256];
-    int len;
-    int rssi;
-    float snr;
-};
-
 QueueHandle_t loRaQueue;
 
 // BLEManager declared after queues
@@ -62,25 +51,18 @@ MessageBuffer messageBuffer;
 // Flag for LoRa activity (set in ISR, checked in loop)
 volatile bool loraActivity = false;
 
-/**
- * @brief LoRa receive callback - handles incoming LoRa packets event-driven (ISR)
- */
-void IRAM_ATTR onLoRaReceive(int packetSize)
+// https://github.com/jgromes/RadioLib/blob/master/examples/SX127x/SX127x_Receive_Interrupt/SX127x_Receive_Interrupt.ino
+#if defined(ESP8266) || defined(ESP32)
+ICACHE_RAM_ATTR
+#endif
+void onLoRaReceive()
 {
-    if (packetSize == 0)
-        return;
-
-    LoRaPacket packet;
-    packet.len = LoRa.readBytes(packet.buffer, sizeof(packet.buffer));
-    packet.rssi = LoRa.packetRssi();
-    packet.snr = LoRa.packetSnr();
+    LoRaPacket packet = loraManager.getPacketData();
 
     if (packet.len > 0)
     {
-        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        xQueueSendFromISR(loRaQueue, &packet, &xHigherPriorityTaskWoken);
-        loraActivity = true; // Wake up main loop
-        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+
+        xQueueSend(loRaQueue, &packet, 0);
     }
 }
 
@@ -232,7 +214,7 @@ void setup()
     }
 
     // Set up event-driven LoRa reception (CRITICAL: Always listening)
-    LoRa.onReceive(onLoRaReceive);
+    loraManager.onReceive(onLoRaReceive);
 
     // Start continuous receive mode
     loraManager.startReceiveMode();
@@ -498,8 +480,8 @@ void loop()
             }
 
             // Return to RX mode (CRITICAL: Always listening)
-            loraManager.startReceiveMode();
             delay(50);
+            loraManager.startReceiveMode();
         }
         else
         {
