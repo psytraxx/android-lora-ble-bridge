@@ -114,7 +114,7 @@ const unsigned long ACK_DELAY_MS = 50; // 50ms delay before sending ACK
  * @brief LoRa receive callback - handles incoming LoRa packets event-driven
  */
 #if defined(ESP8266) || defined(ESP32)
-ICACHE_RAM_ATTR
+IRAM_ATTR
 #endif
 void onLoRaReceive()
 {

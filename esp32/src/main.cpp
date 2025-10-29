@@ -53,7 +53,7 @@ volatile bool loraActivity = false;
 
 // https://github.com/jgromes/RadioLib/blob/master/examples/SX127x/SX127x_Receive_Interrupt/SX127x_Receive_Interrupt.ino
 #if defined(ESP8266) || defined(ESP32)
-ICACHE_RAM_ATTR
+IRAM_ATTR
 #endif
 void onLoRaReceive()
 {
