@@ -7,22 +7,23 @@ This document outlines all use cases extracted from the existing Android applica
 ## 1. BLE Connection Management
 
 ### UC-1.1: Scan for ESP32S3 Device
-**Actor:** User
-**Trigger:** App startup, reconnection request
+**Actor:** System  
+**Trigger:** App startup, or upon losing connection  
 **Preconditions:**
 - BLE permissions granted
 - Bluetooth enabled
 - Location services enabled (Android requirement for BLE scanning)
+- Not currently connected to ESP32S3
 
 **Flow:**
-1. System starts BLE scan with filters (device name: "ESP32S3-LoRa")
-2. System uses optimized scan settings (low latency mode)
-3. System displays "Scanning..." status
-4. When target device found, proceed to UC-1.2
-5. If not found after 15s timeout, display "Device not found"
+1. System continuously scans for ESP32S3 device (device name: "ESP32S3-LoRa") as long as not connected.
+2. System uses optimized scan settings (low latency mode).
+3. System displays "Scanning..." status.
+4. When target device found, proceed to UC-1.2.
+5. If not found, scanning continues until device is found or app is closed/backgrounded.
 
 **Postconditions:**
-- Device discovered OR timeout occurred
+- Device discovered and connected, or scanning continues.
 
 ---
 
@@ -60,25 +61,19 @@ This document outlines all use cases extracted from the existing Android applica
 
 ---
 
-### UC-1.3: Auto-Reconnect on Disconnection
-**Actor:** User
-**Trigger:** User tries to send message while disconnected
+### UC-1.3: No Message Sending When Disconnected
+**Actor:** User  
+**Trigger:** User attempts to send message  
 **Preconditions:**
 - BLE not connected
-- User has entered message text
 
 **Flow:**
-1. User clicks send button
-2. System detects disconnected state
-3. System queues the pending message
-4. System displays "Reconnecting..." toast
-5. System initiates scan (UC-1.1)
-6. When connected, system automatically sends queued message
-7. System clears message input
-8. System displays "Message sent!" toast
+1. User attempts to send a message.
+2. System detects disconnected state.
+3. System prevents sending and disables send button.
 
 **Postconditions:**
-- Message queued and sent after reconnection
+- Message is not sent or queued.
 
 ---
 
@@ -176,8 +171,8 @@ This document outlines all use cases extracted from the existing Android applica
 ## 3. Message Sending
 
 ### UC-3.1: Send Text Message with GPS
-**Actor:** User
-**Trigger:** User clicks send button
+**Actor:** User  
+**Trigger:** User clicks send button  
 **Preconditions:**
 - BLE connected
 - Message text entered (1-50 characters)
@@ -209,6 +204,7 @@ This document outlines all use cases extracted from the existing Android applica
 - Text too long: Truncate to 50 characters
 - Invalid characters: Display "unsupported characters" toast
 - Send fails: Display "Send failed - retrying..." and retry after 1s
+- **If not connected:** Sending is not possible; send button is disabled and/or user is notified.
 
 ---
 
