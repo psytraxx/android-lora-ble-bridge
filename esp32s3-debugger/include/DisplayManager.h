@@ -54,6 +54,7 @@ public:
      */
     void printLine(const String &text)
     {
+        Serial.println(text);
         gfx->println(text);
     }
 

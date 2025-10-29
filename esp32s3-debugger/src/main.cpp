@@ -177,22 +177,15 @@ void configureDeepSleepWakeup()
  * @brief Enter deep sleep mode (triggered by long button press)
  */
 void enterDeepSleep()
-{
-    Serial.println("\n===================================");
-    Serial.println("Entering DEEP SLEEP mode...");
-    Serial.println("Wake-up source:");
-    Serial.println("  - Button press (GPIO 14)");
-    Serial.println("===================================\n");
-
-    // Show sleep message on display
+{ // Show sleep message on display
     display.clearScreen();
     display.setTextSize(2);
     display.setCursor(10, 40);
-    display.printLine("DEEP SLEEP");
+    display.printLine("Entering deepl sleep mode...");
     display.setCursor(10, 70);
     display.setTextSize(1);
-    display.printLine("Manual sleep activated");
-    display.printLine("Press button to wake");
+    display.printLine("Wake-up via Button (GPIO 14)");
+    display.printLine("or LoRa message (DIO0)");
 
     delay(2000); // Show message for 2 seconds
 
@@ -222,55 +215,42 @@ void printWakeupReason()
     switch (wakeup_reason)
     {
     case ESP_SLEEP_WAKEUP_EXT0:
-        Serial.println("Woke up from deep sleep via button press (EXT0)");
         display.printLine("Woke: Button (Deep Sleep)");
         break;
     case ESP_SLEEP_WAKEUP_EXT1:
-        Serial.println("Woke up from deep sleep via LoRa DIO0 (EXT1)");
         display.printLine("Woke: LoRa Message (Deep Sleep)");
         break;
     case ESP_SLEEP_WAKEUP_TIMER:
-        Serial.println("Woke up from deep sleep via timer");
         display.printLine("Woke: Timer");
         break;
     case ESP_SLEEP_WAKEUP_TOUCHPAD:
-        Serial.println("Woke up from deep sleep via touchpad");
         display.printLine("Woke: Touchpad");
         break;
     case ESP_SLEEP_WAKEUP_ULP:
-        Serial.println("Woke up from deep sleep via ULP program");
         display.printLine("Woke: ULP Program");
         break;
     case ESP_SLEEP_WAKEUP_GPIO:
-        Serial.println("Woke up from deep sleep via GPIO");
         display.printLine("Woke: GPIO");
         break;
     case ESP_SLEEP_WAKEUP_UART:
-        Serial.println("Woke up from deep sleep via UART");
         display.printLine("Woke: UART");
         break;
     case ESP_SLEEP_WAKEUP_WIFI:
-        Serial.println("Woke up from deep sleep via WIFI");
         display.printLine("Woke: WIFI");
         break;
     case ESP_SLEEP_WAKEUP_COCPU:
-        Serial.println("Woke up from deep sleep via COCPU interrupt");
         display.printLine("Woke: COCPU");
         break;
     case ESP_SLEEP_WAKEUP_COCPU_TRAP_TRIG:
-        Serial.println("Woke up from deep sleep via COCPU crash");
         display.printLine("Woke: COCPU Crash");
         break;
     case ESP_SLEEP_WAKEUP_BT:
-        Serial.println("Woke up from deep sleep via Bluetooth");
         display.printLine("Woke: Bluetooth");
         break;
     case ESP_SLEEP_WAKEUP_UNDEFINED:
-        Serial.println("Power-on or reset (not from deep sleep)");
         display.printLine("Power On / Reset");
         break;
     default:
-        Serial.println("Woke from unknown source");
         display.printLine("Woke: Unknown");
         break;
     }
@@ -415,9 +395,6 @@ void setup()
     // Restore any messages persisted across deep sleep
     restorePersistentMessages();
 
-    display.printLine("LoRa Receiver Starting...");
-    Serial.println("TFT Initialized.");
-
 // Set CPU frequency for power savings (configurable via build flag)
 #ifndef CPU_FREQ_MHZ
 #define CPU_FREQ_MHZ 160
@@ -438,7 +415,6 @@ void setup()
 
     if (loRaQueue == nullptr)
     {
-        Serial.println("Failed to create message queue. Halting execution.");
         display.printLine("Queue creation failed!");
         while (1)
         {
@@ -447,9 +423,8 @@ void setup()
     }
 
     // Initialize LoRa
-    Serial.println("\nInitializing LoRa radio...");
-    Serial.println(loraManager.getConfigurationString());
     display.printLine("Initializing LoRa...");
+    Serial.println(loraManager.getConfigurationString());
 
     const int LORA_RETRY_COUNT = 3;
     int loraRetries = LORA_RETRY_COUNT;
@@ -465,12 +440,10 @@ void setup()
         if (loraManager.setup())
         {
             loraSuccess = true;
-            Serial.println("LoRa setup successful");
             display.printLine("LoRa initialized!");
         }
         else
         {
-            Serial.println("LoRa setup failed");
             display.printLine("LoRa setup failed!");
             if (loraRetries > 1)
             {
@@ -483,7 +456,6 @@ void setup()
 
     if (!loraSuccess)
     {
-        Serial.println("LoRa setup failed permanently. Halting execution.");
         display.printLine("LoRa Init Failed!");
         while (1)
         {
@@ -497,7 +469,6 @@ void setup()
     // Start continuous receive mode
     loraManager.startReceiveMode();
     display.printLine("LoRa Receiver ready.");
-    Serial.println("LoRa Receiver ready.");
 
     Serial.println("\n===================================");
     Serial.println("All systems initialized successfully");
