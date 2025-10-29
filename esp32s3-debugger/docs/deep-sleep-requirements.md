@@ -97,7 +97,7 @@ High-level goals:
 
 ## Acceptance criteria (testable)
 
-- Power-on: device immediately enters deep sleep when reset by power-on (unless reset triggered by a wake source).
+- Power-on: device is awake for the initial 60 seconds (same behavior as on external wake-up).
 - LoRa wake: sending a LoRa message to device triggers wake from deep sleep; the message is processed and persists to RTC memory.
 - Awake window: device stays awake at least 60 seconds after the last message or user interaction; receiving more messages restarts the 60s timer.
 - Button semantics:
