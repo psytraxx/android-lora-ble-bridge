@@ -89,20 +89,33 @@ bool ackPending = false;
 Message pendingAckMsg;
 int pendingAckSeq = 0;
 
-// Button debouncing and long press detection
+// Button state tracking
 unsigned long lastButtonPressTime = 0;
-const unsigned long BUTTON_DEBOUNCE = 50;       // 50ms debounce
-const unsigned long LONG_PRESS_DURATION = 2000; // 2 seconds for deep sleep
 bool buttonPressed = false;
-unsigned long buttonPressStartTime = 0;
 
 // Display brightness setting
 const uint8_t DISPLAY_BRIGHT = 255; // Full brightness
 
 // Sleep mode settings
 unsigned long lastActivityTime = 0;        // Track last activity for sleep
-const unsigned long SLEEP_TIMEOUT = 30000; // 30 seconds before light sleep
+const unsigned long SLEEP_TIMEOUT = 60000; // 60 seconds awake timeout (reset on message)
 RTC_DATA_ATTR int bootCount = 0;           // Persistent across deep sleep
+
+// Persistent message storage (RTC memory) - keep up to 10 latest messages across deep sleep
+#define PERSISTENT_SLOTS 10
+#define PERSISTENT_MSG_BUF 256
+
+typedef struct
+{
+    uint16_t len;
+    int16_t rssi;
+    float snr;
+    uint8_t data[PERSISTENT_MSG_BUF];
+} PersistentMessage;
+
+RTC_DATA_ATTR PersistentMessage rtcMessages[PERSISTENT_SLOTS];
+RTC_DATA_ATTR int rtc_msg_count = 0; // number of valid messages stored (<= PERSISTENT_SLOTS)
+RTC_DATA_ATTR int rtc_head = 0;      // next write index (0..PERSISTENT_SLOTS-1)
 
 // Display layout constants
 const int LINE_HEIGHT = 18;               // Height per line for text size 2
@@ -128,6 +141,17 @@ void onLoRaReceive(int packetSize)
 
     if (packet.len > 0)
     {
+        // Persist to RTC circular buffer (truncate if needed)
+        int idx = rtc_head % PERSISTENT_SLOTS;
+        PersistentMessage &pm = rtcMessages[idx];
+        pm.len = packet.len > PERSISTENT_MSG_BUF ? PERSISTENT_MSG_BUF : packet.len;
+        pm.rssi = packet.rssi;
+        pm.snr = packet.snr;
+        memcpy(pm.data, packet.buffer, pm.len);
+        rtc_head = (rtc_head + 1) % PERSISTENT_SLOTS;
+        if (rtc_msg_count < PERSISTENT_SLOTS)
+            rtc_msg_count++;
+
         xQueueSend(loRaQueue, &packet, 0);
     }
 }
@@ -140,8 +164,12 @@ void configureDeepSleepWakeup()
     // Configure button wake-up (active LOW - pressed when connected to GND)
     esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON, 0); // Wake on button press
 
+    // Also enable LoRa DIO0 as an ext1 wake source so incoming packets wake from deep sleep
+    esp_sleep_enable_ext1_wakeup(1ULL << LORA_DIO0, ESP_EXT1_WAKEUP_ANY_HIGH);
+
     Serial.println("Configured deep sleep wake-up sources:");
     Serial.println("  - Wake Button (GPIO 14) - active LOW");
+    Serial.println("  - LoRa DIO0 (GPIO 3) - any HIGH");
 }
 
 /**
@@ -154,36 +182,6 @@ void enterDeepSleep()
     Serial.println("Wake-up source:");
     Serial.println("  - Button press (GPIO 14)");
     Serial.println("===================================\n");
-
-    // Send LoRa message to notify about deep sleep
-    Serial.println("Sending deep sleep notification via LoRa...");
-    Message deepSleepMsg = Message::createText(0, "Going to deep sleep");
-    uint8_t buf[64];
-    int len = deepSleepMsg.serialize(buf, sizeof(buf));
-
-    if (len > 0)
-    {
-        Serial.print("Transmitting ");
-        Serial.print(len);
-        Serial.println(" bytes via LoRa");
-
-        if (loraManager.sendPacket(buf, len))
-        {
-            Serial.println("Deep sleep notification sent successfully");
-        }
-        else
-        {
-            Serial.println("Failed to send deep sleep notification");
-        }
-
-        // Return to RX mode briefly then proceed to sleep
-        loraManager.startReceiveMode();
-        delay(100); // Brief delay to allow transmission to complete
-    }
-    else
-    {
-        Serial.println("Failed to serialize deep sleep message");
-    }
 
     // Show sleep message on display
     display.clearScreen();
@@ -211,79 +209,6 @@ void enterDeepSleep()
 }
 
 /**
- * @brief Configure wake-up sources for light sleep
- */
-void configureLightSleepWakeup()
-{
-    // Configure LoRa DIO0 wake-up only (active HIGH when packet received)
-    esp_sleep_enable_ext1_wakeup(1ULL << LORA_DIO0, ESP_EXT1_WAKEUP_ANY_HIGH);
-
-    Serial.println("Configured light sleep wake-up sources:");
-    Serial.println("  - LoRa DIO0 (GPIO 3) - active HIGH only");
-}
-
-/**
- * @brief Enter light sleep mode
- * Light sleep preserves RAM and peripheral states (including SPI and LoRa module)
- * CRITICAL: Must reinitialize LoRa module after wake to ensure proper RX mode
- */
-void enterLightSleep()
-{
-    Serial.println("\n===================================");
-    Serial.println("Entering LIGHT SLEEP mode...");
-    Serial.println("Wake-up source:");
-    Serial.println("  - LoRa message only (GPIO 3)");
-    Serial.println("===================================\n");
-
-    // Show sleep message on display
-    display.clearScreen();
-    display.setTextSize(2);
-    display.setCursor(10, 60);
-    display.printLine("Light Sleep Mode");
-    display.setCursor(10, 90);
-    display.setTextSize(1);
-    display.printLine("Send LoRa message");
-    display.printLine("to wake up");
-
-    delay(2000); // Show message for 2 seconds
-
-    // Turn off display backlight
-    display.setBrightness(0);
-
-    // Configure wake-up sources (LoRa only)
-    configureLightSleepWakeup();
-
-    // Flush serial
-    Serial.flush();
-
-    // Enter light sleep (preserves RAM and peripherals)
-    esp_light_sleep_start();
-
-    // ===== CRITICAL: Wake-up handling =====
-    // Execution continues here after wake-up
-    Serial.println("\n===================================");
-    Serial.println("Woke up from light sleep!");
-    Serial.println("===================================\n");
-
-    // CRITICAL: Reinitialize LoRa module after sleep
-    // The SX1278 may have lost sync or entered idle mode during sleep
-    Serial.println("Reinitializing LoRa module after sleep...");
-    loraManager.startReceiveMode();
-    delay(50); // Allow LoRa module to stabilize
-    Serial.println("LoRa module back in RX mode");
-
-    // Restore display brightness
-    display.setBrightness(DISPLAY_BRIGHT);
-    lastActivityTime = millis();
-
-    // Clear screen and show wake message
-    display.clearScreen();
-    display.printLine("Woke: LoRa Message");
-
-    // LoRa callback will process the queued packet
-}
-
-/**
  * @brief Check and handle wake-up reason on initial boot
  */
 void printWakeupReason()
@@ -299,12 +224,53 @@ void printWakeupReason()
         Serial.println("Woke up from deep sleep via button press (EXT0)");
         display.printLine("Woke: Button (Deep Sleep)");
         break;
+    case ESP_SLEEP_WAKEUP_EXT1:
+        Serial.println("Woke up from deep sleep via LoRa DIO0 (EXT1)");
+        display.printLine("Woke: LoRa Message (Deep Sleep)");
+        break;
+    case ESP_SLEEP_WAKEUP_TIMER:
+        Serial.println("Woke up from deep sleep via timer");
+        display.printLine("Woke: Timer");
+        break;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD:
+        Serial.println("Woke up from deep sleep via touchpad");
+        display.printLine("Woke: Touchpad");
+        break;
+    case ESP_SLEEP_WAKEUP_ULP:
+        Serial.println("Woke up from deep sleep via ULP program");
+        display.printLine("Woke: ULP Program");
+        break;
+    case ESP_SLEEP_WAKEUP_GPIO:
+        Serial.println("Woke up from deep sleep via GPIO");
+        display.printLine("Woke: GPIO");
+        break;
+    case ESP_SLEEP_WAKEUP_UART:
+        Serial.println("Woke up from deep sleep via UART");
+        display.printLine("Woke: UART");
+        break;
+    case ESP_SLEEP_WAKEUP_WIFI:
+        Serial.println("Woke up from deep sleep via WIFI");
+        display.printLine("Woke: WIFI");
+        break;
+    case ESP_SLEEP_WAKEUP_COCPU:
+        Serial.println("Woke up from deep sleep via COCPU interrupt");
+        display.printLine("Woke: COCPU");
+        break;
+    case ESP_SLEEP_WAKEUP_COCPU_TRAP_TRIG:
+        Serial.println("Woke up from deep sleep via COCPU crash");
+        display.printLine("Woke: COCPU Crash");
+        break;
+    case ESP_SLEEP_WAKEUP_BT:
+        Serial.println("Woke up from deep sleep via Bluetooth");
+        display.printLine("Woke: Bluetooth");
+        break;
     case ESP_SLEEP_WAKEUP_UNDEFINED:
-        Serial.println("Power-on or reset");
+        Serial.println("Power-on or reset (not from deep sleep)");
         display.printLine("Power On / Reset");
         break;
     default:
-        Serial.println("Woke from other source");
+        Serial.println("Woke from unknown source");
+        display.printLine("Woke: Unknown");
         break;
     }
 }
@@ -373,6 +339,54 @@ void addMessageToDisplay(const String &message, int rssi, float snr)
 }
 
 /**
+ * @brief Restore messages saved in RTC persistent storage and add them to display history
+ */
+void restorePersistentMessages()
+{
+    if (rtc_msg_count <= 0)
+    {
+        Serial.println("No persistent messages to restore");
+        return;
+    }
+
+    Serial.print("Restoring ");
+    Serial.print(rtc_msg_count);
+    Serial.println(" persistent messages from RTC memory");
+
+    int start = (rtc_head - rtc_msg_count + PERSISTENT_SLOTS) % PERSISTENT_SLOTS;
+    for (int i = 0; i < rtc_msg_count; i++)
+    {
+        int idx = (start + i) % PERSISTENT_SLOTS;
+        PersistentMessage &pm = rtcMessages[idx];
+
+        LoRaPacket p;
+        p.len = pm.len;
+        p.rssi = pm.rssi;
+        p.snr = pm.snr;
+        memcpy(p.buffer, pm.data, p.len);
+
+        Message msg;
+        if (msg.deserialize(p.buffer, p.len))
+        {
+            if (msg.type == MessageType::Text)
+            {
+                String displayText = "TXT #" + String(msg.textData.seq) + ": " + String(msg.textData.text);
+                addMessageToDisplay(displayText, p.rssi, p.snr);
+            }
+            else if (msg.type == MessageType::Ack)
+            {
+                String ackDisplay = "ACK #" + String(msg.ackData.seq);
+                addMessageToDisplay(ackDisplay, p.rssi, p.snr);
+            }
+        }
+        else
+        {
+            addMessageToDisplay("(Saved) Decode failed", p.rssi, p.snr);
+        }
+    }
+}
+
+/**
  * @brief Setup routine for ESP32 LoRa Receiver
  */
 void setup()
@@ -392,8 +406,10 @@ void setup()
     display.setup();
     display.printLine("TFT Initialized.");
 
-    // Print wake-up reason (only relevant on first boot, not after light sleep)
     printWakeupReason();
+
+    // Restore any messages persisted across deep sleep
+    restorePersistentMessages();
 
     display.printLine("LoRa Receiver Starting...");
     Serial.println("TFT Initialized.");
@@ -482,8 +498,7 @@ void setup()
     Serial.println("\n===================================");
     Serial.println("All systems initialized successfully");
     Serial.println("Waiting for LoRa messages...");
-    Serial.println("Using light sleep (preserves LoRa state)");
-    Serial.println("Long press button (2s) for deep sleep");
+    Serial.println("Short press wakes or sends test message when awake");
     Serial.println("===================================\n");
 
     // Don't clear screen - keep init messages until first message arrives
@@ -509,13 +524,12 @@ void loop()
     // Check for button press (long press = deep sleep, short press = activity reset)
     bool currentButtonState = digitalRead(WAKE_BUTTON) == LOW;
 
-    if (currentButtonState && !buttonPressed && (millis() - lastButtonPressTime > BUTTON_DEBOUNCE))
+    if (currentButtonState && !buttonPressed)
     {
-        // Button just pressed (after debounce)
+        // Button just pressed
         buttonPressed = true;
-        buttonPressStartTime = millis();
-        lastButtonPressTime = millis(); // Update for release debounce
-        Serial.println("Button pressed - hold for 2s for deep sleep");
+        lastButtonPressTime = millis();
+        Serial.println("Button pressed");
 
         // Show indicator on display (above status line)
         int indicatorY = display.height() - BUTTON_INDICATOR_Y_OFFSET;
@@ -523,38 +537,36 @@ void loop()
         display.setCursor(0, indicatorY);
         display.setTextSize(1);
         display.setTextColor(YELLOW, BLACK);
-        display.print("Hold for deep sleep...");
+        display.print("Button pressed...");
         display.setTextColor(WHITE, BLACK);
     }
     else if (buttonPressed)
     {
-        unsigned long pressDuration = millis() - buttonPressStartTime;
-
-        if (!currentButtonState && (millis() - lastButtonPressTime > BUTTON_DEBOUNCE))
+        if (!currentButtonState)
         {
-            // Button released (with debounce)
+            // Button released - treat as short press
             buttonPressed = false;
             lastButtonPressTime = millis();
 
-            if (pressDuration >= LONG_PRESS_DURATION)
+            // Short press - send test message when awake
+            Serial.println("Button short press - sending test message");
+            Message testMsg = Message::createText(0, "Test from device");
+            uint8_t tbuf[128];
+            int tlen = testMsg.serialize(tbuf, sizeof(tbuf));
+            if (tlen > 0)
             {
-                Serial.println("Long press detected - entering deep sleep");
-                enterDeepSleep();
-                // Never returns (device resets on wake)
+                if (loraManager.sendPacket(tbuf, tlen))
+                {
+                    Serial.println("Test message sent");
+                }
+                else
+                {
+                    Serial.println("Failed to send test message");
+                }
+                loraManager.startReceiveMode();
             }
-            else
-            {
-                // Short press - reset activity timer
-                Serial.println("Button short press - activity reset");
-                lastActivityTime = millis();
-            }
-        }
-        else if (pressDuration >= LONG_PRESS_DURATION)
-        {
-            // Long press threshold reached while still held - enter deep sleep immediately
-            Serial.println("Long press threshold reached - entering deep sleep");
-            enterDeepSleep();
-            // Never returns (device resets on wake)
+            // Reset awake timer
+            lastActivityTime = millis();
         }
     }
 
@@ -681,10 +693,9 @@ void loop()
     unsigned long timeSinceActivity = millis() - lastActivityTime;
     if (timeSinceActivity > SLEEP_TIMEOUT)
     {
-        Serial.println("Inactivity timeout - entering light sleep mode");
-        enterLightSleep();
-        // After wake-up, execution continues here
-        // Activity time already reset in enterLightSleep()
+        Serial.println("Inactivity timeout - entering deep sleep mode");
+        enterDeepSleep();
+        // Device will reset on wake
     }
 
     // Small delay to prevent watchdog issues and allow task switching
