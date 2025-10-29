@@ -151,6 +151,7 @@ void onLoRaReceive(int packetSize)
         rtc_head = (rtc_head + 1) % PERSISTENT_SLOTS;
         if (rtc_msg_count < PERSISTENT_SLOTS)
             rtc_msg_count++;
+        Serial.printf("State: persisted message to RTC, head=%d, count=%d\n", rtc_head, rtc_msg_count);
 
         xQueueSend(loRaQueue, &packet, 0);
     }
@@ -282,10 +283,12 @@ void addMessageToDisplay(const String &message, int rssi, float snr)
 {
     // Reset activity timer and restore brightness
     lastActivityTime = millis();
+    Serial.printf("State: lastActivityTime reset to %lu\n", lastActivityTime);
     // Clear screen on first message
     if (!firstMessageReceived)
     {
         firstMessageReceived = true;
+        Serial.println("State: firstMessageReceived set to true");
         display.clearScreen();
         messageCount = 0;
     }
@@ -306,6 +309,7 @@ void addMessageToDisplay(const String &message, int rssi, float snr)
     if (messageCount < MAX_DISPLAY_LINES)
     {
         messageCount++;
+        Serial.printf("State: messageCount incremented to %d\n", messageCount);
     }
 
     // Redraw all messages
@@ -505,6 +509,7 @@ void setup()
 
     // Initialize activity timer
     lastActivityTime = millis();
+    Serial.printf("State: lastActivityTime initialized to %lu\n", lastActivityTime);
 
     // Initialize message history
     for (int i = 0; i < MAX_DISPLAY_LINES; i++)
@@ -567,6 +572,7 @@ void loop()
             }
             // Reset awake timer
             lastActivityTime = millis();
+            Serial.printf("State: lastActivityTime reset to %lu\n", lastActivityTime);
         }
     }
 
@@ -668,6 +674,7 @@ void loop()
     if (ackPending && millis() >= ackSendTime)
     {
         ackPending = false;
+        Serial.println("State: ackPending cleared");
 
         uint8_t ackBuf[64];
         int ackLen = pendingAckMsg.serialize(ackBuf, sizeof(ackBuf));
