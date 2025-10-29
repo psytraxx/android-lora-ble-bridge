@@ -179,11 +179,11 @@ void configureDeepSleepWakeup()
 void enterDeepSleep()
 { // Show sleep message on display
     display.clearScreen();
-    display.setTextSize(2);
+    display.setFontGeneral();
     display.setCursor(10, 40);
     display.printLine("Entering deepl sleep mode...");
     display.setCursor(10, 70);
-    display.setTextSize(1);
+    display.setFontTiny();
     display.printLine("Wake-up via Button (GPIO 14)");
     display.printLine("or LoRa message (DIO0)");
 
@@ -294,7 +294,7 @@ void addMessageToDisplay(const String &message, int rssi, float snr)
 
     // Redraw all messages
     display.clearScreen();
-    display.setTextSize(2); // Bigger font
+    display.setFontGeneral(); // Bigger font
     display.setCursor(0, 0);
 
     int maxVisibleLines = (display.height() - STATUS_HEIGHT) / LINE_HEIGHT;
@@ -311,7 +311,7 @@ void addMessageToDisplay(const String &message, int rssi, float snr)
     int statusY = display.height() - STATUS_LINE_Y_OFFSET;
     display.fillRect(0, statusY, display.width(), STATUS_LINE_Y_OFFSET, BLACK); // Clear status area
     display.setCursor(0, statusY);
-    display.setTextSize(1); // Smaller font for status
+    display.setFontTiny(); // Smaller font for status
     display.setTextColor(GREEN, BLACK);
 
     // Build status string to avoid overload ambiguity
@@ -511,7 +511,7 @@ void loop()
         int indicatorY = display.height() - BUTTON_INDICATOR_Y_OFFSET;
         display.fillRect(0, indicatorY, display.width(), 16, BLACK); // Clear area
         display.setCursor(0, indicatorY);
-        display.setTextSize(1);
+        display.setFontGeneral();
         display.setTextColor(YELLOW, BLACK);
         display.print("Button pressed...");
         display.setTextColor(WHITE, BLACK);
