@@ -101,19 +101,13 @@ unsigned long lastActivityTime = 0;        // Track last activity for sleep
 const unsigned long SLEEP_TIMEOUT = 60000; // 60 seconds awake timeout (reset on message)
 RTC_DATA_ATTR int bootCount = 0;           // Persistent across deep sleep
 
-// Persistent message storage (RTC memory) - keep up to 10 latest messages across deep sleep
+// Persistent message storage (RTC memory) - keep up to 10 latest human-readable messages
 #define PERSISTENT_SLOTS 10
 #define PERSISTENT_MSG_BUF 256
 
-typedef struct
-{
-    uint16_t len;
-    int16_t rssi;
-    float snr;
-    uint8_t data[PERSISTENT_MSG_BUF];
-} PersistentMessage;
-
-RTC_DATA_ATTR PersistentMessage rtcMessages[PERSISTENT_SLOTS];
+// Store null-terminated C-strings in RTC memory so they survive deep sleep.
+// Using fixed-size arrays avoids dynamic allocation in RTC memory.
+RTC_DATA_ATTR char rtcMessageStorage[PERSISTENT_SLOTS][PERSISTENT_MSG_BUF];
 RTC_DATA_ATTR int rtc_msg_count = 0; // number of valid messages stored (<= PERSISTENT_SLOTS)
 RTC_DATA_ATTR int rtc_head = 0;      // next write index (0..PERSISTENT_SLOTS-1)
 
@@ -141,17 +135,6 @@ void onLoRaReceive(int packetSize)
 
     if (packet.len > 0)
     {
-        // Persist to RTC circular buffer (truncate if needed)
-        int idx = rtc_head % PERSISTENT_SLOTS;
-        PersistentMessage &pm = rtcMessages[idx];
-        pm.len = packet.len > PERSISTENT_MSG_BUF ? PERSISTENT_MSG_BUF : packet.len;
-        pm.rssi = packet.rssi;
-        pm.snr = packet.snr;
-        memcpy(pm.data, packet.buffer, pm.len);
-        rtc_head = (rtc_head + 1) % PERSISTENT_SLOTS;
-        if (rtc_msg_count < PERSISTENT_SLOTS)
-            rtc_msg_count++;
-        Serial.printf("State: persisted message to RTC, head=%d, count=%d\n", rtc_head, rtc_msg_count);
 
         xQueueSend(loRaQueue, &packet, 0);
     }
@@ -341,31 +324,17 @@ void restorePersistentMessages()
     for (int i = 0; i < rtc_msg_count; i++)
     {
         int idx = (start + i) % PERSISTENT_SLOTS;
-        PersistentMessage &pm = rtcMessages[idx];
 
-        LoRaPacket p;
-        p.len = pm.len;
-        p.rssi = pm.rssi;
-        p.snr = pm.snr;
-        memcpy(p.buffer, pm.data, p.len);
-
-        Message msg;
-        if (msg.deserialize(p.buffer, p.len))
+        // rtcMessageStorage contains a null-terminated C-string summary of the message
+        const char *saved = rtcMessageStorage[idx];
+        // RSSI/SNR not persisted; pass 0 values when restoring
+        if (saved[0] != '\0')
         {
-            if (msg.type == MessageType::Text)
-            {
-                String displayText = "TXT #" + String(msg.textData.seq) + ": " + String(msg.textData.text);
-                addMessageToDisplay(displayText, p.rssi, p.snr);
-            }
-            else if (msg.type == MessageType::Ack)
-            {
-                String ackDisplay = "ACK #" + String(msg.ackData.seq);
-                addMessageToDisplay(ackDisplay, p.rssi, p.snr);
-            }
+            addMessageToDisplay(String(saved), 0, 0.0f);
         }
         else
         {
-            addMessageToDisplay("(Saved) Decode failed", p.rssi, p.snr);
+            addMessageToDisplay("(Saved) <empty>", 0, 0.0f);
         }
     }
 }
@@ -561,6 +530,7 @@ void loop()
 
         // Deserialize message
         Message msg;
+        String summary;
         if (msg.deserialize(packet.buffer, packet.len))
         {
             Serial.print("LoRa message deserialized: type=");
@@ -603,6 +573,8 @@ void loop()
                     displayText += "°]";
                 }
 
+                summary = displayText;
+
                 addMessageToDisplay(displayText, packet.rssi, packet.snr);
 
                 // Schedule ACK to send after delay (non-blocking)
@@ -629,6 +601,7 @@ void loop()
                 // Display ACK on screen (brief info)
                 String ackDisplay = "ACK #";
                 ackDisplay += String(msg.ackData.seq);
+                summary = ackDisplay;
                 addMessageToDisplay(ackDisplay, packet.rssi, packet.snr);
                 break;
             }
@@ -637,8 +610,16 @@ void loop()
         else
         {
             Serial.println("Failed to deserialize LoRa message");
+            summary = "ERROR: Decode failed";
             addMessageToDisplay("ERROR: Decode failed", packet.rssi, packet.snr);
         }
+
+        // Persist to RTC circular buffer
+        strncpy(rtcMessageStorage[rtc_head], summary.c_str(), PERSISTENT_MSG_BUF - 1);
+        rtcMessageStorage[rtc_head][PERSISTENT_MSG_BUF - 1] = '\0';
+        rtc_head = (rtc_head + 1) % PERSISTENT_SLOTS;
+        if (rtc_msg_count < PERSISTENT_SLOTS)
+            rtc_msg_count++;
     }
 
     // Check for pending ACK to send (non-blocking)
