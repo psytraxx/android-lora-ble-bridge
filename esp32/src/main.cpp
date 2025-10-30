@@ -11,8 +11,7 @@
 //! - Light sleep for power optimization
 //! - Interrupt-driven LoRa reception (always listening)
 #include <Arduino.h>
-#include "lora_config.h"
-#include "LoRaManager.h"
+#include <RadioLib.h>
 #include "BLEManager.h"
 #include "Protocol.h"
 #include "LEDManager.h"
@@ -20,14 +19,13 @@
 #include <freertos/queue.h>
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
-#include <LoRa.h>
 #include <esp_wifi.h>
 #include "esp_pm.h"
 #include <esp_sleep.h>
 #include "PowerController.h"
 
-// Manager objects
-LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_FREQUENCY);
+// RadioLib SX1278 radio instance
+SX1278 radio = new Module(LORA_SS, LORA_DIO0, LORA_RST, RADIOLIB_NC);
 #ifdef LED_PIN
 LEDManager ledManager(LED_PIN);
 #endif
@@ -64,24 +62,32 @@ volatile bool loraActivity = false;
 
 /**
  * @brief LoRa receive callback - handles incoming LoRa packets event-driven (ISR)
+ * Queues the packet for processing in main loop (fast ISR pattern)
  */
-void IRAM_ATTR onLoRaReceive(int packetSize)
+#if defined(ESP8266) || defined(ESP32)
+ICACHE_RAM_ATTR
+#endif
+void onLoRaReceive(void)
 {
-    if (packetSize == 0)
-        return;
-
+    // Read packet data in ISR and queue it
     LoRaPacket packet;
-    packet.len = LoRa.readBytes(packet.buffer, sizeof(packet.buffer));
-    packet.rssi = LoRa.packetRssi();
-    packet.snr = LoRa.packetSnr();
+    int state = radio.readData(packet.buffer, sizeof(packet.buffer));
 
-    if (packet.len > 0)
+    if (state == RADIOLIB_ERR_NONE)
     {
+        packet.len = radio.getPacketLength();
+        packet.rssi = radio.getRSSI();
+        packet.snr = radio.getSNR();
+
+        // Queue the packet for main loop processing
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
         xQueueSendFromISR(loRaQueue, &packet, &xHigherPriorityTaskWoken);
-        loraActivity = true; // Wake up main loop
+        loraActivity = true;
         portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
     }
+
+    // Restart receive mode
+    radio.startReceive();
 }
 
 /**
@@ -93,11 +99,19 @@ void setup()
 
     Serial.println("Disabling WiFi and Bluetooth Classic for power savings");
 
+#if CONFIG_IDF_TARGET_ESP32
     esp_pm_config_esp32_t pm_config = {
         .max_freq_mhz = 80,
         .min_freq_mhz = 10,
         .light_sleep_enable = true,
     };
+#elif CONFIG_IDF_TARGET_ESP32S3
+    esp_pm_config_esp32s3_t pm_config = {
+        .max_freq_mhz = 80,
+        .min_freq_mhz = 10,
+        .light_sleep_enable = true,
+    };
+#endif
 
     esp_pm_configure(&pm_config);
 
@@ -191,8 +205,10 @@ void setup()
     // Initialize power controller with BLE manager and message buffer
     powerController.begin(bleManager, &messageBuffer);
 
-    // Initialize LoRa
-    Serial.println("Initializing LoRa radio");
+    // Initialize LoRa with RadioLib
+    Serial.println("Initializing LoRa radio (RadioLib)");
+
+    SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
 
     const int LORA_RETRY_COUNT = 3;
     int loraRetries = LORA_RETRY_COUNT;
@@ -205,14 +221,30 @@ void setup()
         Serial.print("/");
         Serial.println(LORA_RETRY_COUNT);
 
-        if (loraManager.setup())
+        int state = radio.begin(LORA_FREQUENCY, LORA_BANDWIDTH, LORA_SPREADING_FACTOR, LORA_CODING_RATE, 0x12, LORA_TX_POWER);
+
+        if (state == RADIOLIB_ERR_NONE)
         {
             loraSuccess = true;
             Serial.println("LoRa setup successful");
+            Serial.print("  Frequency: ");
+            Serial.print(LORA_FREQUENCY);
+            Serial.println(" MHz");
+            Serial.print("  Bandwidth: ");
+            Serial.print(LORA_BANDWIDTH);
+            Serial.println(" kHz");
+            Serial.print("  Spreading Factor: ");
+            Serial.println(LORA_SPREADING_FACTOR);
+            Serial.print("  Coding Rate: 4/");
+            Serial.println(LORA_CODING_RATE);
+            Serial.print("  TX Power: ");
+            Serial.print(LORA_TX_POWER);
+            Serial.println(" dBm");
         }
         else
         {
-            Serial.println("LoRa setup failed");
+            Serial.print("LoRa setup failed, code ");
+            Serial.println(state);
             if (loraRetries > 1)
             {
                 Serial.println("Retrying in 1 second...");
@@ -232,10 +264,15 @@ void setup()
     }
 
     // Set up event-driven LoRa reception (CRITICAL: Always listening)
-    LoRa.onReceive(onLoRaReceive);
+    radio.setPacketReceivedAction(onLoRaReceive);
 
     // Start continuous receive mode
-    loraManager.startReceiveMode();
+    int state = radio.startReceive();
+    if (state != RADIOLIB_ERR_NONE)
+    {
+        Serial.print("Failed to start receive mode, code ");
+        Serial.println(state);
+    }
 
     // Configure GPIO wake-up for LoRa interrupt (allows wake from light sleep)
     gpio_wakeup_enable((gpio_num_t)LORA_DIO0, GPIO_INTR_HIGH_LEVEL);
@@ -372,16 +409,27 @@ void processLoRaPacket(const LoRaPacket &packet)
             Serial.print("Sending ACK for seq: ");
             Serial.println(msg.textData.seq);
 
-            if (loraManager.sendPacket(ackBuf, ackLen))
+            // Reconfigure watchdog for 10 seconds
+            esp_task_wdt_init(10, true);
+            esp_task_wdt_add(xTaskGetCurrentTaskHandle());
+
+            int state = radio.transmit(ackBuf, ackLen);
+
+            // Restore normal watchdog timeout
+            esp_task_wdt_init(5, true);
+            esp_task_wdt_add(xTaskGetCurrentTaskHandle());
+
+            if (state == RADIOLIB_ERR_NONE)
             {
                 Serial.println("ACK sent successfully");
             }
             else
             {
-                Serial.println("ACK send failed");
+                Serial.print("ACK send failed, code ");
+                Serial.println(state);
             }
 
-            loraManager.startReceiveMode();
+            radio.startReceive();
         }
 
         // Queue or buffer message for BLE delivery
@@ -476,16 +524,17 @@ void loop()
             Serial.print(len);
             Serial.println(" bytes via LoRa");
 
-            bool sendSuccess = loraManager.sendPacket(buf, len);
+            // Reconfigure watchdog for 10 seconds to allow long LoRa transmission
+            esp_task_wdt_init(10, true);
+            esp_task_wdt_add(xTaskGetCurrentTaskHandle());
 
-            if (!sendSuccess)
-            {
-                Serial.println("LoRa TX failed, retrying once...");
-                delay(100);
-                sendSuccess = loraManager.sendPacket(buf, len);
-            }
+            int state = radio.transmit(buf, len);
 
-            if (sendSuccess)
+            // Restore normal watchdog timeout (5 seconds)
+            esp_task_wdt_init(5, true);
+            esp_task_wdt_add(xTaskGetCurrentTaskHandle());
+
+            if (state == RADIOLIB_ERR_NONE)
             {
                 Serial.println("LoRa TX successful");
 #ifdef LED_PIN
@@ -494,11 +543,12 @@ void loop()
             }
             else
             {
-                Serial.println("LoRa TX failed permanently");
+                Serial.print("LoRa TX failed, code ");
+                Serial.println(state);
             }
 
             // Return to RX mode (CRITICAL: Always listening)
-            loraManager.startReceiveMode();
+            radio.startReceive();
             delay(50);
         }
         else
@@ -507,7 +557,7 @@ void loop()
         }
     }
 
-    // Check for LoRa packets (event-driven via ISR callback)
+    // Check for LoRa packets (queued from ISR)
     LoRaPacket packet;
     if (xQueueReceive(loRaQueue, &packet, 0) == pdTRUE)
     {
