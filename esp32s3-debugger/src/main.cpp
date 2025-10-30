@@ -475,6 +475,8 @@ void loop()
                         // Wait for TX done flag via LoRaManager (consumeTxDoneFlag)
                         while (!loraManager.consumeTxDoneFlag() && (millis() - startWait) < TX_TIMEOUT)
                         {
+                            // Allow LoRaManager to perform recovery tasks and yield
+                            loraManager.poll();
                             vTaskDelay(pdMS_TO_TICKS(5));
                         }
                         // finish transmit in non-ISR context
@@ -623,6 +625,8 @@ void loop()
                         const unsigned long TX_ACK_TIMEOUT = 2000;
                         while (!loraManager.consumeTxDoneFlag() && (millis() - txStartTime) < TX_ACK_TIMEOUT)
                         {
+                            // Allow recovery and yield
+                            loraManager.poll();
                             vTaskDelay(pdMS_TO_TICKS(5));
                         }
                         loraManager.finishTransmit();

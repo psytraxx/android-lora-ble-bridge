@@ -90,6 +90,10 @@ int LoRaManager::startTransmitNonBlocking(const uint8_t *buffer, size_t length)
     s_instance = this;
     radio->setPacketSentAction(LoRaManager::onTxDoneStatic);
 
+    // Mark sending state and record start time for timeout detection
+    sendingFlag = true;
+    lastTxStart = millis();
+
     int state = radio->startTransmit(buffer, length);
     if (state == RADIOLIB_ERR_NONE)
     {
@@ -110,6 +114,8 @@ void LoRaManager::finishTransmit() noexcept
     // finishTransmit may perform SPI; must be called outside ISR
     radio->finishTransmit();
     Serial.println(F("LoRa: finishTransmit called"));
+    // Ensure sendingFlag cleared on finish
+    sendingFlag = false;
 }
 
 void LoRaManager::startReceiveMode() noexcept
@@ -187,6 +193,8 @@ void LoRaManager::onTxDoneStatic() noexcept
     if (s_instance)
     {
         s_instance->txDoneFlag = true;
+        // Clear sending flag here; finishTransmit will complete SPI operations
+        s_instance->sendingFlag = false;
     }
 }
 
@@ -209,4 +217,40 @@ bool LoRaManager::consumeRxFlag() noexcept
         return true;
     }
     return false;
+}
+
+void LoRaManager::poll() noexcept
+{
+    // Called from non-ISR context regularly by main loop. This helps detect
+    // and recover stuck transmissions where the TX-complete IRQ was lost.
+    if (!radio)
+        return;
+
+    // If we're in a sending state but the TX-done flag hasn't arrived, check timeout
+    if (sendingFlag && !txDoneFlag)
+    {
+        const unsigned long TX_TIMEOUT_MS = 60000UL; // 60 seconds - mirrors Meshtastic safety
+        unsigned long now = millis();
+        if (lastTxStart != 0 && (now - lastTxStart) > TX_TIMEOUT_MS)
+        {
+            Serial.println(F("LoRa: TX timeout detected - attempting recovery"));
+
+            // Remove ISR routing to avoid stray callbacks during recovery
+            radio->setPacketSentAction(nullptr);
+
+            // Try to finish transmit path to leave radio in a sane state
+            // finishTransmit performs SPI ops and must not be called from ISR
+            radio->finishTransmit();
+
+            // Clear flags so the system can continue
+            sendingFlag = false;
+            txDoneFlag = false;
+            lastTxStart = 0;
+
+            Serial.println(F("LoRa: recovery complete - restarting receive mode"));
+            // Re-register minimal RX ISR and start receive mode
+            radio->setPacketReceivedAction(LoRaManager::onRxStatic);
+            radio->startReceive();
+        }
+    }
 }

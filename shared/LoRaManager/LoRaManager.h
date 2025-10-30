@@ -46,6 +46,11 @@ public:
     // Debug/config helpers
     String getConfigurationString() const noexcept;
 
+    // Polling helper to be called regularly from main loop. This will
+    // recover stuck transmissions (e.g. if IRQ was lost) and perform
+    // non-ISR cleanup when necessary.
+    void poll() noexcept;
+
 private:
     // Pins and configuration
     const int sckPin;
@@ -63,6 +68,13 @@ private:
     // Transmission bookkeeping. txDoneFlag is set from the ISR when TX is done.
     volatile bool txDoneFlag = false;
 
+    // Track if we're currently sending (set in startTransmitNonBlocking,
+    // cleared in ISR/onTxDone). Allows callers to avoid starting another TX
+    // and enables poll() to detect stuck transmissions.
+    volatile bool sendingFlag = false;
+
+    // Millis when last TX was started (used for timeout/recovery)
+    unsigned long lastTxStart = 0;
     // Receive flag set from ISR
     volatile bool rxFlag = false;
 

@@ -442,6 +442,9 @@ void loop()
     // Reset watchdog
     esp_task_wdt_reset();
 
+    // Poll LoRaManager for housekeeping (stuck TX recovery, diagnostics)
+    loraManager.poll();
+
     // Process BLE events (non-blocking)
     bleManager->process();
 
@@ -542,4 +545,7 @@ void loop()
         // BLE modem and LoRa GPIO interrupts will wake the system
         vTaskDelay(pdMS_TO_TICKS(2000)); // 2 seconds (was 100ms)
     }
+
+    // Also perform periodic housekeeping once per loop to detect stuck TX
+    loraManager.poll();
 }
