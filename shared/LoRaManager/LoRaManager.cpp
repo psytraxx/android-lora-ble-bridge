@@ -122,8 +122,13 @@ void LoRaManager::startReceiveMode() noexcept
 {
     if (!radio)
         return;
-    // Register internal minimal ISR to set rxFlag when a packet arrives
+    // Register instance for ISR routing
+    s_instance = this;
+
+    // Use setPacketReceivedAction as shown in RadioLib examples
+    // This triggers when a complete packet is received (not just DIO0)
     radio->setPacketReceivedAction(LoRaManager::onRxStatic);
+
     int16_t st = radio->startReceive();
     if (st == RADIOLIB_ERR_NONE)
     {
@@ -165,11 +170,52 @@ LoRaPacket LoRaManager::getPacketData() noexcept
 {
     LoRaPacket p{};
     if (!radio)
+    {
+        Serial.println(F("LoRa: getPacketData called but radio is null"));
         return p;
+    }
 
-    p.len = radio->readData(p.buffer, sizeof(p.buffer));
+    // Get packet length first
+    size_t availableLength = radio->getPacketLength();
+    Serial.printf("LoRa: getPacketLength() returned %d\n", availableLength);
+
+    if (availableLength <= 0 || availableLength > sizeof(p.buffer))
+    {
+        Serial.printf("LoRa: Invalid packet length: %d\n", availableLength);
+        return p;
+    }
+
+    // Use RadioLib's readData(uint8_t*, size_t) - this is the proper binary data method
+    // Pass the exact length we expect to read
+    int16_t state = radio->readData(p.buffer, availableLength);
+
+    // Get RSSI and SNR
     p.rssi = radio->getRSSI();
     p.snr = radio->getSNR();
+
+    Serial.printf("LoRa: readData(buffer, %d) returned code=%d, rssi=%d, snr=%.2f\n",
+                  availableLength, state, p.rssi, p.snr);
+
+    // Check return code
+    if (state == RADIOLIB_ERR_NONE)
+    {
+        // Success - set the length
+        p.len = availableLength;
+
+        // Print raw buffer
+        Serial.print("LoRa: Raw data: ");
+        for (size_t i = 0; i < p.len; i++)
+        {
+            Serial.printf("%02X ", p.buffer[i]);
+        }
+        Serial.println();
+    }
+    else
+    {
+        Serial.printf("LoRa: readData error code: %d\n", state);
+        p.len = 0;
+    }
+
     return p;
 }
 
@@ -206,6 +252,7 @@ void LoRaManager::onRxStatic() noexcept
     if (s_instance)
     {
         s_instance->rxFlag = true;
+        // Don't use Serial in ISR, but we can track it was called
     }
 }
 

@@ -569,6 +569,11 @@ void loop()
         Serial.println("Loop: LoRa RX flag consumed, reading packet...");
         // Read packet from radio into local struct (non-ISR)
         LoRaPacket packet = loraManager.getPacketData();
+        Serial.printf("Packet data: len=%d, rssi=%d, snr=%.2f\n", packet.len, packet.rssi, packet.snr);
+
+        // DON'T restart receive mode here - RadioLib does it automatically after readData()
+        // Restarting too early clears the FIFO before we can read!
+
         if (packet.len > 0)
         {
             Serial.print("LoRa RX: received ");

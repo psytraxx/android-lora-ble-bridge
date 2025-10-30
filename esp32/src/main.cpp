@@ -466,10 +466,22 @@ void loop()
             Serial.print(len);
             Serial.println(" bytes via LoRa (non-blocking)");
 
+            // Print hex dump of data being transmitted
+            Serial.print("TX Data (hex): ");
+            for (int i = 0; i < len; i++)
+            {
+                Serial.printf("%02X ", buf[i]);
+            }
+            Serial.println();
+
             // start non-blocking transmit (LoRaManager registers the packet-sent callback)
             {
                 int txStartLocal = loraManager.startTransmitNonBlocking(buf, len);
-                if (txStartLocal != 0)
+                if (txStartLocal == 0)
+                {
+                    Serial.println("Non-blocking TX started successfully");
+                }
+                else
                 {
                     Serial.print("Failed to start non-blocking TX, code: ");
                     Serial.println(txStartLocal);
@@ -504,12 +516,14 @@ void loop()
     // Handle TX completion for non-blocking transmit (LoRaManager tracks flags)
     if (loraManager.consumeTxDoneFlag())
     {
+        Serial.println("LoRa: TX done flag detected");
+
         // Clean up after non-blocking transmit
         loraManager.finishTransmit();
 
         // TX finished (non-blocking flow). Start errors were reported where
         // the TX was started; here we finalize and show success feedback.
-        Serial.println("LoRa non-blocking TX finished");
+        Serial.println("LoRa non-blocking TX finished - packet sent over the air");
 #ifdef LED_PIN
         ledManager.blink(2);
 #endif
@@ -517,6 +531,7 @@ void loop()
         // Return to receive mode
         delay(10);
         loraManager.startReceiveMode();
+        Serial.println("LoRa: Back in RX mode after TX");
     }
 
     // Forward queued/buffered messages from LoRa to BLE
