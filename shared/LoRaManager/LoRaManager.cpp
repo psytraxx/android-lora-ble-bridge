@@ -15,11 +15,6 @@ int LoRaManager::getTransmissionState() const noexcept
     return transmissionState;
 }
 
-bool LoRaManager::isTxInProgress() const noexcept
-{
-    return txInProgress;
-}
-
 bool LoRaManager::isRxPending() const noexcept
 {
     return rxFlag;
@@ -104,7 +99,6 @@ int LoRaManager::startTransmitNonBlocking(const uint8_t *buffer, size_t length)
     transmissionState = state;
     if (state == RADIOLIB_ERR_NONE)
     {
-        txInProgress = true;
         Serial.println(F("LoRa: started non-blocking transmit"));
     }
     else
@@ -121,7 +115,6 @@ void LoRaManager::finishTransmit() noexcept
         return;
     // finishTransmit may perform SPI; must be called outside ISR
     radio->finishTransmit();
-    txInProgress = false;
     Serial.println(F("LoRa: finishTransmit called"));
 }
 

@@ -37,7 +37,6 @@ public:
 
     // TX bookkeeping accessors
     int getTransmissionState() const noexcept;
-    bool isTxInProgress() const noexcept;
     bool consumeTxDoneFlag() noexcept;
 
     // RX helpers
@@ -62,10 +61,11 @@ private:
     Module *module;
     SX1278 *radio;
 
-    // Transmission bookkeeping (volatile because set from ISR)
-    // Use 0 as a neutral default here to avoid RadioLib dependency in the header.
-    volatile int transmissionState = 0;
-    volatile bool txInProgress = false;
+    // Transmission bookkeeping. transmissionState is set when starting a
+    // non-blocking transmit; txDoneFlag is set from the ISR when TX is done.
+    // We no longer track txInProgress separately - callers can infer state
+    // from transmissionState/txDoneFlag or rely on RadioLib return codes.
+    int transmissionState = 0;
     volatile bool txDoneFlag = false;
 
     // Receive flag set from ISR
