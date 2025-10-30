@@ -345,7 +345,7 @@ void processLoRaPacket(const LoRaPacket &packet)
         }
         Serial.println();
 
-        // Send ACK
+        // Send ACK (blocking, simple like old version)
         Message ack = Message::createAck(msg.textData.seq);
         uint8_t ackBuf[64];
         int ackLen = ack.serialize(ackBuf, sizeof(ackBuf));
@@ -355,20 +355,18 @@ void processLoRaPacket(const LoRaPacket &packet)
             Serial.print("Sending ACK for seq: ");
             Serial.println(msg.textData.seq);
 
+            bool ackSent = loraManager.sendPacketBlocking(ackBuf, ackLen);
+            if (ackSent)
             {
-                int txStartLocal = loraManager.startTransmitNonBlocking(ackBuf, ackLen);
-                if (txStartLocal == 0)
-                {
-                    Serial.println("ACK TX started (non-blocking)");
-                    // Don't call startReceiveMode here; main loop will handle TX completion and restart RX
-                }
-                else
-                {
-                    Serial.print("Failed to start ACK TX, code: ");
-                    Serial.println(txStartLocal);
-                    loraManager.startReceiveMode();
-                }
+                Serial.println("ACK sent successfully");
             }
+            else
+            {
+                Serial.println("ACK send failed");
+            }
+
+            // Return to RX mode
+            loraManager.startReceiveMode();
         }
 
         // Queue or buffer message for BLE delivery
@@ -443,8 +441,15 @@ void loop()
     // Reset watchdog
     esp_task_wdt_reset();
 
-    // Poll LoRaManager for housekeeping (stuck TX recovery, diagnostics)
-    loraManager.poll();
+    // Periodic status log (every 10 seconds)
+    static unsigned long lastStatusLog = 0;
+    if (millis() - lastStatusLog > 10000)
+    {
+        Serial.println("Loop running - listening for LoRa packets");
+        Serial.printf("RX pending: %d\n", loraManager.isRxPending());
+        lastStatusLog = millis();
+    }
+
 
     // Process BLE events (non-blocking)
     bleManager->process();
@@ -464,7 +469,7 @@ void loop()
         {
             Serial.print("Transmitting ");
             Serial.print(len);
-            Serial.println(" bytes via LoRa (non-blocking)");
+            Serial.println(" bytes via LoRa (blocking)");
 
             // Print hex dump of data being transmitted
             Serial.print("TX Data (hex): ");
@@ -474,19 +479,24 @@ void loop()
             }
             Serial.println();
 
-            // start non-blocking transmit (LoRaManager registers the packet-sent callback)
+            // Use blocking transmit (simple and reliable)
+            bool success = loraManager.sendPacketBlocking(buf, len);
+
+            if (success)
             {
-                int txStartLocal = loraManager.startTransmitNonBlocking(buf, len);
-                if (txStartLocal == 0)
-                {
-                    Serial.println("Non-blocking TX started successfully");
-                }
-                else
-                {
-                    Serial.print("Failed to start non-blocking TX, code: ");
-                    Serial.println(txStartLocal);
-                }
+                Serial.println("LoRa TX successful");
+#ifdef LED_PIN
+                ledManager.blink(2);
+#endif
             }
+            else
+            {
+                Serial.println("LoRa TX failed");
+            }
+
+            // Return to RX mode (critical for continuous listening)
+            loraManager.startReceiveMode();
+            Serial.println("LoRa: Back in RX mode after TX");
         }
         else
         {
@@ -494,45 +504,22 @@ void loop()
         }
     }
 
-    // If LoRaManager indicates received packet(s), drain them now (non-ISR)
+    // If LoRaManager indicates received packet(s), process them
     if (loraManager.consumeRxFlag())
     {
-        // Drain available packets from the radio and process immediately
-        while (true)
+        Serial.println("LoRa: RX flag detected");
+        // Process the received packet (only one packet per rxFlag)
+        LoRaPacket rxPkt = loraManager.getPacketData();
+        if (rxPkt.len > 0)
         {
-            LoRaPacket rxPkt = loraManager.getPacketData();
-            if (rxPkt.len > 0)
-            {
-                processLoRaPacket(rxPkt);
-            }
-            else
-            {
-                // no more packets available
-                break;
-            }
+            processLoRaPacket(rxPkt);
+        }
+        else
+        {
+            Serial.println("Warning: rxFlag set but no packet data available");
         }
     }
 
-    // Handle TX completion for non-blocking transmit (LoRaManager tracks flags)
-    if (loraManager.consumeTxDoneFlag())
-    {
-        Serial.println("LoRa: TX done flag detected");
-
-        // Clean up after non-blocking transmit
-        loraManager.finishTransmit();
-
-        // TX finished (non-blocking flow). Start errors were reported where
-        // the TX was started; here we finalize and show success feedback.
-        Serial.println("LoRa non-blocking TX finished - packet sent over the air");
-#ifdef LED_PIN
-        ledManager.blink(2);
-#endif
-
-        // Return to receive mode
-        delay(10);
-        loraManager.startReceiveMode();
-        Serial.println("LoRa: Back in RX mode after TX");
-    }
 
     // Forward queued/buffered messages from LoRa to BLE
     handleLoRaToBleForwarding();
@@ -557,11 +544,8 @@ void loop()
     }
     else
     {
-        // Idle - long delay enables automatic light sleep
-        // BLE modem and LoRa GPIO interrupts will wake the system
-        vTaskDelay(pdMS_TO_TICKS(2000)); // 2 seconds (was 100ms)
+        // Idle - use shorter delay to ensure interrupts are processed
+        // TODO: Re-enable light sleep after debugging RX issues
+        vTaskDelay(pdMS_TO_TICKS(100)); // 100ms (was 2000ms for light sleep)
     }
-
-    // Also perform periodic housekeeping once per loop to detect stuck TX
-    loraManager.poll();
 }

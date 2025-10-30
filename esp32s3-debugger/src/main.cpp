@@ -61,10 +61,8 @@
 // Manager objects
 LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_FREQUENCY);
 
-// LoRaManager handles ISR notifications and provides an ISR-safe inline processing pattern.
-// The ISR inside LoRaManager only sets a flag; the main loop calls
-// `loraManager.consumeRxFlag()` and then repeatedly `loraManager.getPacketData()` to
-// drain and process packets in non-ISR context (no intermediate queue required).
+// Queue for LoRa packets (ISR-safe, like old working version)
+QueueHandle_t loRaQueue;
 
 DisplayManager display(LCD_D0, LCD_D1, LCD_D2, LCD_D3, LCD_D4, LCD_D5, LCD_D6, LCD_D7,
                        LCD_WR, LCD_RD, LCD_DC, LCD_CS, LCD_RES, PIN_LCD_BL);
@@ -79,7 +77,7 @@ float lastSnr = 0.0; // Last received SNR
 
 // LoRa receive notifications are handled inside LoRaManager (ISR sets rxFlag)
 
-// ACK timing (non-blocking)
+// ACK timing (simple delay-based approach like old version)
 unsigned long ackSendTime = 0;
 bool ackPending = false;
 Message pendingAckMsg;
@@ -93,9 +91,9 @@ bool buttonPressed = false;
 const uint8_t DISPLAY_BRIGHT = 255; // Full brightness
 
 // Sleep mode settings
-unsigned long lastActivityTime = 0;        // Track last activity for sleep
-const unsigned long SLEEP_TIMEOUT = 60000; // 60 seconds awake timeout (reset on message)
-RTC_DATA_ATTR int bootCount = 0;           // Persistent across deep sleep
+unsigned long lastActivityTime = 0;         // Track last activity for sleep
+const unsigned long SLEEP_TIMEOUT = 600000; // 600 seconds awake timeout (reset on message)
+RTC_DATA_ATTR int bootCount = 0;            // Persistent across deep sleep
 
 // Persistent message storage (RTC memory) - keep up to 10 latest human-readable messages
 #define PERSISTENT_SLOTS 10
@@ -114,11 +112,33 @@ const int STATUS_LINE_Y_OFFSET = 16;      // Status line position from bottom
 const int BUTTON_INDICATOR_Y_OFFSET = 32; // Button indicator position from bottom
 
 // ACK delay constant (time to wait for TX->RX mode switch)
-const unsigned long ACK_DELAY_MS = 50; // 50ms delay before sending ACK
+const unsigned long ACK_DELAY_MS = 500; // 500ms delay before sending ACK (matches CLAUDE.md)
 
 /**
- * @brief LoRa receive callback - handles incoming LoRa packets event-driven
+ * @brief Simple blocking send helper (matches old sendPacket pattern exactly)
  */
+bool sendPacketAndReturnToRx(const uint8_t *buf, size_t len)
+{
+    // Use RadioLib's blocking transmit - simple and reliable
+    bool success = loraManager.sendPacketBlocking(buf, len);
+
+    if (success)
+    {
+        Serial.println("Packet sent successfully");
+    }
+    else
+    {
+        Serial.println("Packet send failed");
+    }
+
+    // Return to RX mode (critical for continuous listening)
+    loraManager.startReceiveMode();
+
+    return success;
+}
+
+// LoRa RX is handled by LoRaManager's internal ISR (sets rxFlag)
+// Main loop checks the flag and queues packets
 
 /**
  * @brief Configure wake-up sources for deep sleep
@@ -478,45 +498,39 @@ void loop()
             buttonPressed = false;
             lastButtonPressTime = millis();
 
-            // Short press - send test message when awake
+            // Short press - send test message (simple blocking like old version)
             Serial.println("Button short press - sending test message");
+
             Message testMsg = Message::createText(0, "Test from device");
             uint8_t tbuf[128];
             int tlen = testMsg.serialize(tbuf, sizeof(tbuf));
             if (tlen > 0)
             {
-                // Try non-blocking transmit first (RadioLib pattern)
-                int txStartLocal = loraManager.startTransmitNonBlocking(tbuf, tlen);
-                if (txStartLocal == 0)
+                Serial.print("Test TX Data (hex): ");
+                for (int i = 0; i < tlen; i++)
                 {
-                    Serial.println("Started non-blocking TX for test message");
-                    unsigned long startWait = millis();
-                    const unsigned long TX_TIMEOUT = 2000; // 2s
-                    // Wait for TX done flag via LoRaManager (consumeTxDoneFlag)
-                    while (!loraManager.consumeTxDoneFlag() && (millis() - startWait) < TX_TIMEOUT)
-                    {
-                        // Allow LoRaManager to perform recovery tasks and yield
-                        loraManager.poll();
-                        vTaskDelay(pdMS_TO_TICKS(5));
-                    }
-                    // finish transmit in non-ISR context
-                    loraManager.finishTransmit();
-                    loraManager.startReceiveMode();
-                    Serial.printf("Test message TX finished (non-blocking) - took %lu ms\n",
-                                 millis() - startWait);
+                    Serial.printf("%02X ", tbuf[i]);
+                }
+                Serial.println();
+
+                // Simple blocking send like old version
+                if (sendPacketAndReturnToRx(tbuf, tlen))
+                {
+                    Serial.println("Test message sent successfully");
                 }
                 else
                 {
-                    Serial.println("Failed to start non-blocking TX for test message");
+                    Serial.println("Test message send failed");
                 }
             }
+
             // Reset awake timer
             lastActivityTime = millis();
             Serial.printf("State: lastActivityTime reset to %lu\n", lastActivityTime);
         }
     }
 
-    // Check for pending ACK to send (non-blocking) - moved outside RX block
+    // Check for pending ACK to send (simple blocking like old version)
     if (ackPending && millis() >= ackSendTime)
     {
         ackPending = false;
@@ -529,28 +543,14 @@ void loop()
         {
             Serial.print("Sending ACK for seq: ");
             Serial.println(pendingAckSeq);
-            // Try non-blocking transmit first
+
+            if (sendPacketAndReturnToRx(ackBuf, ackLen))
             {
-                int txStart = loraManager.startTransmitNonBlocking(ackBuf, ackLen);
-                if (txStart == 0)
-                {
-                    unsigned long txStartTime = millis();
-                    const unsigned long TX_ACK_TIMEOUT = 2000;
-                    while (!loraManager.consumeTxDoneFlag() && (millis() - txStartTime) < TX_ACK_TIMEOUT)
-                    {
-                        // Allow recovery and yield
-                        loraManager.poll();
-                        vTaskDelay(pdMS_TO_TICKS(5));
-                    }
-                    loraManager.finishTransmit();
-                    loraManager.startReceiveMode();
-                    Serial.printf("ACK TX finished (non-blocking) - took %lu ms\n",
-                                  millis() - txStartTime);
-                }
-                else
-                {
-                    Serial.println("Failed to start non-blocking TX for ACK");
-                }
+                Serial.println("ACK sent successfully");
+            }
+            else
+            {
+                Serial.println("ACK send failed");
             }
         }
     }

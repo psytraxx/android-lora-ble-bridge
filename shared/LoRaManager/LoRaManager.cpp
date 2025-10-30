@@ -1,6 +1,7 @@
 #include "LoRaManager.h"
 #include <SPI.h>
 #include <RadioLib.h>
+#include <esp_task_wdt.h>
 
 // Define the static instance pointer declared in the header.
 LoRaManager *LoRaManager::s_instance = nullptr;
@@ -78,50 +79,52 @@ bool LoRaManager::setup()
     return true;
 }
 
-int LoRaManager::startTransmitNonBlocking(const uint8_t *buffer, size_t length)
+
+bool LoRaManager::sendPacketBlocking(const uint8_t *buffer, size_t length)
 {
     if (!radio)
     {
-        Serial.println(F("LoRa: startTransmitNonBlocking called before initialization"));
-        return RADIOLIB_ERR_UNKNOWN;
+        Serial.println(F("LoRa: sendPacketBlocking called before initialization"));
+        return false;
     }
 
-    // Register instance and ISR-safe callback
-    s_instance = this;
-    radio->setPacketSentAction(LoRaManager::onTxDoneStatic);
+    // Stop any ongoing receive operation before transmitting
+    // This is critical - RadioLib needs the radio to be in standby before TX
+    Serial.println(F("LoRa: stopping RX mode before TX"));
+    radio->standby();
 
-    // Mark sending state and record start time for timeout detection
-    sendingFlag = true;
-    lastTxStart = millis();
+    // Disable watchdog for this task during long blocking transmit
+    // At SF11+BW31.25kHz, transmission can take 3-4 seconds, exceeding watchdog timeout
+    esp_task_wdt_delete(xTaskGetCurrentTaskHandle());
 
-    int state = radio->startTransmit(buffer, length);
+    // Use RadioLib's blocking transmit method (no interrupts needed)
+    Serial.println(F("LoRa: starting blocking transmit"));
+    int16_t state = radio->transmit(const_cast<uint8_t*>(buffer), length);
+
+    // Re-enable watchdog after transmission
+    esp_task_wdt_add(xTaskGetCurrentTaskHandle());
+
     if (state == RADIOLIB_ERR_NONE)
     {
-        Serial.println(F("LoRa: started non-blocking transmit"));
+        Serial.println(F("LoRa: blocking transmit successful"));
+        return true;
     }
     else
     {
-        Serial.print(F("LoRa: startTransmit failed, code: "));
+        Serial.print(F("LoRa: blocking transmit failed, code: "));
         Serial.println(state);
+        return false;
     }
-    return state;
-}
-
-void LoRaManager::finishTransmit() noexcept
-{
-    if (!radio)
-        return;
-    // finishTransmit may perform SPI; must be called outside ISR
-    radio->finishTransmit();
-    Serial.println(F("LoRa: finishTransmit called"));
-    // Ensure sendingFlag cleared on finish
-    sendingFlag = false;
 }
 
 void LoRaManager::startReceiveMode() noexcept
 {
     if (!radio)
         return;
+
+    // DO NOT clear rxFlag here - a packet might have arrived!
+    // Let consumeRxFlag() handle clearing it when the packet is processed
+
     // Register instance for ISR routing
     s_instance = this;
 
@@ -132,38 +135,13 @@ void LoRaManager::startReceiveMode() noexcept
     int16_t st = radio->startReceive();
     if (st == RADIOLIB_ERR_NONE)
     {
-        Serial.println(F("LoRa: receive mode started"));
+        Serial.println(F("LoRa: receive mode started successfully"));
     }
     else
     {
-        Serial.print(F("LoRa: startReceive failed, code: "));
+        Serial.print(F("LoRa: startReceive FAILED, code: "));
         Serial.println(st);
     }
-}
-
-void LoRaManager::onReceive(void (*callback)(void)) noexcept
-{
-    if (!radio)
-        return;
-    radio->setPacketReceivedAction(callback);
-}
-
-void LoRaManager::setPacketSentAction(void (*callback)(void)) noexcept
-{
-    if (!radio)
-        return;
-    radio->setPacketSentAction(callback);
-}
-
-bool LoRaManager::consumeTxDoneFlag() noexcept
-{
-    if (txDoneFlag)
-    {
-        txDoneFlag = false;
-        Serial.println(F("LoRa: TX done flag consumed"));
-        return true;
-    }
-    return false;
 }
 
 LoRaPacket LoRaManager::getPacketData() noexcept
@@ -230,20 +208,6 @@ String LoRaManager::getConfigurationString() const noexcept
     return cfg;
 }
 
-// RadioLib ISR-friendly static callback
-#if defined(ESP8266) || defined(ESP32)
-IRAM_ATTR
-#endif
-void LoRaManager::onTxDoneStatic() noexcept
-{
-    if (s_instance)
-    {
-        s_instance->txDoneFlag = true;
-        // Clear sending flag here; finishTransmit will complete SPI operations
-        s_instance->sendingFlag = false;
-    }
-}
-
 #if defined(ESP8266) || defined(ESP32)
 IRAM_ATTR
 #endif
@@ -252,7 +216,6 @@ void LoRaManager::onRxStatic() noexcept
     if (s_instance)
     {
         s_instance->rxFlag = true;
-        // Don't use Serial in ISR, but we can track it was called
     }
 }
 
@@ -264,40 +227,4 @@ bool LoRaManager::consumeRxFlag() noexcept
         return true;
     }
     return false;
-}
-
-void LoRaManager::poll() noexcept
-{
-    // Called from non-ISR context regularly by main loop. This helps detect
-    // and recover stuck transmissions where the TX-complete IRQ was lost.
-    if (!radio)
-        return;
-
-    // If we're in a sending state but the TX-done flag hasn't arrived, check timeout
-    if (sendingFlag && !txDoneFlag)
-    {
-        const unsigned long TX_TIMEOUT_MS = 60000UL; // 60 seconds - mirrors Meshtastic safety
-        unsigned long now = millis();
-        if (lastTxStart != 0 && (now - lastTxStart) > TX_TIMEOUT_MS)
-        {
-            Serial.println(F("LoRa: TX timeout detected - attempting recovery"));
-
-            // Remove ISR routing to avoid stray callbacks during recovery
-            radio->setPacketSentAction(nullptr);
-
-            // Try to finish transmit path to leave radio in a sane state
-            // finishTransmit performs SPI ops and must not be called from ISR
-            radio->finishTransmit();
-
-            // Clear flags so the system can continue
-            sendingFlag = false;
-            txDoneFlag = false;
-            lastTxStart = 0;
-
-            Serial.println(F("LoRa: recovery complete - restarting receive mode"));
-            // Re-register minimal RX ISR and start receive mode
-            radio->setPacketReceivedAction(LoRaManager::onRxStatic);
-            radio->startReceive();
-        }
-    }
 }

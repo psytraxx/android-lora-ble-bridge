@@ -28,15 +28,11 @@ public:
     bool setup();
     void shutdown() noexcept;
 
-    // Non-blocking transmit helpers (RadioLib pattern)
-    int startTransmitNonBlocking(const uint8_t *buffer, size_t length);
-    void finishTransmit() noexcept;
+    // Blocking transmit (simple and reliable like old version)
+    bool sendPacketBlocking(const uint8_t *buffer, size_t length);
 
     // Receive mode management
     void startReceiveMode() noexcept;
-
-    // TX bookkeeping accessors
-    bool consumeTxDoneFlag() noexcept;
 
     // RX helpers
     bool consumeRxFlag() noexcept;
@@ -45,11 +41,6 @@ public:
 
     // Debug/config helpers
     String getConfigurationString() const noexcept;
-
-    // Polling helper to be called regularly from main loop. This will
-    // recover stuck transmissions (e.g. if IRQ was lost) and perform
-    // non-ISR cleanup when necessary.
-    void poll() noexcept;
 
 private:
     // Pins and configuration
@@ -65,28 +56,12 @@ private:
     Module *module;
     SX1278 *radio;
 
-    // Transmission bookkeeping. txDoneFlag is set from the ISR when TX is done.
-    volatile bool txDoneFlag = false;
-
-    // Track if we're currently sending (set in startTransmitNonBlocking,
-    // cleared in ISR/onTxDone). Allows callers to avoid starting another TX
-    // and enables poll() to detect stuck transmissions.
-    volatile bool sendingFlag = false;
-
-    // Millis when last TX was started (used for timeout/recovery)
-    unsigned long lastTxStart = 0;
     // Receive flag set from ISR
     volatile bool rxFlag = false;
 
     // Static instance pointer for ISR routing
     static LoRaManager *s_instance;
 
-    // Static callbacks used by RadioLib ISR
-    static void onTxDoneStatic() noexcept;
+    // Static callback used by RadioLib ISR for RX
     static void onRxStatic() noexcept;
-
-    // Optional: set custom packet-sent action
-    void setPacketSentAction(void (*callback)(void)) noexcept;
-
-    void onReceive(void (*callback)(void)) noexcept;
 };
