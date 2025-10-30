@@ -178,6 +178,7 @@ void setup()
 
     // Initialize LoRa
     Serial.println("Initializing LoRa radio");
+    Serial.println(loraManager.getConfigurationString());
 
     const int LORA_RETRY_COUNT = 3;
     int loraRetries = LORA_RETRY_COUNT;

@@ -17,7 +17,7 @@ struct LoRaPacket
 class LoRaManager
 {
 public:
-    LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, long frequency) noexcept;
+    LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, float frequency) noexcept;
     ~LoRaManager();
 
     // Non-copyable
@@ -59,7 +59,7 @@ private:
     const int ssPin;
     const int rstPin;
     const int dio0Pin;
-    const long frequency;
+    const float frequency;
 
     // Owned RadioLib objects (opaque in header)
     Module *module;

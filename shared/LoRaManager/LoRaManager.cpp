@@ -5,7 +5,7 @@
 // Define the static instance pointer declared in the header.
 LoRaManager *LoRaManager::s_instance = nullptr;
 
-LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, long freq) noexcept
+LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, float freq) noexcept
     : sckPin(sck), misoPin(miso), mosiPin(mosi), ssPin(ss), rstPin(rst), dio0Pin(dio0), frequency(freq), module(nullptr), radio(nullptr)
 {
 }
@@ -176,8 +176,8 @@ LoRaPacket LoRaManager::getPacketData() noexcept
 String LoRaManager::getConfigurationString() const noexcept
 {
     String cfg = "LoRa (RadioLib) Configuration:\n";
-    cfg += "  Frequency: " + String(frequency / 1000000.0, 2) + " MHz\n";
-    cfg += "  Bandwidth: " + String(LORA_BANDWIDTH / 1000.0, 1) + " kHz\n";
+    cfg += "  Frequency: " + String(frequency) + " MHz\n";
+    cfg += "  Bandwidth: " + String(LORA_BANDWIDTH) + " kHz\n";
     cfg += "  Spreading Factor: " + String(LORA_SPREADING_FACTOR) + "\n";
     cfg += "  Coding Rate: 4/" + String(LORA_CODING_RATE) + "\n";
     cfg += "  TX Power: " + String(LORA_TX_POWER) + " dBm\n";
