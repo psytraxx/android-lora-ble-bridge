@@ -68,6 +68,9 @@ LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_
 DisplayManager display(LCD_D0, LCD_D1, LCD_D2, LCD_D3, LCD_D4, LCD_D5, LCD_D6, LCD_D7,
                        LCD_WR, LCD_RD, LCD_DC, LCD_CS, LCD_RES, PIN_LCD_BL);
 
+// Keep last startTransmit return code so we can report or handle it after TX completes
+int lastTxStartResult = 0; // 0 == success (RADIOLIB_ERR_NONE)
+
 // State tracking
 bool firstMessageReceived = false;
 const int MAX_DISPLAY_LINES = 20;         // Maximum lines to keep in history
@@ -465,8 +468,8 @@ void loop()
             if (tlen > 0)
             {
                 // Try non-blocking transmit first (RadioLib pattern)
-                int txStartState = loraManager.startTransmitNonBlocking(tbuf, tlen);
-                if (txStartState == 0)
+                lastTxStartResult = loraManager.startTransmitNonBlocking(tbuf, tlen);
+                if (lastTxStartResult == 0)
                 {
                     Serial.println("Started non-blocking TX for test message");
                     unsigned long startWait = millis();
@@ -616,7 +619,8 @@ void loop()
                 Serial.println(pendingAckSeq);
                 // Try non-blocking transmit first
                 int txStart = loraManager.startTransmitNonBlocking(ackBuf, ackLen);
-                if (txStart == 0)
+                lastTxStartResult = txStart;
+                if (lastTxStartResult == 0)
                 {
                     unsigned long txStartTime = millis();
                     const unsigned long TX_ACK_TIMEOUT = 2000;

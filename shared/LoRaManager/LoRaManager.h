@@ -36,7 +36,6 @@ public:
     void startReceiveMode() noexcept;
 
     // TX bookkeeping accessors
-    int getTransmissionState() const noexcept;
     bool consumeTxDoneFlag() noexcept;
 
     // RX helpers
@@ -61,11 +60,7 @@ private:
     Module *module;
     SX1278 *radio;
 
-    // Transmission bookkeeping. transmissionState is set when starting a
-    // non-blocking transmit; txDoneFlag is set from the ISR when TX is done.
-    // We no longer track txInProgress separately - callers can infer state
-    // from transmissionState/txDoneFlag or rely on RadioLib return codes.
-    int transmissionState = 0;
+    // Transmission bookkeeping. txDoneFlag is set from the ISR when TX is done.
     volatile bool txDoneFlag = false;
 
     // Receive flag set from ISR

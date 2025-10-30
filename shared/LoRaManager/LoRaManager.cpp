@@ -10,11 +10,6 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
 {
 }
 
-int LoRaManager::getTransmissionState() const noexcept
-{
-    return transmissionState;
-}
-
 bool LoRaManager::isRxPending() const noexcept
 {
     return rxFlag;
@@ -96,7 +91,6 @@ int LoRaManager::startTransmitNonBlocking(const uint8_t *buffer, size_t length)
     radio->setPacketSentAction(LoRaManager::onTxDoneStatic);
 
     int state = radio->startTransmit(buffer, length);
-    transmissionState = state;
     if (state == RADIOLIB_ERR_NONE)
     {
         Serial.println(F("LoRa: started non-blocking transmit"));
