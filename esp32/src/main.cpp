@@ -31,11 +31,6 @@ LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_
 LEDManager ledManager(LED_PIN);
 #endif
 
-// Keep the last startTransmitNonBlocking() return code here so we can
-// report it when the TX-done flag is consumed. We avoid storing this in
-// LoRaManager to keep the manager API minimal.
-int lastTxStartResult = 0; // 0 == success (RADIOLIB_ERR_NONE)
-
 // Message queues using FreeRTOS
 const int BLE_TO_LORA_QUEUE_SIZE = 10;
 const int LORA_TO_BLE_QUEUE_SIZE = 15;
@@ -111,7 +106,7 @@ void setup()
     Serial.println("Bluetooth Classic disabled (using NimBLE for BLE only)");
 
     // Set initial CPU frequency to match power management max
-    setCpuFrequencyMhz(80);
+    setCpuFrequencyMhz(CPU_FREQ_MHZ);
     Serial.print("CPU Frequency: ");
     Serial.print(getCpuFrequencyMhz());
     Serial.println(" MHz");
@@ -359,17 +354,19 @@ void processLoRaPacket(const LoRaPacket &packet)
             Serial.print("Sending ACK for seq: ");
             Serial.println(msg.textData.seq);
 
-            lastTxStartResult = loraManager.startTransmitNonBlocking(ackBuf, ackLen);
-            if (lastTxStartResult == 0)
             {
-                Serial.println("ACK TX started (non-blocking)");
-                // Don't call startReceiveMode here; main loop will handle TX completion and restart RX
-            }
-            else
-            {
-                Serial.print("Failed to start ACK TX, code: ");
-                Serial.println(lastTxStartResult);
-                loraManager.startReceiveMode();
+                int txStartLocal = loraManager.startTransmitNonBlocking(ackBuf, ackLen);
+                if (txStartLocal == 0)
+                {
+                    Serial.println("ACK TX started (non-blocking)");
+                    // Don't call startReceiveMode here; main loop will handle TX completion and restart RX
+                }
+                else
+                {
+                    Serial.print("Failed to start ACK TX, code: ");
+                    Serial.println(txStartLocal);
+                    loraManager.startReceiveMode();
+                }
             }
         }
 
@@ -466,15 +463,13 @@ void loop()
             Serial.println(" bytes via LoRa (non-blocking)");
 
             // start non-blocking transmit (LoRaManager registers the packet-sent callback)
-            lastTxStartResult = loraManager.startTransmitNonBlocking(buf, len);
-            if (lastTxStartResult == 0)
             {
-                // TX started successfully
-            }
-            else
-            {
-                Serial.print("Failed to start non-blocking TX, code: ");
-                Serial.println(lastTxStartResult);
+                int txStartLocal = loraManager.startTransmitNonBlocking(buf, len);
+                if (txStartLocal != 0)
+                {
+                    Serial.print("Failed to start non-blocking TX, code: ");
+                    Serial.println(txStartLocal);
+                }
             }
         }
         else
@@ -508,18 +503,12 @@ void loop()
         // Clean up after non-blocking transmit
         loraManager.finishTransmit();
 
-        if (lastTxStartResult == 0)
-        {
-            Serial.println("LoRa non-blocking TX finished successfully");
+        // TX finished (non-blocking flow). Start errors were reported where
+        // the TX was started; here we finalize and show success feedback.
+        Serial.println("LoRa non-blocking TX finished");
 #ifdef LED_PIN
-            ledManager.blink(2);
+        ledManager.blink(2);
 #endif
-        }
-        else
-        {
-            Serial.print("LoRa non-blocking TX finished with error code: ");
-            Serial.println(lastTxStartResult);
-        }
 
         // Return to receive mode
         delay(10);
