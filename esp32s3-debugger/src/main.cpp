@@ -60,7 +60,10 @@
 // Manager objects
 LoRaManager loraManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_FREQUENCY);
 
-QueueHandle_t loRaQueue;
+// LoRaManager handles ISR notifications and provides an ISR-safe inline processing pattern.
+// The ISR inside LoRaManager only sets a flag; the main loop calls
+// `loraManager.consumeRxFlag()` and then repeatedly `loraManager.getPacketData()` to
+// drain and process packets in non-ISR context (no intermediate queue required).
 
 DisplayManager display(LCD_D0, LCD_D1, LCD_D2, LCD_D3, LCD_D4, LCD_D5, LCD_D6, LCD_D7,
                        LCD_WR, LCD_RD, LCD_DC, LCD_CS, LCD_RES, PIN_LCD_BL);
@@ -72,6 +75,8 @@ String messageHistory[MAX_DISPLAY_LINES]; // Store message lines
 int messageCount = 0;
 int lastRssi = 0;    // Last received RSSI
 float lastSnr = 0.0; // Last received SNR
+
+// LoRa receive notifications are handled inside LoRaManager (ISR sets rxFlag)
 
 // ACK timing (non-blocking)
 unsigned long ackSendTime = 0;
@@ -113,18 +118,6 @@ const unsigned long ACK_DELAY_MS = 50; // 50ms delay before sending ACK
 /**
  * @brief LoRa receive callback - handles incoming LoRa packets event-driven
  */
-#if defined(ESP8266) || defined(ESP32)
-IRAM_ATTR
-#endif
-void onLoRaReceive()
-{
-    LoRaPacket packet = loraManager.getPacketData();
-
-    if (packet.len > 0)
-    {
-        xQueueSend(loRaQueue, &packet, 0);
-    }
-}
 
 /**
  * @brief Configure wake-up sources for deep sleep
@@ -369,16 +362,7 @@ void setup()
     Serial.println("===================================");
 
     // Create message queue for LoRa packets
-    loRaQueue = xQueueCreate(15, sizeof(LoRaPacket));
-
-    if (loRaQueue == nullptr)
-    {
-        Serial.println("Queue creation failed!");
-        while (1)
-        {
-            delay(1000);
-        }
-    }
+    // No separate loRaQueue needed; LoRa packets processed directly
 
     // Initialize LoRa
     display.printLine("Initializing LoRa...");
@@ -421,10 +405,7 @@ void setup()
         }
     }
 
-    // Set up event-driven LoRa reception
-    loraManager.onReceive(onLoRaReceive);
-
-    // Start continuous receive mode
+    // Start continuous receive mode (LoRaManager registers its internal ISR)
     loraManager.startReceiveMode();
     display.printLine("LoRa Receiver ready.");
 
@@ -483,15 +464,27 @@ void loop()
             int tlen = testMsg.serialize(tbuf, sizeof(tbuf));
             if (tlen > 0)
             {
-                if (loraManager.sendPacket(tbuf, tlen))
+                // Try non-blocking transmit first (RadioLib pattern)
+                int txStartState = loraManager.startTransmitNonBlocking(tbuf, tlen);
+                if (txStartState == 0)
                 {
-                    Serial.println("Test message sent");
+                    Serial.println("Started non-blocking TX for test message");
+                    unsigned long startWait = millis();
+                    const unsigned long TX_TIMEOUT = 2000; // 2s
+                    // Wait for TX done flag via LoRaManager (consumeTxDoneFlag)
+                    while (!loraManager.consumeTxDoneFlag() && (millis() - startWait) < TX_TIMEOUT)
+                    {
+                        vTaskDelay(pdMS_TO_TICKS(5));
+                    }
+                    // finish transmit in non-ISR context
+                    loraManager.finishTransmit();
+                    loraManager.startReceiveMode();
+                    Serial.println("Test message TX finished (non-blocking)");
                 }
                 else
                 {
-                    Serial.println("Failed to send test message");
+                    Serial.println("Failed to start non-blocking TX for test message");
                 }
-                loraManager.startReceiveMode();
             }
             // Reset awake timer
             lastActivityTime = millis();
@@ -499,150 +492,164 @@ void loop()
         }
     }
 
-    // Check for messages from LoRa (event-driven via callback)
-    LoRaPacket packet;
-    if (xQueueReceive(loRaQueue, &packet, 0) == pdTRUE)
+    // If LoRaManager reports an RX, process packet(s) now in non-ISR context
+    if (loraManager.consumeRxFlag())
     {
-        Serial.print("LoRa RX: received ");
-        Serial.print(packet.len);
-        Serial.print(" bytes, RSSI: ");
-        Serial.print(packet.rssi);
-        Serial.print(" dBm, SNR: ");
-        Serial.print(packet.snr);
-        Serial.println(" dB");
-
-        // Deserialize message
-        Message msg;
-        String summary;
-        if (msg.deserialize(packet.buffer, packet.len))
+        // Read packet from radio into local struct (non-ISR)
+        LoRaPacket packet = loraManager.getPacketData();
+        if (packet.len > 0)
         {
-            Serial.print("LoRa message deserialized: type=");
-            Serial.println((int)msg.type);
+            Serial.print("LoRa RX: received ");
+            Serial.print(packet.len);
+            Serial.print(" bytes, RSSI: ");
+            Serial.print(packet.rssi);
+            Serial.print(" dBm, SNR: ");
+            Serial.print(packet.snr);
+            Serial.println(" dB");
 
-            // Handle different message types
-            switch (msg.type)
+            // Deserialize message
+            Message msg;
+            String summary;
+            if (msg.deserialize(packet.buffer, packet.len))
             {
-            case MessageType::Text:
-            {
-                Serial.print("Text message - seq: ");
-                Serial.print(msg.textData.seq);
-                Serial.print(", text: \"");
-                Serial.print(msg.textData.text);
-                Serial.print("\"");
+                Serial.print("LoRa message deserialized: type=");
+                Serial.println((int)msg.type);
 
-                if (msg.textData.hasGps)
+                // Handle different message types
+                switch (msg.type)
                 {
-                    Serial.print(", GPS: ");
-                    Serial.print(msg.textData.lat / 1000000.0, 6);
-                    Serial.print("°, ");
-                    Serial.print(msg.textData.lon / 1000000.0, 6);
-                    Serial.print("°");
-                }
-                Serial.println();
-
-                // Display text message on screen
-                String displayText = "TXT #";
-                displayText += String(msg.textData.seq);
-                displayText += ": ";
-                displayText += String(msg.textData.text);
-
-                // Add GPS info if available
-                if (msg.textData.hasGps)
+                case MessageType::Text:
                 {
-                    displayText += " [";
-                    displayText += String(msg.textData.lat / 1000000.0, 5);
-                    displayText += "°,";
-                    displayText += String(msg.textData.lon / 1000000.0, 5);
-                    displayText += "°]";
+                    Serial.print("Text message - seq: ");
+                    Serial.print(msg.textData.seq);
+                    Serial.print(", text: \"");
+                    Serial.print(msg.textData.text);
+                    Serial.print("\"");
+
+                    if (msg.textData.hasGps)
+                    {
+                        Serial.print(", GPS: ");
+                        Serial.print(msg.textData.lat / 1000000.0, 6);
+                        Serial.print("°, ");
+                        Serial.print(msg.textData.lon / 1000000.0, 6);
+                        Serial.print("°");
+                    }
+                    Serial.println();
+
+                    // Display text message on screen
+                    String displayText = "TXT #";
+                    displayText += String(msg.textData.seq);
+                    displayText += ": ";
+                    displayText += String(msg.textData.text);
+
+                    // Add GPS info if available
+                    if (msg.textData.hasGps)
+                    {
+                        displayText += " [";
+                        displayText += String(msg.textData.lat / 1000000.0, 5);
+                        displayText += "°,";
+                        displayText += String(msg.textData.lon / 1000000.0, 5);
+                        displayText += "°]";
+                    }
+
+                    summary = displayText;
+
+                    addMessageToDisplay(displayText, packet.rssi, packet.snr);
+
+                    // Schedule ACK to send after delay (non-blocking)
+                    // This allows sender time to switch from TX to RX mode
+                    ackPending = true;
+                    pendingAckSeq = msg.textData.seq;
+                    ackSendTime = millis() + ACK_DELAY_MS;
+                    pendingAckMsg = Message::createAck(msg.textData.seq);
+
+                    Serial.print("ACK scheduled for seq ");
+                    Serial.print(msg.textData.seq);
+                    Serial.print(" in ");
+                    Serial.print(ACK_DELAY_MS);
+                    Serial.println("ms");
+
+                    break;
                 }
 
-                summary = displayText;
+                case MessageType::Ack:
+                {
+                    Serial.print("Received ACK for seq: ");
+                    Serial.println(msg.ackData.seq);
 
-                addMessageToDisplay(displayText, packet.rssi, packet.snr);
-
-                // Schedule ACK to send after delay (non-blocking)
-                // This allows sender time to switch from TX to RX mode
-                ackPending = true;
-                pendingAckSeq = msg.textData.seq;
-                ackSendTime = millis() + ACK_DELAY_MS;
-                pendingAckMsg = Message::createAck(msg.textData.seq);
-
-                Serial.print("ACK scheduled for seq ");
-                Serial.print(msg.textData.seq);
-                Serial.print(" in ");
-                Serial.print(ACK_DELAY_MS);
-                Serial.println("ms");
-
-                break;
-            }
-
-            case MessageType::Ack:
-            {
-                Serial.print("Received ACK for seq: ");
-                Serial.println(msg.ackData.seq);
-
-                // Display ACK on screen (brief info)
-                String ackDisplay = "ACK #";
-                ackDisplay += String(msg.ackData.seq);
-                summary = ackDisplay;
-                addMessageToDisplay(ackDisplay, packet.rssi, packet.snr);
-                break;
-            }
-            }
-        }
-        else
-        {
-            Serial.println("Failed to deserialize LoRa message");
-            summary = "ERROR: Decode failed";
-            addMessageToDisplay("ERROR: Decode failed", packet.rssi, packet.snr);
-        }
-
-        // Persist to RTC circular buffer
-        strncpy(rtcMessageStorage[rtc_head], summary.c_str(), PERSISTENT_MSG_BUF - 1);
-        rtcMessageStorage[rtc_head][PERSISTENT_MSG_BUF - 1] = '\0';
-        rtc_head = (rtc_head + 1) % PERSISTENT_SLOTS;
-        if (rtc_msg_count < PERSISTENT_SLOTS)
-            rtc_msg_count++;
-    }
-
-    // Check for pending ACK to send (non-blocking)
-    if (ackPending && millis() >= ackSendTime)
-    {
-        ackPending = false;
-        Serial.println("State: ackPending cleared");
-
-        uint8_t ackBuf[64];
-        int ackLen = pendingAckMsg.serialize(ackBuf, sizeof(ackBuf));
-
-        if (ackLen > 0)
-        {
-            Serial.print("Sending ACK for seq: ");
-            Serial.println(pendingAckSeq);
-            bool ackSent = loraManager.sendPacket(ackBuf, ackLen);
-            if (ackSent)
-            {
-                Serial.println("ACK sent successfully");
+                    // Display ACK on screen (brief info)
+                    String ackDisplay = "ACK #";
+                    ackDisplay += String(msg.ackData.seq);
+                    summary = ackDisplay;
+                    addMessageToDisplay(ackDisplay, packet.rssi, packet.snr);
+                    break;
+                }
+                }
             }
             else
             {
-                Serial.println("ACK send failed");
+                Serial.println("Failed to deserialize LoRa message");
+                summary = "ERROR: Decode failed";
+                addMessageToDisplay("ERROR: Decode failed", packet.rssi, packet.snr);
             }
-            loraManager.startReceiveMode();
+
+            // Persist to RTC circular buffer
+            strncpy(rtcMessageStorage[rtc_head], summary.c_str(), PERSISTENT_MSG_BUF - 1);
+            rtcMessageStorage[rtc_head][PERSISTENT_MSG_BUF - 1] = '\0';
+            rtc_head = (rtc_head + 1) % PERSISTENT_SLOTS;
+            if (rtc_msg_count < PERSISTENT_SLOTS)
+                rtc_msg_count++;
         }
+
+        // Check for pending ACK to send (non-blocking)
+        if (ackPending && millis() >= ackSendTime)
+        {
+            ackPending = false;
+            Serial.println("State: ackPending cleared");
+
+            uint8_t ackBuf[64];
+            int ackLen = pendingAckMsg.serialize(ackBuf, sizeof(ackBuf));
+
+            if (ackLen > 0)
+            {
+                Serial.print("Sending ACK for seq: ");
+                Serial.println(pendingAckSeq);
+                // Try non-blocking transmit first
+                int txStart = loraManager.startTransmitNonBlocking(ackBuf, ackLen);
+                if (txStart == 0)
+                {
+                    unsigned long txStartTime = millis();
+                    const unsigned long TX_ACK_TIMEOUT = 2000;
+                    while (!loraManager.consumeTxDoneFlag() && (millis() - txStartTime) < TX_ACK_TIMEOUT)
+                    {
+                        vTaskDelay(pdMS_TO_TICKS(5));
+                    }
+                    loraManager.finishTransmit();
+                    loraManager.startReceiveMode();
+                    Serial.println("ACK TX finished (non-blocking)");
+                }
+                else
+                {
+                    Serial.println("Failed to start non-blocking TX for ACK");
+                }
+            }
+        }
+
+        // Check for sleep timeout (prevents immediate re-sleep after wake)
+        unsigned long timeSinceActivity = millis() - lastActivityTime;
+        if (timeSinceActivity > SLEEP_TIMEOUT)
+        {
+            Serial.println("Inactivity timeout - entering deep sleep mode");
+            enterDeepSleep();
+            // Device will reset on wake
+        }
+
+        // Small delay to prevent watchdog issues and allow task switching
+        vTaskDelay(pdMS_TO_TICKS(10));
+
+        // Reset watchdog to prevent timeout
+        esp_task_wdt_reset();
     }
 
-    // Check for sleep timeout (prevents immediate re-sleep after wake)
-    unsigned long timeSinceActivity = millis() - lastActivityTime;
-    if (timeSinceActivity > SLEEP_TIMEOUT)
-    {
-        Serial.println("Inactivity timeout - entering deep sleep mode");
-        enterDeepSleep();
-        // Device will reset on wake
-    }
-
-    // Small delay to prevent watchdog issues and allow task switching
-    vTaskDelay(pdMS_TO_TICKS(10));
-
-    // Reset watchdog to prevent timeout
-    esp_task_wdt_reset();
+    // Extra closing brace to ensure all blocks are properly terminated (fixes missing '}' compiler error)
 }

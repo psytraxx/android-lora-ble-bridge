@@ -37,7 +37,6 @@ const int LORA_TO_BLE_QUEUE_SIZE = 15;
 
 QueueHandle_t bleToLoraQueue;
 QueueHandle_t loraToBleQueue;
-QueueHandle_t loRaQueue;
 
 // BLEManager declared after queues
 BLEManager *bleManager;
@@ -48,24 +47,6 @@ PowerController powerController;
 // Message buffer for when BLE is disconnected (SINGLE GLOBAL INSTANCE)
 MessageBuffer messageBuffer;
 
-// Flag for LoRa activity (set in ISR, checked in loop)
-volatile bool loraActivity = false;
-
-// https://github.com/jgromes/RadioLib/blob/master/examples/SX127x/SX127x_Receive_Interrupt/SX127x_Receive_Interrupt.ino
-#if defined(ESP8266) || defined(ESP32)
-IRAM_ATTR
-#endif
-void onLoRaReceive()
-{
-    LoRaPacket packet = loraManager.getPacketData();
-
-    if (packet.len > 0)
-    {
-
-        xQueueSend(loRaQueue, &packet, 0);
-    }
-}
-
 /**
  * @brief Setup routine for ESP32 LoRa-BLE Bridge
  */
@@ -75,6 +56,9 @@ void setup()
 
     Serial.println("Disabling WiFi and Bluetooth Classic for power savings");
 
+    // Configure power management: use the correct pm_config type depending on
+    // the target (ESP32 vs ESP32S3). Some SDKs expose different typedef names.
+#if defined(CONFIG_IDF_TARGET_ESP32)
     esp_pm_config_esp32_t pm_config = {
         .max_freq_mhz = 80,
         .min_freq_mhz = 10,
@@ -82,6 +66,26 @@ void setup()
     };
 
     esp_pm_configure(&pm_config);
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+    esp_pm_config_esp32s3_t pm_config = {
+        .max_freq_mhz = 80,
+        .min_freq_mhz = 10,
+        .light_sleep_enable = true,
+    };
+
+    esp_pm_configure(&pm_config);
+#else
+    // Fallback: try the generic esp_pm_config_esp32_t if available.
+    // If neither symbol is available this will generate a compile error
+    // which indicates an unsupported target or SDK change.
+    esp_pm_config_esp32_t pm_config = {
+        .max_freq_mhz = 80,
+        .min_freq_mhz = 10,
+        .light_sleep_enable = true,
+    };
+
+    esp_pm_configure(&pm_config);
+#endif
 
     // Disable WiFi completely (saves ~50-80 mA)
     // WiFi is initialized by default in ESP32 Arduino framework
@@ -116,9 +120,8 @@ void setup()
     // Create message queues
     bleToLoraQueue = xQueueCreate(BLE_TO_LORA_QUEUE_SIZE, sizeof(Message));
     loraToBleQueue = xQueueCreate(LORA_TO_BLE_QUEUE_SIZE, sizeof(Message));
-    loRaQueue = xQueueCreate(15, sizeof(LoRaPacket));
 
-    if (bleToLoraQueue == nullptr || loraToBleQueue == nullptr || loRaQueue == nullptr)
+    if (bleToLoraQueue == nullptr || loraToBleQueue == nullptr)
     {
         Serial.println("Failed to create message queues. Halting execution.");
         while (1)
@@ -213,10 +216,7 @@ void setup()
         }
     }
 
-    // Set up event-driven LoRa reception (CRITICAL: Always listening)
-    loraManager.onReceive(onLoRaReceive);
-
-    // Start continuous receive mode
+    // Start continuous receive mode; LoRaManager registers its internal ISR
     loraManager.startReceiveMode();
 
     // Configure GPIO wake-up for LoRa interrupt (allows wake from light sleep)
@@ -354,16 +354,18 @@ void processLoRaPacket(const LoRaPacket &packet)
             Serial.print("Sending ACK for seq: ");
             Serial.println(msg.textData.seq);
 
-            if (loraManager.sendPacket(ackBuf, ackLen))
+            int txState = loraManager.startTransmitNonBlocking(ackBuf, ackLen);
+            if (txState == 0)
             {
-                Serial.println("ACK sent successfully");
+                Serial.println("ACK TX started (non-blocking)");
+                // Don't call startReceiveMode here; main loop will handle TX completion and restart RX
             }
             else
             {
-                Serial.println("ACK send failed");
+                Serial.print("Failed to start ACK TX, code: ");
+                Serial.println(txState);
+                loraManager.startReceiveMode();
             }
-
-            loraManager.startReceiveMode();
         }
 
         // Queue or buffer message for BLE delivery
@@ -456,32 +458,20 @@ void loop()
         {
             Serial.print("Transmitting ");
             Serial.print(len);
-            Serial.println(" bytes via LoRa");
+            Serial.println(" bytes via LoRa (non-blocking)");
 
-            bool sendSuccess = loraManager.sendPacket(buf, len);
-
-            if (!sendSuccess)
+            // start non-blocking transmit (LoRaManager registers the packet-sent callback)
+            int transmissionStateLocal = loraManager.startTransmitNonBlocking(buf, len);
+            if (transmissionStateLocal == 0)
             {
-                Serial.println("LoRa TX failed, retrying once...");
-                delay(100);
-                sendSuccess = loraManager.sendPacket(buf, len);
-            }
-
-            if (sendSuccess)
-            {
-                Serial.println("LoRa TX successful");
-#ifdef LED_PIN
-                ledManager.blink(2);
-#endif
+                // TX started successfully; LoRaManager tracks in-progress state
+                (void)transmissionStateLocal;
             }
             else
             {
-                Serial.println("LoRa TX failed permanently");
+                Serial.print("Failed to start non-blocking TX, code: ");
+                Serial.println(transmissionStateLocal);
             }
-
-            // Return to RX mode (CRITICAL: Always listening)
-            delay(50);
-            loraManager.startReceiveMode();
         }
         else
         {
@@ -489,12 +479,47 @@ void loop()
         }
     }
 
-    // Check for LoRa packets (event-driven via ISR callback)
-    LoRaPacket packet;
-    if (xQueueReceive(loRaQueue, &packet, 0) == pdTRUE)
+    // If LoRaManager indicates received packet(s), drain them now (non-ISR)
+    if (loraManager.consumeRxFlag())
     {
-        processLoRaPacket(packet);
-        loraActivity = false;
+        // Drain available packets from the radio and process immediately
+        while (true)
+        {
+            LoRaPacket rxPkt = loraManager.getPacketData();
+            if (rxPkt.len > 0)
+            {
+                processLoRaPacket(rxPkt);
+            }
+            else
+            {
+                // no more packets available
+                break;
+            }
+        }
+    }
+
+    // Handle TX completion for non-blocking transmit (LoRaManager tracks flags)
+    if (loraManager.consumeTxDoneFlag())
+    {
+        // Clean up after non-blocking transmit
+        loraManager.finishTransmit();
+
+        if (loraManager.getTransmissionState() == 0)
+        {
+            Serial.println("LoRa non-blocking TX finished successfully");
+#ifdef LED_PIN
+            ledManager.blink(2);
+#endif
+        }
+        else
+        {
+            Serial.print("LoRa non-blocking TX finished with error code: ");
+            Serial.println(loraManager.getTransmissionState());
+        }
+
+        // Return to receive mode
+        delay(10);
+        loraManager.startReceiveMode();
     }
 
     // Forward queued/buffered messages from LoRa to BLE
@@ -507,8 +532,7 @@ void loop()
 
     // Determine if there is pending activity
     bool hasActivity = uxQueueMessagesWaiting(bleToLoraQueue) > 0 ||
-                       uxQueueMessagesWaiting(loRaQueue) > 0 ||
-                       loraActivity;
+                       loraManager.isRxPending();
 
     // Adaptive delay for power savings
     // With automatic light sleep enabled, longer delays allow the system to

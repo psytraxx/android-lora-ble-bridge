@@ -355,6 +355,18 @@ ACK_Delay = LoRa_TX_Time + RX_Mode_Switch + Processing_Buffer
 2. Increase RX settle time in sender (50ms → 100ms)
 3. Check serial logs for mode transition timing
 
+## LoRaManager: ISR-safe usage note
+
+The firmware uses a `LoRaManager` helper that keeps ISRs minimal and avoids calling RadioLib/SPI functions inside interrupt context.
+
+Recommended usage pattern (what the code now implements):
+
+- In `setup()` call `loraManager.startReceiveMode()`; `LoRaManager` registers a tiny ISR that only sets a volatile flag when a packet arrives.
+- In the main `loop()` poll for RX with `loraManager.consumeRxFlag()`. If true, drain available packets by repeatedly calling `loraManager.getPacketData()` and process each `LoRaPacket` in non-ISR context.
+- For non-blocking TX: call `loraManager.startTransmitNonBlocking(buf, len)`. The ISR will set a TX-done flag; in non-ISR context poll `loraManager.consumeTxDoneFlag()` and then call `loraManager.finishTransmit()` to complete the transmit flow.
+
+This pattern follows RadioLib best practices: startTransmitNonBlocking() -> ISR sets packet-sent flag -> finishTransmit() in non-ISR. It avoids SPI access and heavy RadioLib calls in ISRs, preventing race conditions and crashes.
+
 ## Troubleshooting
 
 ### ESP32 Issues
