@@ -18,6 +18,7 @@
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
 #include <DisplayManager.h>
+#include <esp_wifi.h>
 
 // --- Pin Definitions ---
 /**
@@ -355,6 +356,26 @@ void setup()
     Serial.print(getCpuFrequencyMhz());
     Serial.println(" MHz");
 
+    // Disable WiFi completely (saves ~50-80 mA)
+    // WiFi is initialized by default in ESP32 Arduino framework
+    esp_err_t err = esp_wifi_stop();
+    if (err == ESP_OK || err == ESP_ERR_WIFI_NOT_INIT)
+    {
+        esp_wifi_deinit();
+        Serial.println("WiFi disabled successfully");
+    }
+    else
+    {
+        Serial.printf("WiFi stop failed: %d (may not be initialized)\n", err);
+    }
+
+    // Disable Bluetooth Classic (we only use BLE via NimBLE)
+    // Note: NimBLE doesn't use the classic Bluetooth stack
+    btStop();
+    Serial.println("Bluetooth Classic disabled (using NimBLE for BLE only)");
+
+    Serial.println("Power management configured");
+
     esp_task_wdt_add(xTaskGetCurrentTaskHandle());
 
     Serial.println("===================================");
@@ -465,38 +486,87 @@ void loop()
             if (tlen > 0)
             {
                 // Try non-blocking transmit first (RadioLib pattern)
+                int txStartLocal = loraManager.startTransmitNonBlocking(tbuf, tlen);
+                if (txStartLocal == 0)
                 {
-                    int txStartLocal = loraManager.startTransmitNonBlocking(tbuf, tlen);
-                    if (txStartLocal == 0)
+                    Serial.println("Started non-blocking TX for test message");
+                    unsigned long startWait = millis();
+                    const unsigned long TX_TIMEOUT = 2000; // 2s
+                    // Wait for TX done flag via LoRaManager (consumeTxDoneFlag)
+                    while (!loraManager.consumeTxDoneFlag() && (millis() - startWait) < TX_TIMEOUT)
                     {
-                        Serial.println("Started non-blocking TX for test message");
-                        unsigned long startWait = millis();
-                        const unsigned long TX_TIMEOUT = 2000; // 2s
-                        // Wait for TX done flag via LoRaManager (consumeTxDoneFlag)
-                        while (!loraManager.consumeTxDoneFlag() && (millis() - startWait) < TX_TIMEOUT)
-                        {
-                            // Allow LoRaManager to perform recovery tasks and yield
-                            loraManager.poll();
-                            vTaskDelay(pdMS_TO_TICKS(5));
-                        }
-                        // finish transmit in non-ISR context
-                        loraManager.finishTransmit();
-                        loraManager.startReceiveMode();
-                        Serial.println("Test message TX finished (non-blocking)");
+                        // Allow LoRaManager to perform recovery tasks and yield
+                        loraManager.poll();
+                        vTaskDelay(pdMS_TO_TICKS(5));
                     }
-                    else
-                    {
-                        Serial.println("Failed to start non-blocking TX for test message");
-                    }
+                    // finish transmit in non-ISR context
+                    loraManager.finishTransmit();
+                    loraManager.startReceiveMode();
+                    Serial.printf("Test message TX finished (non-blocking) - took %lu ms\n",
+                                 millis() - startWait);
                 }
-                // Reset awake timer
-                lastActivityTime = millis();
-                Serial.printf("State: lastActivityTime reset to %lu\n", lastActivityTime);
+                else
+                {
+                    Serial.println("Failed to start non-blocking TX for test message");
+                }
+            }
+            // Reset awake timer
+            lastActivityTime = millis();
+            Serial.printf("State: lastActivityTime reset to %lu\n", lastActivityTime);
+        }
+    }
+
+    // Check for pending ACK to send (non-blocking) - moved outside RX block
+    if (ackPending && millis() >= ackSendTime)
+    {
+        ackPending = false;
+        Serial.println("State: ackPending cleared");
+
+        uint8_t ackBuf[64];
+        int ackLen = pendingAckMsg.serialize(ackBuf, sizeof(ackBuf));
+
+        if (ackLen > 0)
+        {
+            Serial.print("Sending ACK for seq: ");
+            Serial.println(pendingAckSeq);
+            // Try non-blocking transmit first
+            {
+                int txStart = loraManager.startTransmitNonBlocking(ackBuf, ackLen);
+                if (txStart == 0)
+                {
+                    unsigned long txStartTime = millis();
+                    const unsigned long TX_ACK_TIMEOUT = 2000;
+                    while (!loraManager.consumeTxDoneFlag() && (millis() - txStartTime) < TX_ACK_TIMEOUT)
+                    {
+                        // Allow recovery and yield
+                        loraManager.poll();
+                        vTaskDelay(pdMS_TO_TICKS(5));
+                    }
+                    loraManager.finishTransmit();
+                    loraManager.startReceiveMode();
+                    Serial.printf("ACK TX finished (non-blocking) - took %lu ms\n",
+                                  millis() - txStartTime);
+                }
+                else
+                {
+                    Serial.println("Failed to start non-blocking TX for ACK");
+                }
             }
         }
     }
-    else if (loraManager.consumeRxFlag())
+
+    // Check for sleep timeout (prevents immediate re-sleep after wake)
+    unsigned long timeSinceActivity = millis() - lastActivityTime;
+    if (timeSinceActivity > SLEEP_TIMEOUT)
     {
+        Serial.println("Inactivity timeout - entering deep sleep mode");
+        enterDeepSleep();
+        // Device will reset on wake
+    }
+
+    if (loraManager.consumeRxFlag())
+    {
+        Serial.println("Loop: LoRa RX flag consumed, reading packet...");
         // Read packet from radio into local struct (non-ISR)
         LoRaPacket packet = loraManager.getPacketData();
         if (packet.len > 0)
@@ -602,58 +672,11 @@ void loop()
             if (rtc_msg_count < PERSISTENT_SLOTS)
                 rtc_msg_count++;
         }
-
-        // Check for pending ACK to send (non-blocking)
-        if (ackPending && millis() >= ackSendTime)
-        {
-            ackPending = false;
-            Serial.println("State: ackPending cleared");
-
-            uint8_t ackBuf[64];
-            int ackLen = pendingAckMsg.serialize(ackBuf, sizeof(ackBuf));
-
-            if (ackLen > 0)
-            {
-                Serial.print("Sending ACK for seq: ");
-                Serial.println(pendingAckSeq);
-                // Try non-blocking transmit first
-                {
-                    int txStart = loraManager.startTransmitNonBlocking(ackBuf, ackLen);
-                    if (txStart == 0)
-                    {
-                        unsigned long txStartTime = millis();
-                        const unsigned long TX_ACK_TIMEOUT = 2000;
-                        while (!loraManager.consumeTxDoneFlag() && (millis() - txStartTime) < TX_ACK_TIMEOUT)
-                        {
-                            // Allow recovery and yield
-                            loraManager.poll();
-                            vTaskDelay(pdMS_TO_TICKS(5));
-                        }
-                        loraManager.finishTransmit();
-                        loraManager.startReceiveMode();
-                        Serial.println("ACK TX finished (non-blocking)");
-                    }
-                    else
-                    {
-                        Serial.println("Failed to start non-blocking TX for ACK");
-                    }
-                }
-            }
-
-            // Check for sleep timeout (prevents immediate re-sleep after wake)
-            unsigned long timeSinceActivity = millis() - lastActivityTime;
-            if (timeSinceActivity > SLEEP_TIMEOUT)
-            {
-                Serial.println("Inactivity timeout - entering deep sleep mode");
-                enterDeepSleep();
-                // Device will reset on wake
-            }
-
-            // Small delay to prevent watchdog issues and allow task switching
-            vTaskDelay(pdMS_TO_TICKS(10));
-
-            // Reset watchdog to prevent timeout
-            esp_task_wdt_reset();
-        }
     }
+
+    // Small delay to prevent watchdog issues and allow task switching
+    vTaskDelay(pdMS_TO_TICKS(10));
+
+    // Feed the watchdog at the start of every loop iteration
+    esp_task_wdt_reset();
 }
