@@ -1,9 +1,0 @@
-get rid of my shared @shared/LoRaManager/ and @shared/LoRaManager/lora_config.h  - move config to platform io - implement 
-radiolib - its already added to platform.io for @esp32s3-debugger/ and @esp32/ - upfront read https://github.com/jgromes/Radi
-oLib/blob/b446fc1e9316abe10d737b2a2eaa8436ab389ba8/examples/SX128x/SX128x_Receive_Blocking/SX128x_Receive_Blocking.ino - 
-https://github.com/jgromes/RadioLib/blob/b446fc1e9316abe10d737b2a2eaa8436ab389ba8/examples/SX128x/SX128x_Receive_Interrupt/SX
-128x_Receive_Interrupt.ino https://github.com/jgromes/RadioLib/blob/b446fc1e9316abe10d737b2a2eaa8436ab389ba8/examples/SX128x/
-SX128x_Transmit_Blocking/SX128x_Transmit_Blocking.ino and https://github.com/jgromes/RadioLib/blob/b446fc1e9316abe10d737b2a2e
-aa8436ab389ba8/examples/SX128x/SX128x_Transmit_Interrupt/SX128x_Transmit_Interrupt.ino - if you decide to go for blocking 
-ensure long transactions dont infer with the watchdog - feel free to rework the lora logic inside the main loops of both 
-firmwares but keep all funktionalities 

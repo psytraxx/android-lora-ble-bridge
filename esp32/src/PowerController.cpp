@@ -5,8 +5,8 @@
 PowerController *PowerController::instance = nullptr;
 
 // Configuration: advertise and light-sleep durations (ms)
-static const unsigned long ADVERTISE_MS = 3000000UL;   // 30 seconds advertise window
-static const unsigned long LIGHT_SLEEP_MS = 3000000UL; // 30 seconds light sleep (change to 5000 for quick debug)
+static const unsigned long ADVERTISE_MS = 30000UL;   // 30 seconds advertise window
+static const unsigned long LIGHT_SLEEP_MS = 30000UL; // 30 seconds light sleep (change to 5000 for quick debug)
 
 PowerController::PowerController()
     : bleManager(nullptr), messageBuffer(nullptr), state(STATE_DISCONNECTED_ADVERTISING), advertiseStartMillis(0), lastActivityMillis(0)

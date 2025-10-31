@@ -95,9 +95,9 @@ bool buttonPressed = false;
 const uint8_t DISPLAY_BRIGHT = 255; // Full brightness
 
 // Sleep mode settings
-unsigned long lastActivityTime = 0;          // Track last activity for sleep
-const unsigned long SLEEP_TIMEOUT = 6000000; // 60 seconds awake timeout (reset on message)
-RTC_DATA_ATTR int bootCount = 0;             // Persistent across deep sleep
+unsigned long lastActivityTime = 0;        // Track last activity for sleep
+const unsigned long SLEEP_TIMEOUT = 60000; // 60 seconds awake timeout (reset on message)
+RTC_DATA_ATTR int bootCount = 0;           // Persistent across deep sleep
 
 // Persistent message storage (RTC memory) - keep up to 10 latest human-readable messages
 #define PERSISTENT_SLOTS 10
