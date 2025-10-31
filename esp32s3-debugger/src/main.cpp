@@ -139,7 +139,7 @@ void onLoRaReceive(void)
 /**
  * @brief Configure wake-up sources for deep sleep
  */
-void configureDeepSleepWakeup()
+void configureLighSleepWakeup()
 {
     // Configure button wake-up (active LOW - pressed when connected to GND)
     esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON, 0); // Wake on button press
@@ -169,7 +169,7 @@ void enterDeepSleep()
     delay(2000); // Show message for 2 seconds
 
     // Configure wake-up sources (button only for deep sleep)
-    configureDeepSleepWakeup();
+    configureLighSleepWakeup();
 
     // Flush serial
     Serial.flush();
