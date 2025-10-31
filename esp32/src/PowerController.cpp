@@ -4,9 +4,8 @@
 
 PowerController *PowerController::instance = nullptr;
 
-// Configuration: advertise and light-sleep durations (ms)
-static const unsigned long ADVERTISE_MS = 30000UL;   // 30 seconds advertise window
-static const unsigned long LIGHT_SLEEP_MS = 30000UL; // 30 seconds light sleep (change to 5000 for quick debug)
+// Configuration: advertise duration (ms)
+static const unsigned long ADVERTISE_MS = 30000UL; // 30 seconds advertise window
 
 PowerController::PowerController()
     : bleManager(nullptr), messageBuffer(nullptr), state(STATE_DISCONNECTED_ADVERTISING), advertiseStartMillis(0), lastActivityMillis(0)
@@ -85,7 +84,7 @@ void PowerController::update()
         advertiseStartMillis = 0;
     }
 
-    // Disconnected states: advertising for 30s, then light sleep for 30s
+    // Disconnected states: advertising for 30s, then light sleep until button press or LoRa activity
     if (state == STATE_DISCONNECTED_ADVERTISING)
     {
         // Ensure advertising is active; set advertiseStartMillis when advertising begins
@@ -96,19 +95,16 @@ void PowerController::update()
             advertiseStartMillis = millis();
         }
 
-        // (Removed periodic debug logs to reduce console noise)
-
         if (millis() - advertiseStartMillis >= ADVERTISE_MS)
         {
             Serial.print("PowerController: Advertising period ended (timeout=");
             Serial.print(ADVERTISE_MS);
-            Serial.print(" ms) - entering light sleep for ");
-            Serial.print(LIGHT_SLEEP_MS);
-            Serial.println(" ms");
+            Serial.println(" ms) - entering light sleep until button press or LoRa activity");
 
-            // Prepare for light sleep. Let LoRa GPIO wake the chip or timer wake after LIGHT_SLEEP_MS
-            esp_sleep_enable_timer_wakeup(LIGHT_SLEEP_MS * 1000ULL);
-            // Note: main.cpp already enabled GPIO wake for LoRa DIO0 via gpio_wakeup_enable
+            // Prepare for light sleep. Will wake on boot button press or LoRa GPIO interrupt
+            // Re-enable GPIO wakeup before each sleep (required on some ESP32 variants)
+            // Note: gpio_wakeup_enable persists, but esp_sleep_enable_gpio_wakeup may need refresh
+            esp_sleep_enable_gpio_wakeup();
 
             // Small delay to let BLE stop advertising gracefully
             delay(20);
@@ -117,24 +113,55 @@ void PowerController::update()
             esp_light_sleep_start();
 
             // Woke up
-            Serial.println("PowerController: Woke from light sleep");
-            // Reset advertise timer and return to advertising state
-            advertiseStartMillis = millis();
+            esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+            Serial.print("PowerController: Woke from light sleep - reason: ");
+            switch (wakeup_reason)
+            {
+            case ESP_SLEEP_WAKEUP_GPIO:
+                Serial.println("GPIO wakeup");
+                break;
+            default:
+                Serial.print("Unknown (");
+                Serial.print(wakeup_reason);
+                Serial.println(")");
+                break;
+            }
+
+            // Restart advertising after wake (set to 0 to trigger advertising start)
+            Serial.println("PowerController: Restarting advertising after wake");
+            advertiseStartMillis = 0;  // Set to 0 to trigger advertising restart
             state = STATE_DISCONNECTED_ADVERTISING;
         }
     }
 }
 
-void PowerController::enterLightSleepNow(uint64_t microseconds)
+void PowerController::enterLightSleepNow()
 {
-    Serial.print("PowerController: enterLightSleepNow for ");
-    Serial.print(microseconds / 1000000ULL);
-    Serial.println(" seconds");
+    Serial.println("PowerController: entering light sleep immediately (wakes on button press or LoRa activity)");
 
-    esp_sleep_enable_timer_wakeup(microseconds);
+    // Sleep will wake on boot button press or LoRa GPIO interrupt
+    // No timer - indefinite sleep until hardware event
+    // Re-enable GPIO wakeup before sleep
+    esp_sleep_enable_gpio_wakeup();
+
     // Clear advertise timer so when we wake the advertising window restarts
     advertiseStartMillis = 0;
     delay(10);
     esp_light_sleep_start();
-    Serial.println("PowerController: woke from immediate light sleep");
+
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+    Serial.print("PowerController: woke from immediate light sleep - reason: ");
+    switch (wakeup_reason)
+    {
+    case ESP_SLEEP_WAKEUP_GPIO:
+        Serial.println("GPIO (button or LoRa)");
+        break;
+    default:
+        Serial.print("Unknown (");
+        Serial.print(wakeup_reason);
+        Serial.println(")");
+        break;
+    }
+
+    Serial.println("PowerController: Will restart advertising on next update() call");
 }

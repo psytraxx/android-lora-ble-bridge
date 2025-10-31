@@ -9,37 +9,42 @@ This document outlines the primary user scenarios and system behaviors based on 
 
 ## **2\. Disconnected & Idle**
 
-* **Scenario:** The device is on but not connected to the Android app.  
-* **Behavior:** The device is in a power-saving loop:  
-  1. **Advertise:** Actively advertises via BLE for 30 seconds.  
-  2. **Sleep:** Enters Light Sleep for 30 seconds.  
-  3. This cycle repeats, ensuring the device is periodically discoverable while saving power.
+* **Scenario:** The device is on but not connected to the Android app.
+* **Behavior:** The device is in a power-saving loop:
+  1. **Advertise:** Actively advertises via BLE for 30 seconds.
+  2. **Sleep:** Enters Light Sleep indefinitely until woken by boot button press or LoRa activity.
+  3. Press the boot button (GPIO0) to wake the device and restart advertising.
+  4. This cycle ensures maximum power savings while allowing manual wake via button.
 
 ## **3\. Receiving LoRa Data (While Disconnected)**
 
-* **Scenario:** A LoRa message arrives while the device is in its 30-second Light Sleep state.  
-* **Behavior:**  
-  1. The LoRa module triggers a GPIO pin, instantly waking the ESP32.  
-  2. The device receives the LoRa message.  
-  3. The message is stored in an internal buffer (to be delivered later).  
-  4. The device immediately goes back to Light Sleep (it does not wait for the 30-second sleep timer to finish).
+* **Scenario:** A LoRa message arrives while the device is in Light Sleep state.
+* **Behavior:**
+  1. The LoRa module triggers a GPIO pin (DIO0), instantly waking the ESP32.
+  2. The device receives the LoRa message.
+  3. The message is stored in an internal buffer (to be delivered later).
+  4. **The device starts advertising for 30 seconds** so the user can connect and retrieve the buffered message.
+  5. If no connection is made during the 30-second advertising window, the device returns to Light Sleep.
 
 ## **4\. Connecting the Android App**
 
-* **Scenario:** The user opens the Android app and connects to the device (during its 30-second advertising window).  
-* **Behavior:**  
-  1. A BLE connection is established.  
-  2. The device *immediately* uploads the entire buffer of stored LoRa messages to the app.  
+* **Scenario:** The user presses the boot button (or a LoRa message arrives) to wake the device, which starts advertising. The user then opens the Android app and connects during the 30-second advertising window.
+* **Behavior:**
+  1. A BLE connection is established.
+  2. The device *immediately* uploads the entire buffer of stored LoRa messages to the app.
   3. After the sync is complete, the device enters the "Always Active" connected mode.
+  4. **A 60-second inactivity timer starts.** The device will remain active and connected for at least 60 seconds.
+  5. Any BLE or LoRa activity resets the timer back to 60 seconds.
 
 ## **5\. Relaying App Message to LoRa (While Connected)**
 
-* **Scenario:** The user is connected and sends a message from the app.  
-* **Behavior:**  
-  1. The device is in "Always Active" mode (no power saving).  
-  2. It receives the message via BLE.  
-  3. It immediately transmits that message over the LoRa radio.  
-  4. It stays active, awaiting the next command.
+* **Scenario:** The user is connected and sends a message from the app.
+* **Behavior:**
+  1. The device is in "Always Active" mode (no power saving while connected).
+  2. It receives the message via BLE.
+  3. It immediately transmits that message over the LoRa radio.
+  4. **Any BLE or LoRa activity resets the 60-second inactivity timer.**
+  5. It stays active, awaiting the next command.
 
 ## **6\. Disconnecting the App (Manual)**
 
@@ -50,11 +55,13 @@ This document outlines the primary user scenarios and system behaviors based on 
 
 ## **7\. Disconnecting (Automatic Inactivity)**
 
-* **Scenario:** The device is connected, but there is no communication (no BLE or LoRa activity) for 60 seconds.  
-* **Behavior:**  
-  1. The 60-second inactivity timer expires.  
-  2. The device *automatically* terminates the BLE connection to save power.  
-  3. The device reverts to the "Disconnected & Idle" power-saving loop (starting with 30 seconds of advertising).
+* **Scenario:** The device is connected, but there is no communication (no BLE or LoRa activity) for 60 seconds.
+* **Behavior:**
+  1. When BLE connects, the device stays fully active (no light sleep) for at least 60 seconds.
+  2. **Any BLE or LoRa activity automatically renews the 60-second timer.**
+  3. After 60 seconds of complete inactivity (no BLE messages, no LoRa packets), the inactivity timer expires.
+  4. The device *automatically* terminates the BLE connection to save power.
+  5. The device reverts to the "Disconnected & Idle" power-saving loop (starting with 30 seconds of advertising).
 
 ```mermaid
 graph TD
@@ -70,7 +77,7 @@ graph TD
     F -- 30 Sec Timeout --> B
     F -- Successful BLE Connection --> I(Send Buffered Messages to App)
 
-    B -- 30 Sec RTC Timer Wakeup --> F
+    B -- Boot Button Press --> F
     B -- LoRa Event (GPIO Wake) --> G(Handle LoRa RX + Buffer Message)
 
     G -- Response Complete --> B
@@ -90,13 +97,15 @@ graph TD
 
 ## State-machine contract (concise)
 
-- Inputs: BLE connect/disconnect events, BLE RX messages, LoRa RX (GPIO/ISR), RTC timer wake (30s), manual disconnect, inactivity timer (60s).
+- Inputs: BLE connect/disconnect events, BLE RX messages, LoRa RX (GPIO/ISR), boot button press (GPIO0), manual disconnect, inactivity timer (60s).
 - Outputs: Start/stop BLE advertising, enter/exit light-sleep, send buffered messages to BLE on connect, enable "always active" mode while connected, forward BLE->LoRa messages immediately.
 - Error modes: buffer overflow (drop oldest message), BLE send failure (retry limited, stop on repeated failure), wake while processing (process then return to sleep as appropriate).
 
 Success criteria:
-- While disconnected the device alternates: Advertise 30s -> Light Sleep 30s (RTC wake). During sleep, a LoRa GPIO interrupt must wake the MCU, the LoRa payload must be buffered and the MCU may return to sleep immediately after buffering.
-- On BLE connect the device uploads all buffered LoRa messages to the app (as soon as BLE is ready) and remains always-active until a manual disconnect or a 60s inactivity timeout.
+- While disconnected the device alternates: Advertise 30s -> Light Sleep (indefinite, wake on button/LoRa). During sleep, a LoRa GPIO interrupt or boot button press must wake the MCU. **After waking (from button OR LoRa), the device restarts advertising for 30 seconds.** LoRa payloads are buffered during this time.
+- On BLE connect the device uploads all buffered LoRa messages to the app (as soon as BLE is ready) and remains always-active with a 60-second inactivity timer.
+- **While connected:** Any BLE message (TX/RX) or LoRa activity resets the 60-second inactivity timer. After 60 seconds of complete inactivity, the device disconnects BLE and returns to the sleep cycle.
+- **Activity tracking:** BLE activity is tracked via callbacks in BLEManager (onMessageReceived, onConnected). LoRa activity is tracked via updateActivity() calls in main.cpp after packet processing.
 
 ### Edge cases to watch
 
@@ -125,7 +134,7 @@ Success criteria:
 
 ## Next implementation steps (short)
 
-1. Add a small `PowerController` (or extend main loop) to implement the disconnected advertising/light-sleep cycle (30s advertise, 30s light-sleep) using RTC timer wake and `gpio_wakeup_enable` for LoRa DIO0.
+1. Add a small `PowerController` (or extend main loop) to implement the disconnected advertising/light-sleep cycle (30s advertise, then sleep until button press or LoRa activity) using `esp_sleep_enable_ext0_wakeup` for boot button (GPIO0) and `gpio_wakeup_enable` for LoRa DIO0.
 2. Modify BLE connection handling to immediately upload the `messageBuffer` contents on connect (remove the current 2s hold unless a short stabilization delay is required). Ensure partial failures keep remaining messages in buffer.
 3. Add a 60s inactivity timer that resets on BLE/LoRa activity; when expired, force disconnect and revert to the disconnected cycle.
 4. Add small test instructions to validate: (a) LoRa RX during sleep causes wake and buffering, (b) BLE connect triggers immediate buffer sync, (c) inactivity disconnect works.

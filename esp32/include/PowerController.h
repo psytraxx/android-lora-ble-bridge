@@ -39,9 +39,12 @@ public:
     /**
      * @brief Periodic update called from the main loop.
      *
-     * The PowerController may put the CPU into light sleep from within this
-     * method when conditions indicate the device should conserve power. Keep
-     * the call frequency reasonable (e.g., once every 100..500 ms).
+     * The PowerController manages BLE advertising and sleep cycles. After 30 seconds
+     * of advertising, it enters light sleep mode. The device wakes from sleep when:
+     * - Boot button (GPIO0) is pressed
+     * - LoRa packet is received (DIO0 interrupt)
+     *
+     * Keep the call frequency reasonable (e.g., once every 100..500 ms).
      */
     void update();
 
@@ -54,10 +57,14 @@ public:
     static void activityCallbackStatic();
 
     /**
-     * @brief Enter light sleep immediately for the specified duration.
-     * @param microseconds Sleep duration in microseconds.
+     * @brief Enter light sleep immediately until woken by button press or LoRa activity.
+     *
+     * This function puts the device into light sleep mode without a timer.
+     * The device will wake only on:
+     * - Boot button press (GPIO0)
+     * - LoRa DIO0 interrupt (incoming packet)
      */
-    void enterLightSleepNow(uint64_t microseconds);
+    void enterLightSleepNow();
 
 private:
     BLEManager *bleManager{nullptr};

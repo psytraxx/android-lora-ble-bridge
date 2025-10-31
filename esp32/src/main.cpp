@@ -259,9 +259,24 @@ void setup()
     }
 
     // Configure GPIO wake-up for LoRa interrupt (allows wake from light sleep)
+    // For ESP32: GPIO32 (DIO0) is an RTC GPIO, so we can use ext1 for multiple RTC GPIOs
+    // But since boot button needs LOW trigger and LoRa needs HIGH trigger,
+    // we use ext0 for boot and gpio_wakeup for LoRa
+
+    // Configure boot button wake (ext0 for LOW trigger on RTC GPIO)
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)BOOT_BUTTON, 0); // 0 = LOW (button pressed)
+
+    // Configure LoRa DIO0 wake (gpio_wakeup for HIGH trigger)
+    // Note: Don't reconfigure the pin - RadioLib already set it up as input with interrupt
+    // Just enable the wakeup capability
     gpio_wakeup_enable((gpio_num_t)LORA_DIO0, GPIO_INTR_HIGH_LEVEL);
     esp_sleep_enable_gpio_wakeup();
-    Serial.println("GPIO wake-up enabled for LoRa DIO0 - can wake from light sleep");
+
+    Serial.print("GPIO wake-up configured: Boot button (GPIO");
+    Serial.print(BOOT_BUTTON);
+    Serial.print(" on LOW), LoRa DIO0 (GPIO");
+    Serial.print(LORA_DIO0);
+    Serial.println(" on HIGH)");
 
     // Initialize LED
 #ifdef LED_PIN
@@ -473,14 +488,16 @@ void processLoRaPacket(const LoRaPacket &packet)
     }
     }
 
-    // If we were woken by GPIO (LoRa) and we're still disconnected, go back to immediate light sleep
+    // If we were woken by GPIO (LoRa) and we're still disconnected,
+    // DON'T return to sleep - let the advertising cycle start so user can connect
+    // The PowerController will handle the advertising cycle
     if (!bleManager->isConnected())
     {
         esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
         if (cause == ESP_SLEEP_WAKEUP_GPIO)
         {
-            Serial.println("processLoRaPacket: woke from GPIO - re-entering light sleep");
-            powerController.enterLightSleepNow(30ULL * 1000000ULL);
+            Serial.println("processLoRaPacket: woke from LoRa GPIO - message buffered, will start advertising");
+            // Don't call enterLightSleepNow() - let PowerController handle advertising cycle
         }
     }
 }
