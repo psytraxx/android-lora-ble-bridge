@@ -95,9 +95,9 @@ bool buttonPressed = false;
 const uint8_t DISPLAY_BRIGHT = 255; // Full brightness
 
 // Sleep mode settings
-unsigned long lastActivityTime = 0;        // Track last activity for sleep
-const unsigned long SLEEP_TIMEOUT = 60000; // 60 seconds awake timeout (reset on message)
-RTC_DATA_ATTR int bootCount = 0;           // Persistent across deep sleep
+unsigned long lastActivityTime = 0;          // Track last activity for sleep
+const unsigned long SLEEP_TIMEOUT = 6000000; // 60 seconds awake timeout (reset on message)
+RTC_DATA_ATTR int bootCount = 0;             // Persistent across deep sleep
 
 // Persistent message storage (RTC memory) - keep up to 10 latest human-readable messages
 #define PERSISTENT_SLOTS 10
@@ -119,29 +119,21 @@ const int BUTTON_INDICATOR_Y_OFFSET = 32; // Button indicator position from bott
 const unsigned long ACK_DELAY_MS = 50; // 50ms delay before sending ACK
 
 // Flags for LoRa activity (set in ISR, checked in loop)
-volatile bool loraReceived = false;
-volatile bool loraTransmitted = false;
+// IMPORTANT: ISR should ONLY set flags - all data reading happens in main loop
+volatile bool loraPacketReceived = false;
 
 /**
  * @brief LoRa receive callback - handles incoming LoRa packets event-driven (ISR)
+ * Following RadioLib best practices - ISR only sets flag
  */
 #if defined(ESP8266) || defined(ESP32)
 ICACHE_RAM_ATTR
 #endif
 void onLoRaReceive(void)
 {
-    loraReceived = true;
-}
-
-/**
- * @brief LoRa transmit callback - called when transmission completes (ISR)
- */
-#if defined(ESP8266) || defined(ESP32)
-ICACHE_RAM_ATTR
-#endif
-void onLoRaTransmit(void)
-{
-    loraTransmitted = true;
+    // Set flag only - do NOT read data in ISR!
+    // IMPORTANT: No Serial.print allowed in ISR - causes re-entry issues
+    loraPacketReceived = true;
 }
 
 /**
@@ -458,9 +450,8 @@ void setup()
         }
     }
 
-    // Set up event-driven LoRa reception and transmission
+    // Set up event-driven LoRa reception
     radio.setPacketReceivedAction(onLoRaReceive);
-    radio.setPacketSentAction(onLoRaTransmit);
 
     // Start continuous receive mode
     int state = radio.startReceive();
@@ -526,6 +517,9 @@ void loop()
             int tlen = testMsg.serialize(tbuf, sizeof(tbuf));
             if (tlen > 0)
             {
+                // Clear RX interrupt handler to allow DIO0 to signal TX completion
+                radio.clearPacketReceivedAction();
+
                 // Reconfigure watchdog for 10 seconds
                 esp_task_wdt_init(10, true);
                 esp_task_wdt_add(xTaskGetCurrentTaskHandle());
@@ -545,6 +539,9 @@ void loop()
                     Serial.print("Failed to send test message, code ");
                     Serial.println(state);
                 }
+
+                // Restore RX interrupt handler and return to RX mode
+                radio.setPacketReceivedAction(onLoRaReceive);
                 radio.startReceive();
             }
             // Reset awake timer
@@ -553,11 +550,12 @@ void loop()
         }
     }
 
-    // Check for messages from LoRa (event-driven via callback)
-    if (loraReceived)
+    // Check for messages from LoRa (flag set by ISR, read data here in main loop)
+    if (loraPacketReceived)
     {
-        loraReceived = false;
+        loraPacketReceived = false;
 
+        // Read packet data in main loop (NOT in ISR)
         LoRaPacket packet;
         int state = radio.readData(packet.buffer, sizeof(packet.buffer));
 
@@ -696,6 +694,9 @@ void loop()
             Serial.print("Sending ACK for seq: ");
             Serial.println(pendingAckSeq);
 
+            // Clear RX interrupt handler to allow DIO0 to signal TX completion
+            radio.clearPacketReceivedAction();
+
             // Reconfigure watchdog for 10 seconds
             esp_task_wdt_init(10, true);
             esp_task_wdt_add(xTaskGetCurrentTaskHandle());
@@ -716,6 +717,8 @@ void loop()
                 Serial.println(state);
             }
 
+            // Restore RX interrupt handler and return to RX mode
+            radio.setPacketReceivedAction(onLoRaReceive);
             radio.startReceive();
         }
     }

@@ -58,36 +58,20 @@ PowerController powerController;
 MessageBuffer messageBuffer;
 
 // Flag for LoRa activity (set in ISR, checked in loop)
-volatile bool loraActivity = false;
+volatile bool loraPacketReceived = false;
 
 /**
  * @brief LoRa receive callback - handles incoming LoRa packets event-driven (ISR)
- * Queues the packet for processing in main loop (fast ISR pattern)
+ * IMPORTANT: ISR should ONLY set flag - all data reading happens in main loop
+ * Following RadioLib best practices from examples
  */
 #if defined(ESP8266) || defined(ESP32)
 ICACHE_RAM_ATTR
 #endif
 void onLoRaReceive(void)
 {
-    // Read packet data in ISR and queue it
-    LoRaPacket packet;
-    int state = radio.readData(packet.buffer, sizeof(packet.buffer));
-
-    if (state == RADIOLIB_ERR_NONE)
-    {
-        packet.len = radio.getPacketLength();
-        packet.rssi = radio.getRSSI();
-        packet.snr = radio.getSNR();
-
-        // Queue the packet for main loop processing
-        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        xQueueSendFromISR(loRaQueue, &packet, &xHigherPriorityTaskWoken);
-        loraActivity = true;
-        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-    }
-
-    // Restart receive mode
-    radio.startReceive();
+    // Set flag only - do NOT read data in ISR!
+    loraPacketReceived = true;
 }
 
 /**
@@ -566,12 +550,36 @@ void loop()
         }
     }
 
-    // Check for LoRa packets (queued from ISR)
-    LoRaPacket packet;
-    if (xQueueReceive(loRaQueue, &packet, 0) == pdTRUE)
+    // Check for LoRa packets (flag set by ISR, read data here in main loop)
+    if (loraPacketReceived)
     {
-        processLoRaPacket(packet);
-        loraActivity = false;
+        loraPacketReceived = false;
+
+        // Read packet data in main loop (NOT in ISR)
+        LoRaPacket packet;
+        int state = radio.readData(packet.buffer, sizeof(packet.buffer));
+
+        if (state == RADIOLIB_ERR_NONE)
+        {
+            packet.len = radio.getPacketLength();
+            packet.rssi = radio.getRSSI();
+            packet.snr = radio.getSNR();
+
+            // Process the packet
+            processLoRaPacket(packet);
+        }
+        else if (state == RADIOLIB_ERR_CRC_MISMATCH)
+        {
+            Serial.println("LoRa RX: CRC error");
+        }
+        else
+        {
+            Serial.print("LoRa RX failed, code ");
+            Serial.println(state);
+        }
+
+        // Restart receive mode
+        radio.startReceive();
     }
 
     // Forward queued/buffered messages from LoRa to BLE
@@ -584,8 +592,7 @@ void loop()
 
     // Determine if there is pending activity
     bool hasActivity = uxQueueMessagesWaiting(bleToLoraQueue) > 0 ||
-                       uxQueueMessagesWaiting(loRaQueue) > 0 ||
-                       loraActivity;
+                       loraPacketReceived;
 
     // Adaptive delay for power savings
     // With automatic light sleep enabled, longer delays allow the system to
