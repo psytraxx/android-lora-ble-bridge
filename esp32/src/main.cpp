@@ -409,6 +409,9 @@ void processLoRaPacket(const LoRaPacket &packet)
             Serial.print("Sending ACK for seq: ");
             Serial.println(msg.textData.seq);
 
+            // Clear RX interrupt handler to allow DIO0 to signal TX completion
+            radio.clearPacketReceivedAction();
+
             // Reconfigure watchdog for 10 seconds
             esp_task_wdt_init(10, true);
             esp_task_wdt_add(xTaskGetCurrentTaskHandle());
@@ -429,6 +432,8 @@ void processLoRaPacket(const LoRaPacket &packet)
                 Serial.println(state);
             }
 
+            // Restore RX interrupt handler and return to RX mode
+            radio.setPacketReceivedAction(onLoRaReceive);
             radio.startReceive();
         }
 
@@ -524,6 +529,9 @@ void loop()
             Serial.print(len);
             Serial.println(" bytes via LoRa");
 
+            // Clear RX interrupt handler to allow DIO0 to signal TX completion
+            radio.clearPacketReceivedAction();
+
             // Reconfigure watchdog for 10 seconds to allow long LoRa transmission
             esp_task_wdt_init(10, true);
             esp_task_wdt_add(xTaskGetCurrentTaskHandle());
@@ -547,7 +555,8 @@ void loop()
                 Serial.println(state);
             }
 
-            // Return to RX mode (CRITICAL: Always listening)
+            // Restore RX interrupt handler and return to RX mode
+            radio.setPacketReceivedAction(onLoRaReceive);
             radio.startReceive();
             delay(50);
         }
