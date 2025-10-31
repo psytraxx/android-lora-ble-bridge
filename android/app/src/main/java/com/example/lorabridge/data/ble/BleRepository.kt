@@ -270,7 +270,8 @@ class BleRepository @Inject constructor(
 
         @Deprecated("Deprecated in API 33")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            if (characteristic.uuid == BleConstants.TX_CHAR_UUID) {
+            // Only handle in the deprecated callback for API < 33
+            if (android.os.Build.VERSION.SDK_INT < 33 && characteristic.uuid == BleConstants.TX_CHAR_UUID) {
                 handleReceivedData(characteristic.value)
             }
         }
@@ -280,7 +281,8 @@ class BleRepository @Inject constructor(
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray
         ) {
-            if (characteristic.uuid == BleConstants.TX_CHAR_UUID) {
+            // Only handle in the new callback for API >= 33
+            if (android.os.Build.VERSION.SDK_INT >= 33 && characteristic.uuid == BleConstants.TX_CHAR_UUID) {
                 handleReceivedData(value)
             }
         }
