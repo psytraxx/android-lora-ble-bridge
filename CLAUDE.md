@@ -10,7 +10,7 @@ A long-range messaging system enabling text messages (up to 50 characters) and G
 
 - **esp32/** - ESP32/ESP32S3 firmware (C++/Arduino/PlatformIO)
 - **esp32s3-debugger/** - LoRa receiver with display support (C++/Arduino/PlatformIO)
-- **android/** - Android application (Java) with ViewBinding
+- **android/** - Android application (Kotlin + Jetpack Compose + Clean Architecture)
 - **protocol.md** - Binary protocol specification (v3.0 with 6-bit text encoding)
 
 ## Build Commands
@@ -63,15 +63,14 @@ cd android
 
 ## High-Level Architecture
 
-### Android App (Java)
+### Android App (Kotlin + Jetpack Compose)
 
-**MVVM Architecture:**
-- **MainActivity** - Chat UI with RecyclerView, handles user input
-- **MessageViewModel** - Business logic, message sending, ACK tracking
-- **BleManager** - BLE scanning, connection, GATT operations
-- **GpsManager** - Location services (GPS + Network providers)
-- **MessageAdapter** - RecyclerView adapter for chat display
-- **Protocol** - Binary serialization (matches ESP32 protocol)
+**Clean Architecture + MVVM:**
+- **Presentation Layer** - ChatScreen (Compose UI), ChatViewModel, MessageBubble components
+- **Domain Layer** - Business models (Message, ChatMessage, BleConnectionState)
+- **Data Layer** - BleRepository, LocationRepository, MessageRepository, LoRaProtocol
+- **Dependency Injection** - Hilt
+- **Async** - Kotlin Coroutines + StateFlow
 
 **BLE Configuration:**
 - Scans for device name: "ESP32S3-LoRa"
@@ -176,7 +175,10 @@ cd android
 
 ## Testing
 
-**Android Tests (9 unit tests):**
+**Android Tests (43 unit tests):**
+- Protocol serialization (LoRaProtocolTest - 13 tests)
+- Domain models (ChatMessageTest - 10 tests, LocationDataTest - 9 tests)
+- Message repository (MessageRepositoryTest - 11 tests)
 - TextMessage (with/without GPS), AckMessage serialization
 - 6-bit character packing/unpacking
 - Round-trip encoding/decoding

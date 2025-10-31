@@ -5,7 +5,7 @@ A long-range communication system for sending text messages (up to 50 characters
 
 ## Features
 
-- 📱 **Android App**: Modern Java app with ViewBinding, GPS integration, and BLE communication
+- 📱 **Android App**: Modern Kotlin app with Jetpack Compose, Clean Architecture, GPS integration, and BLE communication
 - 📡 **Long Range**: 5-10 km typical range (up to 15+ km in ideal conditions)
 - 🔋 **Power Optimized**: 40-50% power savings (70-100 hours on 2500 mAh battery)
 - 📦 **Message Buffering**: Buffers up to 10 messages when phone is disconnected
@@ -85,13 +85,16 @@ cd android
 **Android App:**
 ```bash
 cd android
-./gradlew test                     # Run unit tests (9 tests)
+./gradlew test                     # Run unit tests (43 tests)
 ./gradlew connectedAndroidTest     # Run instrumentation tests
 ```
 
 ### Test Coverage
 - **ESP32**: Protocol serialization/deserialization, 6-bit packing
-- **Android**: 9 comprehensive unit tests covering:
+- **Android**: 43 comprehensive unit tests covering:
+  - Protocol serialization (LoRaProtocolTest - 13 tests)
+  - Domain models (ChatMessageTest - 10 tests, LocationDataTest - 9 tests)
+  - Message repository (MessageRepositoryTest - 11 tests)
   - TextMessage (with/without GPS), AckMessage serialization
   - 6-bit character packing/unpacking
   - Round-trip encoding/decoding
@@ -109,7 +112,7 @@ cd android
 | MOSI | GPIO11 | SPI MOSI |
 | NSS/CS | GPIO10 | Chip Select |
 | RESET | GPIO43 | Reset |
-| DIO0 | GPIO44 | Interrupt |
+| DIO0 | GPIO3 | Interrupt (RTC GPIO for wake-up) |
 | 3.3V | 3.3V | Power |
 | GND | GND | Ground |
 

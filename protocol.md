@@ -36,9 +36,9 @@ Used to acknowledge receipt of text messages.
 ### Text Length Limit
 - **Maximum**: 50 characters (enforced in both Android and ESP32)
 - **Rationale**: Optimized for long-range LoRa transmission
-  - With SF10, BW125, 433MHz configuration
-  - Time on Air: ~600ms for max message with GPS (51 bytes)
-  - Allows ~60 messages/hour within 1% duty cycle limits
+  - With SF11, BW31.25kHz, 433MHz configuration
+  - Time on Air: ~2.4 seconds for max message with GPS (51 bytes)
+  - Allows ~15 messages/hour within 1% duty cycle limits (EU)
   - Range: 5-10 km typical, up to 15+ km in ideal conditions
 
 ### 6-bit Character Encoding
@@ -152,23 +152,23 @@ Total: 2 bytes
 ## Performance Characteristics
 
 ### LoRa Configuration
-- **Spreading Factor**: SF10
-- **Bandwidth**: 125 kHz
+- **Spreading Factor**: SF11
+- **Bandwidth**: 31.25 kHz
 - **Coding Rate**: 4/5
 - **Frequency**: 433.92 MHz (default, configurable)
-- **TX Power**: 14 dBm / ~25 mW (default, configurable -4 to 20 dBm)
+- **TX Power**: 20 dBm / ~100 mW (default, configurable -4 to 20 dBm)
 
 ### Time on Air (ToA)
 
-| Message Size | Content | ToA @ SF10 | Example |
+| Message Size | Content | ToA @ SF11 BW31.25 | Example |
 |--------------|---------|------------|---------|
-| 5 bytes | Empty text (no GPS) | ~350 ms | "" |
-| 8 bytes | 3-char text (no GPS) | ~370 ms | "SOS" |
-| 17 bytes | 15-char text (no GPS) | ~420 ms | "AT CHECKPOINT 2" |
-| 26 bytes | 15-char text + GPS | ~480 ms | "AT CHECKPOINT 2" with location |
-| 43 bytes | 50-char text (no GPS) | ~550 ms | Maximum length text only |
-| 51 bytes | 50-char text + GPS | ~600 ms | Maximum length with GPS |
-| 2 bytes | ACK | ~330 ms | Acknowledgment |
+| 5 bytes | Empty text (no GPS) | ~1.7 s | "" |
+| 8 bytes | 3-char text (no GPS) | ~2.0 s | "SOS" |
+| 17 bytes | 15-char text (no GPS) | ~2.7 s | "AT CHECKPOINT 2" |
+| 26 bytes | 15-char text + GPS | ~3.0 s | "AT CHECKPOINT 2" with location |
+| 43 bytes | 50-char text (no GPS) | ~4.6 s | Maximum length text only |
+| 51 bytes | 50-char text + GPS | ~5.3 s | Maximum length with GPS |
+| 2 bytes | ACK | ~1.7 s | Acknowledgment |
 
 **Benefits over old protocol**:
 - One message instead of two (text + GPS)
@@ -176,15 +176,21 @@ Total: 2 bytes
 - Simpler message handling
 - GPS is optional, saves bandwidth when not needed
 
+**Note**: Time on Air calculations are for SF11, BW31.25kHz, CR4/5 configuration.
+Use [LoRa Calculator](https://www.loratools.nl/#/airtime) to verify for your specific configuration.
+
 ### Duty Cycle Compliance (EU: 1% = 36 seconds/hour)
+
+**Note**: Based on SF11, BW31.25kHz configuration (actual implementation)
 
 | Scenario | Per Message | Messages/Hour | Use Case |
 |----------|-------------|---------------|----------|
-| Text only (50 char) | ~550 ms | ~65 | Detailed updates without GPS |
-| Text only (25 char) | ~480 ms | ~75 | Normal messages |
-| Text (10 char) + GPS | ~420 ms | ~85 | Status with location |
-| Text (50 char) + GPS | ~600 ms | ~60 | Full message with location |
-| Emergency (5 char) | ~360 ms | ~100 | SOS messages |
+| Text only (50 char) | ~4.6 s | ~7 | Detailed updates without GPS |
+| Text only (25 char) | ~3.0 s | ~12 | Normal messages |
+| Text (10 char) + GPS | ~2.7 s | ~13 | Status with location |
+| Text (50 char) + GPS | ~5.3 s | ~6 | Full message with location |
+| Emergency (5 char) | ~1.7 s | ~21 | SOS messages |
+| ACK | ~1.7 s | ~21 | Acknowledgments |
 
 ## Implementation Notes
 

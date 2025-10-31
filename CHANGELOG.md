@@ -1,6 +1,10 @@
 ## Recent Improvements
 
+**Note**: Android app was migrated from Java to Kotlin + Jetpack Compose + Clean Architecture.
+Earlier entries refer to the legacy Java implementation.
+
 ### Android App - Critical Connection State & Message Delivery Fixes (October 23, 2025)
+*Legacy Java implementation - since replaced by Kotlin/Compose version*
 
 #### Critical Bug Fixes
 - **CRITICAL - Buffered Messages Not Delivered on Reconnect**: Fixed timing issue where messages were lost during reconnection
@@ -8,7 +12,7 @@
   - ESP32 would immediately send buffered messages, but Android wasn't ready to receive them
   - Solution: Delay `connected=true` until `onDescriptorWrite` callback confirms notifications enabled
   - Impact: All buffered messages now reliably delivered when app reconnects
-  - File: `BleManager.java:330-405`
+  - File: `BleManager.java:330-405` (legacy Java implementation)
 
 - **CRITICAL - Connection State UI Still Mismatched**: Enhanced connection state validation
   - Problem: Validation wasn't checking actual GATT connection state from BluetoothManager
@@ -16,7 +20,7 @@
   - Solution: Query `BluetoothManager.getConnectionState()` for actual connection status
   - Added synchronous execution when already on main thread (prevents async race conditions)
   - Impact: Send button state now ALWAYS matches connection status text
-  - File: `BleManager.java:434-482`
+  - File: `BleManager.java:434-482` (legacy Java implementation)
 
 #### Technical Details
 **Connection Sequence** (Now Correct):
@@ -35,7 +39,7 @@
 
 #### Test Results
 - **Build**: ✅ Successful
-- **Unit Tests**: ✅ All 9 tests passing
+- **Unit Tests**: ✅ All 9 tests passing (legacy Java implementation; current Kotlin version has 43 tests)
 - **Impact**: Reliable message delivery on every reconnection
 
 ---
@@ -91,6 +95,7 @@
 ---
 
 ### Android App - Connection State Fix & Foreground Service Removal (October 23, 2025)
+*Legacy Java implementation - since replaced by Kotlin/Compose version*
 
 #### Critical Bug Fixes
 - **CRITICAL - Connection State Synchronization**: Fixed UI state mismatch where send button was greyed out but status showed "Ready to send"
@@ -98,7 +103,7 @@
   - Root Cause: No validation of actual GATT connection state (bluetoothGatt, txCharacteristic, rxCharacteristic) on app resume
   - Solution: Added `validateConnectionState()` method that checks actual GATT objects and forces LiveData update
   - Impact: UI now always accurately reflects actual BLE connection state after screen unlock or app switching
-  - File: `BleManager.java:428-464`, `MainActivity.java:186-198`
+  - File: `BleManager.java:428-464`, `MainActivity.java:186-198` (legacy Java implementation)
 
 #### Architecture Simplification
 - **Removed Foreground Service**: Eliminated LoRaForegroundService as it's unnecessary with ESP32's message buffering
@@ -106,15 +111,15 @@
   - Foreground service caused state synchronization issues between service and MainActivity
   - Reduces app complexity and memory footprint (~2-5 MB savings)
   - Simplifies permission requirements (removed FOREGROUND_SERVICE, POST_NOTIFICATIONS)
-  - Files removed: `LoRaForegroundService.java`
-  - Files modified: `MainActivity.java`, `AndroidManifest.xml`
+  - Files removed: `LoRaForegroundService.java` (legacy Java implementation)
+  - Files modified: `MainActivity.java`, `AndroidManifest.xml` (legacy Java implementation)
 
 #### Code Quality Improvements
 - **Scheduled Disconnect Fix**: Prevented multiple overlapping disconnect timers
   - Problem: Each message send scheduled a new 30-second disconnect without cancelling previous ones
   - Solution: Cancel previous disconnect callback before scheduling new one
   - Added `cancelPendingDisconnect()` method for explicit cancellation
-  - File: `MessageViewModel.java:165-187`
+  - File: `MessageViewModel.java:165-187` (legacy Java implementation)
 
 - **LiveData Update Strategy**: Changed from `postValue()` to `setValue()` for immediate observer notification
   - Ensures UI updates happen synchronously when validating connection state
@@ -122,7 +127,7 @@
 
 #### Test Results
 - **Build**: ✅ Successful
-- **Unit Tests**: ✅ All 9 tests passing
+- **Unit Tests**: ✅ All 9 tests passing (legacy Java implementation; current Kotlin version has 43 tests)
 - **Impact**: Simpler, more reliable app with accurate UI state
 
 ---
@@ -267,6 +272,7 @@
 ---
 
 ### Android App - Critical Bug Fixes & Code Quality (October 23, 2025)
+*Legacy Java implementation - since replaced by Kotlin/Compose version*
 
 #### Connection State & UX Fixes
 - **CRITICAL - Send Button/Status Mismatch**: Fixed mismatched UI state where send button was disabled but status showed "Ready"
@@ -274,7 +280,7 @@
   - Solution: Only set `connected=true` after full successful connection (MTU, service discovery, characteristics)
   - Added `connected=false` for all failure cases (missing service, missing characteristics, discovery failed)
   - Impact: Send button state now always matches connection status text
-  - File: `BleManager.java:248, 330, 334, 339, 344`
+  - File: `BleManager.java:248, 330, 334, 339, 344` (legacy Java implementation)
 
 - **Reconnect Button Improvements**: All error messages now include "Tap here to reconnect" for consistency
   - Users can always manually reconnect by tapping status text
@@ -287,7 +293,7 @@
   - **Match Mode**: AGGRESSIVE matching reports device immediately
   - **Impact**: Device found in 1-3 seconds (vs 5-15 seconds previously) in crowded BLE environments
   - **Trade-off**: Higher power during scan, but much shorter scan duration
-  - File: `BleManager.java:178-196`
+  - File: `BleManager.java:178-196` (legacy Java implementation)
 
 #### Memory Leak Fixes
 - **Handler Cleanup**: Fixed memory leak in MessageViewModel - Handler callbacks now properly cleaned up in `onCleared()`
@@ -316,7 +322,7 @@
 
 #### Test Results
 - **Build**: ✅ All builds successful
-- **Unit Tests**: ✅ All 9 tests passing
+- **Unit Tests**: ✅ All 9 tests passing (legacy Java implementation; current Kotlin version has 43 tests)
 - **Impact**: More stable, efficient, and maintainable codebase
 
 ---
