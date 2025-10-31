@@ -97,10 +97,7 @@ class BleRepository @Inject constructor(
         _connectionState.value = BleConnectionState.Scanning
         Log.d(TAG, "Starting BLE scan for device: ${BleConstants.DEVICE_NAME}")
 
-        val scanFilter = ScanFilter.Builder()
-            .setDeviceName(BleConstants.DEVICE_NAME)
-            .build()
-
+        // Use lenient scan filter - don't filter by name to avoid missing devices
         val scanSettings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
@@ -111,9 +108,18 @@ class BleRepository @Inject constructor(
 
         currentScanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
-                Log.d(TAG, "Device found: ${result.device.name}")
-                stopScan()
-                connectToDevice(result.device)
+                val deviceName = result.device.name
+                val deviceAddress = result.device.address
+                Log.d(TAG, "BLE device found: name='$deviceName', address=$deviceAddress, rssi=${result.rssi}")
+
+                // Check if this is our target device
+                if (deviceName == BleConstants.DEVICE_NAME) {
+                    Log.d(TAG, "Target device found! Connecting...")
+                    stopScan()
+                    connectToDevice(result.device)
+                } else {
+                    Log.d(TAG, "Ignoring device (name mismatch)")
+                }
             }
 
             override fun onScanFailed(errorCode: Int) {
@@ -122,7 +128,7 @@ class BleRepository @Inject constructor(
             }
         }
 
-        bluetoothLeScanner.startScan(listOf(scanFilter), scanSettings, currentScanCallback)
+        bluetoothLeScanner.startScan(null, scanSettings, currentScanCallback)
 
         // Scan timeout
         scanJob = scope.launch {
@@ -270,7 +276,8 @@ class BleRepository @Inject constructor(
 
         @Deprecated("Deprecated in API 33")
         override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
-            if (characteristic.uuid == BleConstants.TX_CHAR_UUID) {
+            // Only handle in the deprecated callback for API < 33
+            if (android.os.Build.VERSION.SDK_INT < 33 && characteristic.uuid == BleConstants.TX_CHAR_UUID) {
                 handleReceivedData(characteristic.value)
             }
         }
@@ -280,7 +287,8 @@ class BleRepository @Inject constructor(
             characteristic: BluetoothGattCharacteristic,
             value: ByteArray
         ) {
-            if (characteristic.uuid == BleConstants.TX_CHAR_UUID) {
+            // Only handle in the new callback for API >= 33
+            if (android.os.Build.VERSION.SDK_INT >= 33 && characteristic.uuid == BleConstants.TX_CHAR_UUID) {
                 handleReceivedData(value)
             }
         }
