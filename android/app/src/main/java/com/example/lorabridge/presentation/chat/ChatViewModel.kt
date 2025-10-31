@@ -132,10 +132,15 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Disconnect BLE
+     * Disconnect BLE and restart scanning
      */
     fun disconnect() {
         bleRepository.disconnect()
+        // Restart scanning after disconnect
+        viewModelScope.launch {
+            delay(500)  // Small delay to ensure clean disconnect
+            startBleScan()
+        }
     }
 
     /**
