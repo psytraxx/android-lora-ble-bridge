@@ -186,10 +186,10 @@ The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
 - **Latency**: 1-2 seconds end-to-end
 - **Battery**: 70-100 hours on 2500 mAh
 - **Time on Air**:
-  - Note: Actual values depend on SF11 + BW31kHz configuration
-  - Significantly longer than previous SF10+BW125kHz estimates
+  - Note: Actual values depend on SF10 + BW31kHz configuration
+  - Longer than SF10+BW125kHz due to narrower bandwidth (31.25kHz vs 125kHz)
   - See protocol.md and use [LoRa Calculator](https://www.loratools.nl/#/airtime)
-- **LoRa Config**: SF11, BW31kHz, CR4/5, 433.92 MHz default, 20 dBm
+- **LoRa Config**: SF10, BW31.25kHz, CR4/5, 433.92 MHz default, 20 dBm
 - **Duty Cycle**: Calculate using actual Time on Air values (EU 1% = 36s/hour)
 
 See **[protocol.md](protocol.md)** for detailed Time on Air calculations and duty cycle compliance.
@@ -213,7 +213,7 @@ sequenceDiagram
     Note right of AS: ~10-50ms
 
     ES->>ER: 2. Forward to LoRa
-    Note right of ES: Airtime varies (SF11+BW31kHz)
+    Note right of ES: Airtime varies (SF10+BW31kHz)
     
     ER->>AR: 3. Forward via BLE
     Note right of ER: ~10-50ms
@@ -222,7 +222,7 @@ sequenceDiagram
     ER-->>ER: delay(500ms)
     
     ER->>ES: 5. Send ACK (LoRa)
-    Note left of ER: ACK airtime (SF11+BW31kHz)<br/>+ 50ms mode switch
+    Note left of ER: ACK airtime (SF10+BW31kHz)<br/>+ 50ms mode switch
 
     ES->>AS: 6. Receive ACK (BLE)
     Note left of ES: ~10-50ms + notify
@@ -237,28 +237,28 @@ sequenceDiagram
 ```mermaid
 gantt
     title Unified Message Flow Timeline (timing varies by SF/BW config)
-    dateFormat X
+    dateFormat x
     axisFormat %L ms
 
     section Android→ESP32
     BLE Transfer          :a1, 0, 50
 
     section LoRa TX
-    Text+GPS Transmission :a2, 50, 800
+    Text+GPS Transmission :a2, 50, 850
 
     section Receiver
-    Process & Forward     :a3, 850, 100
-    ACK Delay (500ms)     :a4, 950, 500
+    Process & Forward     :a3, 850, 950
+    ACK Delay (500ms)     :a4, 950, 1450
 
     section LoRa RX
-    ACK Transmission      :a5, 1450, 300
-    Mode Switch Settle    :a6, 1750, 50
+    ACK Transmission      :a5, 1450, 1750
+    Mode Switch Settle    :a6, 1750, 1800
 
     section ESP32→Android
-    BLE Notify            :a7, 1800, 50
+    BLE Notify            :a7, 1800, 1850
 
     section Result
-    Show Checkmark        :crit, a8, 1850, 50
+    Show Checkmark        :crit, a8, 1850, 1900
 ```
 
 ### Critical Timing Parameters
@@ -289,11 +289,11 @@ delay(50);  // Ensure radio is fully in RX mode
 | Phase | Time | Description |
 |-------|------|-------------|
 | **BLE Transfer** | 10-50ms | Android ↔ ESP32 via Bluetooth LE |
-| **LoRa Airtime** | Varies | Text+GPS packet at SF11, BW31kHz (depends on message length) |
+| **LoRa Airtime** | Varies | Text+GPS packet at SF10, BW31.25kHz (depends on message length) |
 | **Mode Switch (TX→RX)** | 10-50ms | SX1278 radio mode transition |
 | **RX Settle** | 50ms | Additional settle time in code |
 | **ACK Wait** | 500ms | Deliberate delay before ACK sent |
-| **ACK Airtime** | Varies | ACK packet (2 bytes) at SF11, BW31kHz |
+| **ACK Airtime** | Varies | ACK packet (2 bytes) at SF10, BW31.25kHz |
 
 ### Why These Timings Matter
 

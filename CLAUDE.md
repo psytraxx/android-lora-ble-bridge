@@ -106,9 +106,9 @@ cd android
 - Lowercase automatically converted to uppercase
 - Unsupported characters rejected
 
-**Time on Air (SF11, BW31kHz):**
-- Note: Actual values depend on SF11 + BW31kHz configuration
-- Significantly longer than SF10+BW125kHz
+**Time on Air (SF10, BW31kHz):**
+- Note: Actual values depend on SF10 + BW31kHz configuration
+- Longer than SF10+BW125kHz due to narrower bandwidth
 - See protocol.md for detailed calculations
 
 ## Configuration
@@ -146,7 +146,7 @@ cd android
 
 **ESP32-S3:**
 - CPU clock: 160 MHz (not 240 MHz max) for power savings
-- SF11 LoRa: Long time-on-air (longer than SF10) = low duty cycle
+- SF10 LoRa @ BW31.25kHz: Moderate time-on-air = reasonable duty cycle
 - WiFi disabled during setup
 - BLE advertising only when disconnected
 
@@ -197,7 +197,7 @@ cd android
 
 **Duty Cycle (EU/Switzerland: 1%):**
 - 36 seconds per hour transmission time
-- Note: Message airtime depends on SF11+BW31kHz (longer than previous estimates)
+- Note: Message airtime depends on SF10+BW31kHz configuration
 - Calculate using https://www.loratools.nl/#/airtime
 
 Use proper antenna for frequency (433 MHz = ~17 cm quarter-wave).
