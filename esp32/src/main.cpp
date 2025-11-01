@@ -100,6 +100,7 @@ void setup()
     // Disable Bluetooth Classic (we only use BLE via NimBLE)
     // Note: NimBLE doesn't use the classic Bluetooth stack
     btStop();
+    esp_bt_mem_release(ESP_BT_MODE_CLASSIC_BT);
     Serial.println("Bluetooth Classic disabled (using NimBLE for BLE only)");
 
     // Initialize watchdog timer once with sufficient timeout for longest operation
