@@ -40,10 +40,10 @@ QueueHandle_t loraToBleQueue;
 // Struct for LoRa packets with metadata
 struct LoRaPacket
 {
-    uint8_t buffer[256];  // 256 bytes = max LoRa payload (RadioLib limit)
-    int len;              // Actual packet length
-    int rssi;             // Received Signal Strength Indicator (dBm)
-    float snr;            // Signal-to-Noise Ratio (dB)
+    uint8_t buffer[256]; // 256 bytes = max LoRa payload (RadioLib limit)
+    int len;             // Actual packet length
+    int rssi;            // Received Signal Strength Indicator (dBm)
+    float snr;           // Signal-to-Noise Ratio (dB)
 };
 
 // BLEManager declared after queues
@@ -102,7 +102,14 @@ void setup()
     btStop();
     Serial.println("Bluetooth Classic disabled (using NimBLE for BLE only)");
 
+    // Initialize watchdog timer once with sufficient timeout for longest operation
+    // LoRa TX at SF11+BW31kHz can take 2-3s, so 10s provides safe margin
+    const int WATCHDOG_TIMEOUT_SECONDS = 10;
+    esp_task_wdt_init(WATCHDOG_TIMEOUT_SECONDS, true);
     esp_task_wdt_add(xTaskGetCurrentTaskHandle());
+    Serial.print("Watchdog timer initialized with ");
+    Serial.print(WATCHDOG_TIMEOUT_SECONDS);
+    Serial.println("s timeout");
 
     Serial.println("ESP32 LoRa-BLE Bridge starting");
 
@@ -268,7 +275,7 @@ void handleLoRaToBleForwarding()
     if (isCurrentlyConnected && !messageBuffer.isEmpty())
     {
         unsigned long timeSinceConnection = millis() - connectionEstablishedTime;
-        const unsigned long BLE_CONNECTION_SETUP_DELAY_MS = 1000;  // 1s for Android BLE stack setup
+        const unsigned long BLE_CONNECTION_SETUP_DELAY_MS = 1000; // 1s for Android BLE stack setup
         if (timeSinceConnection < BLE_CONNECTION_SETUP_DELAY_MS)
         {
             // Too soon - Android may not be ready yet
@@ -291,7 +298,7 @@ void handleLoRaToBleForwarding()
 #ifdef LED_PIN
                 ledManager.blink();
 #endif
-                const int BLE_MESSAGE_SPACING_MS = 20;  // 20ms spacing to avoid overwhelming BLE stack
+                const int BLE_MESSAGE_SPACING_MS = 20; // 20ms spacing to avoid overwhelming BLE stack
                 delay(BLE_MESSAGE_SPACING_MS);
             }
             else
@@ -409,7 +416,7 @@ void processLoRaPacket(const LoRaPacket &packet)
 
         // Send ACK
         Message ack = Message::createAck(msg.textData.seq);
-        uint8_t ackBuf[64];  // 64 bytes: enough for any message type (ACK=2, Text+GPS=52)
+        uint8_t ackBuf[64]; // 64 bytes: enough for any message type (ACK=2, Text+GPS=52)
         int ackLen = ack.serialize(ackBuf, sizeof(ackBuf));
 
         if (ackLen > 0)
@@ -420,23 +427,16 @@ void processLoRaPacket(const LoRaPacket &packet)
             // Wait 500ms before sending ACK to ensure sender has switched to RX mode
             // Critical: Without this delay, sender may still be in TX mode and miss the ACK
             // Timing: TX complete + mode switch + 50ms settle time = ~200ms minimum
-            const int ACK_DELAY_MS = 500;  // 500ms provides safe margin for sender RX mode switch
+            const int ACK_DELAY_MS = 500; // 500ms provides safe margin for sender RX mode switch
             delay(ACK_DELAY_MS);
 
             // Clear RX interrupt handler to allow DIO0 to signal TX completion
             radio.clearPacketReceivedAction();
 
-            // Reconfigure watchdog for 10 seconds (LoRa TX at SF11+BW31kHz can take 2-3s)
-            const int WATCHDOG_LORA_TX_SECONDS = 10;  // 10s allows for long LoRa transmissions
-            esp_task_wdt_init(WATCHDOG_LORA_TX_SECONDS, true);
-            esp_task_wdt_add(xTaskGetCurrentTaskHandle());
+            // Reset watchdog before long LoRa transmission
+            esp_task_wdt_reset();
 
             int state = radio.transmit(ackBuf, ackLen);
-
-            // Restore normal watchdog timeout (5s for main loop)
-            const int WATCHDOG_NORMAL_SECONDS = 5;  // 5s for regular operation
-            esp_task_wdt_init(WATCHDOG_NORMAL_SECONDS, true);
-            esp_task_wdt_add(xTaskGetCurrentTaskHandle());
 
             if (state == RADIOLIB_ERR_NONE)
             {
@@ -497,7 +497,7 @@ void loop()
         Serial.println((int)bleMsg.type);
 
         // Serialize and send via LoRa
-        uint8_t buf[64];  // 64 bytes: enough for any message type (ACK=2, Text+GPS=52)
+        uint8_t buf[64]; // 64 bytes: enough for any message type (ACK=2, Text+GPS=52)
         int len = bleMsg.serialize(buf, sizeof(buf));
 
         if (len > 0)
@@ -509,17 +509,10 @@ void loop()
             // Clear RX interrupt handler to allow DIO0 to signal TX completion
             radio.clearPacketReceivedAction();
 
-            // Reconfigure watchdog for 10 seconds (LoRa TX at SF11+BW31kHz can take 2-3s)
-            const int WATCHDOG_LORA_TX_SECONDS = 10;  // 10s allows for long LoRa transmissions
-            esp_task_wdt_init(WATCHDOG_LORA_TX_SECONDS, true);
-            esp_task_wdt_add(xTaskGetCurrentTaskHandle());
+            // Reset watchdog before long LoRa transmission
+            esp_task_wdt_reset();
 
             int state = radio.transmit(buf, len);
-
-            // Restore normal watchdog timeout (5s for main loop)
-            const int WATCHDOG_NORMAL_SECONDS = 5;  // 5s for regular operation
-            esp_task_wdt_init(WATCHDOG_NORMAL_SECONDS, true);
-            esp_task_wdt_add(xTaskGetCurrentTaskHandle());
 
             if (state == RADIOLIB_ERR_NONE)
             {
@@ -537,7 +530,7 @@ void loop()
             // Restore RX interrupt handler and return to RX mode
             radio.setPacketReceivedAction(onLoRaReceive);
             radio.startReceive();
-            const int LORA_RX_SETTLE_TIME_MS = 50;  // 50ms for SX1278 to stabilize in RX mode
+            const int LORA_RX_SETTLE_TIME_MS = 50; // 50ms for SX1278 to stabilize in RX mode
             delay(LORA_RX_SETTLE_TIME_MS);
         }
         else
@@ -597,7 +590,7 @@ void loop()
     if (hasActivity)
     {
         // Activity detected - short delay for responsiveness
-        const int ACTIVE_LOOP_DELAY_MS = 10;  // 10ms for fast processing during activity
+        const int ACTIVE_LOOP_DELAY_MS = 10; // 10ms for fast processing during activity
         vTaskDelay(pdMS_TO_TICKS(ACTIVE_LOOP_DELAY_MS));
     }
     else
@@ -606,7 +599,7 @@ void loop()
         // BLE modem and LoRa GPIO interrupts will wake the system early if needed
         // 500ms provides good balance: responsive enough for messaging (~0.5s max latency)
         // yet long enough to enter light sleep for power savings
-        const int IDLE_LOOP_DELAY_MS = 500;  // 500ms enables light sleep for power savings
+        const int IDLE_LOOP_DELAY_MS = 500; // 500ms enables light sleep for power savings
         vTaskDelay(pdMS_TO_TICKS(IDLE_LOOP_DELAY_MS));
     }
 }
