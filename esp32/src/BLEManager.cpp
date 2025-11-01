@@ -47,8 +47,7 @@ BLEManager::BLEManager(QueueHandle_t queue)
       bleToLoraQueue(queue),
       deviceNameStr(""),
       serverCallbacks(nullptr),
-      rxCallbacks(nullptr),
-      activityCallback(nullptr)
+      rxCallbacks(nullptr)
 {
 }
 
@@ -220,12 +219,6 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
     Serial.print("Parsing BLE message, length: ");
     Serial.println(length);
 
-    // Update activity callback if set
-    if (activityCallback)
-    {
-        activityCallback();
-    }
-
     Message msg;
     if (msg.deserialize(data, length))
     {
@@ -249,11 +242,7 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
 
 void BLEManager::onConnected()
 {
-    // Stateless: just notify activity
-    if (activityCallback)
-    {
-        activityCallback();
-    }
+    // Stateless: nothing to track here
 }
 
 void BLEManager::onDisconnected()

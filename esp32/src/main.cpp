@@ -22,7 +22,6 @@
 #include <esp_wifi.h>
 #include "esp_pm.h"
 #include <esp_sleep.h>
-#include "PowerController.h"
 
 // RadioLib SX1278 radio instance
 SX1278 radio = new Module(LORA_SS, LORA_DIO0, LORA_RST, RADIOLIB_NC);
@@ -51,14 +50,24 @@ QueueHandle_t loRaQueue;
 // BLEManager declared after queues
 BLEManager *bleManager;
 
-// Power controller instance
-PowerController powerController;
-
 // Message buffer for when BLE is disconnected (SINGLE GLOBAL INSTANCE)
 MessageBuffer messageBuffer;
 
 // Flag for LoRa activity (set in ISR, checked in loop)
 volatile bool loraPacketReceived = false;
+
+// Power management state
+enum PowerState
+{
+    STATE_DISCONNECTED_ADVERTISING,
+    STATE_DISCONNECTED_SLEEPING,
+    STATE_CONNECTED
+};
+
+PowerState powerState = STATE_DISCONNECTED_ADVERTISING;
+unsigned long advertiseStartMillis = 0;
+unsigned long lastActivityMillis = 0;
+static const unsigned long ADVERTISE_MS = 30000UL; // 30 seconds advertise window
 
 /**
  * @brief LoRa receive callback - handles incoming LoRa packets event-driven (ISR)
@@ -185,9 +194,6 @@ void setup()
     }
 
     bleManager->startAdvertising();
-
-    // Initialize power controller with BLE manager and message buffer
-    powerController.begin(bleManager, &messageBuffer);
 
     // Initialize LoRa with RadioLib
     Serial.println("Initializing LoRa radio (RadioLib)");
@@ -350,9 +356,9 @@ void handleLoRaToBleForwarding()
 void processLoRaPacket(const LoRaPacket &packet)
 {
     Serial.println("processLoRaPacket: packet received");
-    bleManager->updateActivity();
+    lastActivityMillis = millis(); // Update activity timestamp
 
-    // If not connected, just note activity; PowerController will manage advertising
+    // If not connected, just note activity; power management will handle advertising
     if (!bleManager->isConnected())
     {
         Serial.println("processLoRaPacket: no BLE connection - buffering for later");
@@ -490,7 +496,7 @@ void processLoRaPacket(const LoRaPacket &packet)
 
     // If we were woken by GPIO (LoRa) and we're still disconnected,
     // DON'T return to sleep - let the advertising cycle start so user can connect
-    // The PowerController will handle the advertising cycle
+    // The power management will handle the advertising cycle
     if (!bleManager->isConnected())
     {
         esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
@@ -602,10 +608,97 @@ void loop()
     // Forward queued/buffered messages from LoRa to BLE
     handleLoRaToBleForwarding();
 
-    // Power controller manages advertise/sleep cycle and inactivity
-    powerController.update();
+    // Power management - handle advertise/sleep cycle and inactivity
+    bool connected = (bleManager && bleManager->isConnected());
 
-    // No unconditional immediate sleep here; PowerController manages scheduled sleep.
+    if (connected)
+    {
+        if (powerState != STATE_CONNECTED)
+        {
+            Serial.println("Power: Entering CONNECTED state (always active)");
+            powerState = STATE_CONNECTED;
+            // When connected, ensure advertising is stopped
+            bleManager->stopAdvertising();
+        }
+
+        // If we haven't received activity recently, reset timer
+        if (lastActivityMillis == 0)
+            lastActivityMillis = millis();
+
+        // 60s inactivity timeout -> force disconnect
+        if ((millis() - lastActivityMillis) > 60000UL)
+        {
+            Serial.println("Power: Inactivity timeout - disconnecting BLE client");
+            bleManager->disconnect();
+            powerState = STATE_DISCONNECTED_ADVERTISING;
+            advertiseStartMillis = millis();
+        }
+    }
+    else
+    {
+        // If we reach here, BLE is not connected. If we were previously in CONNECTED state
+        // we need to transition back to the disconnected advertising state so the
+        // advertise timer is (re-)initialized and sleep cycles resume.
+        if (powerState == STATE_CONNECTED)
+        {
+            Serial.println("Power: BLE disconnected - switching to DISCONNECTED_ADVERTISING");
+            powerState = STATE_DISCONNECTED_ADVERTISING;
+            // Clear advertiseStartMillis so update() will re-start advertising and set the timer
+            advertiseStartMillis = 0;
+        }
+
+        // Disconnected states: advertising for 30s, then light sleep until button press or LoRa activity
+        if (powerState == STATE_DISCONNECTED_ADVERTISING)
+        {
+            // Ensure advertising is active; set advertiseStartMillis when advertising begins
+            if (advertiseStartMillis == 0)
+            {
+                Serial.println("Power: startAdvertising");
+                bleManager->startAdvertising();
+                advertiseStartMillis = millis();
+            }
+
+            if (millis() - advertiseStartMillis >= ADVERTISE_MS)
+            {
+                Serial.print("Power: Advertising period ended (timeout=");
+                Serial.print(ADVERTISE_MS);
+                Serial.println(" ms) - entering light sleep until button press or LoRa activity");
+
+                // Prepare for light sleep. Will wake on boot button press or LoRa GPIO interrupt
+                // Re-enable GPIO wakeup before each sleep (required on some ESP32 variants)
+                // Note: gpio_wakeup_enable persists, but esp_sleep_enable_gpio_wakeup may need refresh
+                esp_sleep_enable_gpio_wakeup();
+
+                // Small delay to let BLE stop advertising gracefully
+                delay(20);
+
+                // Enter light sleep (this will block until wake)
+                esp_light_sleep_start();
+
+                // Woke up
+                esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+                Serial.print("Power: Woke from light sleep - reason: ");
+                switch (wakeup_reason)
+                {
+                case ESP_SLEEP_WAKEUP_GPIO:
+                    Serial.println("GPIO wakeup");
+                    break;
+                default:
+                    Serial.print("Unknown (");
+                    Serial.print(wakeup_reason);
+                    Serial.println(")");
+                    break;
+                }
+
+                // Restart advertising after wake (set to 0 to trigger advertising start)
+                Serial.println("Power: Restarting advertising after wake");
+                advertiseStartMillis = 0;  // Set to 0 to trigger advertising restart
+                powerState = STATE_DISCONNECTED_ADVERTISING;
+            }
+        }
+    }
+
+    // No unconditional immediate sleep here; power management handles scheduled sleep.
 
     // Determine if there is pending activity
     bool hasActivity = uxQueueMessagesWaiting(bleToLoraQueue) > 0 ||

@@ -109,9 +109,6 @@ public:
     /// Update activity timestamp; typically called on a BLE event
     void updateActivity();
 
-    /// Set a callback invoked when BLE activity occurs (used by power manager)
-    void setActivityCallback(void (*callback)()) { activityCallback = callback; }
-
     /// Check whether a client is currently connected
     bool isConnected() const;
 
@@ -146,8 +143,6 @@ private:
 
     MyServerCallbacks *serverCallbacks{nullptr};
     MyCharacteristicCallbacks *rxCallbacks{nullptr};
-
-    void (*activityCallback)() = nullptr; // Optional activity callback
 
     unsigned long lastActivityTime{0};
 };
