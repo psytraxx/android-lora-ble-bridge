@@ -248,9 +248,30 @@ void setup()
  */
 void handleLoRaToBleForwarding()
 {
-    // Immediately send buffered messages on BLE connect
-    if (bleManager->isConnected() && !messageBuffer.isEmpty())
+    // Track connection state and add setup delay for new connections
+    static bool wasConnected = false;
+    static unsigned long connectionEstablishedTime = 0;
+    bool isCurrentlyConnected = bleManager->isConnected();
+
+    // Detect new connection
+    if (isCurrentlyConnected && !wasConnected)
     {
+        connectionEstablishedTime = millis();
+        Serial.println("BLE newly connected - waiting for Android to enable notifications");
+    }
+    wasConnected = isCurrentlyConnected;
+
+    // Send buffered messages with delay after new connection
+    // Wait 1 second for Android to: request MTU, discover services, enable notifications
+    if (isCurrentlyConnected && !messageBuffer.isEmpty())
+    {
+        unsigned long timeSinceConnection = millis() - connectionEstablishedTime;
+        if (timeSinceConnection < 1000)
+        {
+            // Too soon - Android may not be ready yet
+            return;
+        }
+
         Serial.print("BLE connected - sending ");
         Serial.print(messageBuffer.getCount());
         Serial.println(" buffered messages");
