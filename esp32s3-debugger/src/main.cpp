@@ -68,8 +68,6 @@ struct LoRaPacket
     float snr;
 };
 
-QueueHandle_t loRaQueue;
-
 DisplayManager display(LCD_D0, LCD_D1, LCD_D2, LCD_D3, LCD_D4, LCD_D5, LCD_D6, LCD_D7,
                        LCD_WR, LCD_RD, LCD_DC, LCD_CS, LCD_RES, PIN_LCD_BL);
 
@@ -377,18 +375,6 @@ void setup()
     Serial.println("===================================");
     Serial.println("ESP32 LoRa Receiver starting...");
     Serial.println("===================================");
-
-    // Create message queue for LoRa packets
-    loRaQueue = xQueueCreate(15, sizeof(LoRaPacket));
-
-    if (loRaQueue == nullptr)
-    {
-        Serial.println("Queue creation failed!");
-        while (1)
-        {
-            delay(1000);
-        }
-    }
 
     // Initialize LoRa with RadioLib
     display.printLine("Initializing LoRa...");
