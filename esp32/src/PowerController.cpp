@@ -1,6 +1,8 @@
 // PowerController.cpp
 #include "PowerController.h"
+#include "esp_pm.h"
 #include <esp_sleep.h>
+#include <Arduino.h>
 
 PowerController *PowerController::instance = nullptr;
 
@@ -106,19 +108,24 @@ void PowerController::update()
             // Note: gpio_wakeup_enable persists, but esp_sleep_enable_gpio_wakeup may need refresh
             esp_sleep_enable_gpio_wakeup();
 
-            // Small delay to let BLE stop advertising gracefully
-            delay(20);
+            Serial.flush();
 
             // Enter light sleep (this will block until wake)
             esp_light_sleep_start();
 
-            // Woke up
+            // Log wakeup reason
             esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-            Serial.print("PowerController: Woke from light sleep - reason: ");
+            Serial.print("Power: Woke from light sleep - reason: ");
             switch (wakeup_reason)
             {
             case ESP_SLEEP_WAKEUP_GPIO:
-                Serial.println("GPIO wakeup");
+                Serial.println("GPIO");
+                break;
+            case ESP_SLEEP_WAKEUP_EXT0:
+                Serial.println("EXT0 (wake button)");
+                break;
+            case ESP_SLEEP_WAKEUP_TIMER:
+                Serial.println("Timer");
                 break;
             default:
                 Serial.print("Unknown (");
@@ -129,39 +136,56 @@ void PowerController::update()
 
             // Restart advertising after wake (set to 0 to trigger advertising start)
             Serial.println("PowerController: Restarting advertising after wake");
-            advertiseStartMillis = 0;  // Set to 0 to trigger advertising restart
+            advertiseStartMillis = 0; // Set to 0 to trigger advertising restart
             state = STATE_DISCONNECTED_ADVERTISING;
         }
     }
 }
 
-void PowerController::enterLightSleepNow()
+void PowerController::configurePowerManagement()
 {
-    Serial.println("PowerController: entering light sleep immediately (wakes on button press or LoRa activity)");
+    Serial.println("PowerController: Configuring power management");
 
-    // Sleep will wake on boot button press or LoRa GPIO interrupt
-    // No timer - indefinite sleep until hardware event
-    // Re-enable GPIO wakeup before sleep
+#if CONFIG_IDF_TARGET_ESP32
+    esp_pm_config_esp32_t pm_config = {
+        .max_freq_mhz = CPU_FREQ_MHZ,
+        .min_freq_mhz = 10,
+        .light_sleep_enable = true,
+    };
+#elif CONFIG_IDF_TARGET_ESP32S3
+    esp_pm_config_esp32s3_t pm_config = {
+        .max_freq_mhz = CPU_FREQ_MHZ,
+        .min_freq_mhz = 10,
+        .light_sleep_enable = true,
+    };
+#endif
+
+    esp_pm_configure(&pm_config);
+
+    // Set initial CPU frequency to match power management max
+    setCpuFrequencyMhz(CPU_FREQ_MHZ);
+    Serial.print("CPU Frequency: ");
+    Serial.print(getCpuFrequencyMhz());
+    Serial.println(" MHz");
+
+    Serial.println("Power management configured (light sleep enabled)");
+}
+
+void PowerController::configureWakeupSources(int wakeButton, int loraDio0)
+{
+    // Configure boot button wake (ext0 for LOW trigger on RTC GPIO)
+    gpio_wakeup_enable((gpio_num_t)wakeButton, GPIO_INTR_LOW_LEVEL);
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)wakeButton, 0); // 0 = LOW (button pressed)
+
+    // Configure LoRa DIO0 wake (gpio_wakeup for HIGH trigger)
+    // Note: Don't reconfigure the pin - RadioLib already set it up as input with interrupt
+    // Just enable the wakeup capability
+    gpio_wakeup_enable((gpio_num_t)loraDio0, GPIO_INTR_HIGH_LEVEL);
     esp_sleep_enable_gpio_wakeup();
 
-    // Clear advertise timer so when we wake the advertising window restarts
-    advertiseStartMillis = 0;
-    delay(10);
-    esp_light_sleep_start();
-
-    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-    Serial.print("PowerController: woke from immediate light sleep - reason: ");
-    switch (wakeup_reason)
-    {
-    case ESP_SLEEP_WAKEUP_GPIO:
-        Serial.println("GPIO (button or LoRa)");
-        break;
-    default:
-        Serial.print("Unknown (");
-        Serial.print(wakeup_reason);
-        Serial.println(")");
-        break;
-    }
-
-    Serial.println("PowerController: Will restart advertising on next update() call");
+    Serial.print("GPIO wake-up configured: Boot button (GPIO");
+    Serial.print(wakeButton);
+    Serial.print(" on LOW), LoRa DIO0 (GPIO");
+    Serial.print(loraDio0);
+    Serial.println(" on HIGH)");
 }

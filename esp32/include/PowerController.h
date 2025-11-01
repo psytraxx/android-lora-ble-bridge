@@ -37,6 +37,25 @@ public:
     void begin(BLEManager *bleMgr, MessageBuffer *buf);
 
     /**
+     * @brief Configure ESP32 power management settings.
+     *
+     * Sets CPU frequency scaling and enables light sleep mode for power savings.
+     * This should be called early in setup() before other initialization.
+     */
+    void configurePowerManagement();
+
+    /**
+     * @brief Configure GPIO wakeup sources for light sleep.
+     * @param wakeButton GPIO pin for boot button wakeup (LOW trigger)
+     * @param loraDio0 GPIO pin for LoRa DIO0 wakeup (HIGH trigger)
+     *
+     * Configures the ESP32 to wake from light sleep on either:
+     * - Boot button press (LOW level)
+     * - LoRa packet reception (HIGH level on DIO0)
+     */
+    void configureWakeupSources(int wakeButton, int loraDio0);
+
+    /**
      * @brief Periodic update called from the main loop.
      *
      * The PowerController manages BLE advertising and sleep cycles. After 30 seconds
@@ -55,16 +74,6 @@ public:
      * It is safe to register as a C-style callback with external libraries.
      */
     static void activityCallbackStatic();
-
-    /**
-     * @brief Enter light sleep immediately until woken by button press or LoRa activity.
-     *
-     * This function puts the device into light sleep mode without a timer.
-     * The device will wake only on:
-     * - Boot button press (GPIO0)
-     * - LoRa DIO0 interrupt (incoming packet)
-     */
-    void enterLightSleepNow();
 
 private:
     BLEManager *bleManager{nullptr};

@@ -20,8 +20,6 @@
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
 #include <esp_wifi.h>
-#include "esp_pm.h"
-#include <esp_sleep.h>
 #include "PowerController.h"
 
 // RadioLib SX1278 radio instance
@@ -83,21 +81,8 @@ void setup()
 
     Serial.println("Disabling WiFi and Bluetooth Classic for power savings");
 
-#if CONFIG_IDF_TARGET_ESP32
-    esp_pm_config_esp32_t pm_config = {
-        .max_freq_mhz = 80,
-        .min_freq_mhz = 10,
-        .light_sleep_enable = true,
-    };
-#elif CONFIG_IDF_TARGET_ESP32S3
-    esp_pm_config_esp32s3_t pm_config = {
-        .max_freq_mhz = 80,
-        .min_freq_mhz = 10,
-        .light_sleep_enable = true,
-    };
-#endif
-
-    esp_pm_configure(&pm_config);
+    // Configure power management (CPU frequency scaling and light sleep)
+    powerController.configurePowerManagement();
 
     // Disable WiFi completely (saves ~50-80 mA)
     // WiFi is initialized by default in ESP32 Arduino framework
@@ -116,14 +101,6 @@ void setup()
     // Note: NimBLE doesn't use the classic Bluetooth stack
     btStop();
     Serial.println("Bluetooth Classic disabled (using NimBLE for BLE only)");
-
-    // Set initial CPU frequency to match power management max
-    setCpuFrequencyMhz(80);
-    Serial.print("CPU Frequency: ");
-    Serial.print(getCpuFrequencyMhz());
-    Serial.println(" MHz");
-
-    Serial.println("Power management configured (light sleep enabled)");
 
     esp_task_wdt_add(xTaskGetCurrentTaskHandle());
 
@@ -259,24 +236,7 @@ void setup()
     }
 
     // Configure GPIO wake-up for LoRa interrupt (allows wake from light sleep)
-    // For ESP32: GPIO32 (DIO0) is an RTC GPIO, so we can use ext1 for multiple RTC GPIOs
-    // But since boot button needs LOW trigger and LoRa needs HIGH trigger,
-    // we use ext0 for boot and gpio_wakeup for LoRa
-
-    // Configure boot button wake (ext0 for LOW trigger on RTC GPIO)
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)BOOT_BUTTON, 0); // 0 = LOW (button pressed)
-
-    // Configure LoRa DIO0 wake (gpio_wakeup for HIGH trigger)
-    // Note: Don't reconfigure the pin - RadioLib already set it up as input with interrupt
-    // Just enable the wakeup capability
-    gpio_wakeup_enable((gpio_num_t)LORA_DIO0, GPIO_INTR_HIGH_LEVEL);
-    esp_sleep_enable_gpio_wakeup();
-
-    Serial.print("GPIO wake-up configured: Boot button (GPIO");
-    Serial.print(BOOT_BUTTON);
-    Serial.print(" on LOW), LoRa DIO0 (GPIO");
-    Serial.print(LORA_DIO0);
-    Serial.println(" on HIGH)");
+    powerController.configureWakeupSources(WAKE_BUTTON, LORA_DIO0);
 
     // Initialize LED
 #ifdef LED_PIN
@@ -486,19 +446,6 @@ void processLoRaPacket(const LoRaPacket &packet)
 #endif
         break;
     }
-    }
-
-    // If we were woken by GPIO (LoRa) and we're still disconnected,
-    // DON'T return to sleep - let the advertising cycle start so user can connect
-    // The PowerController will handle the advertising cycle
-    if (!bleManager->isConnected())
-    {
-        esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
-        if (cause == ESP_SLEEP_WAKEUP_GPIO)
-        {
-            Serial.println("processLoRaPacket: woke from LoRa GPIO - message buffered, will start advertising");
-            // Don't call enterLightSleepNow() - let PowerController handle advertising cycle
-        }
     }
 }
 
