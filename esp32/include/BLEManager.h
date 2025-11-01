@@ -130,12 +130,14 @@ public:
     void onMessageReceived(const uint8_t *data, size_t length);
 
     /// Called by MyServerCallbacks when a client connects
-    void onConnected();
+    void onConnected(uint16_t connHandle);
 
     /// Called by MyServerCallbacks when a client disconnects
-    void onDisconnected();
+    void onDisconnected(uint16_t connHandle);
 
 private:
+    static constexpr uint16_t kInvalidConnHandle = 0xFFFF;
+
     NimBLEServer *pServer{nullptr};
     NimBLECharacteristic *pTxCharacteristic{nullptr};
     NimBLECharacteristic *pRxCharacteristic{nullptr};
@@ -148,6 +150,8 @@ private:
     MyCharacteristicCallbacks *rxCallbacks{nullptr};
 
     void (*activityCallback)() = nullptr; // Optional activity callback
+
+    uint16_t currentConnHandle{kInvalidConnHandle};
 };
 
 #endif // BLE_MANAGER_H

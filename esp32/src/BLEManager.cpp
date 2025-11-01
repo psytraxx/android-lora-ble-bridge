@@ -11,7 +11,7 @@ void MyServerCallbacks::onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInf
     Serial.print(connInfo.getMTU());
     Serial.println(")");
 
-    bleManager->onConnected();
+    bleManager->onConnected(connInfo.getConnHandle());
 
     // Stop advertising when connected
     NimBLEDevice::getAdvertising()->stop();
@@ -22,7 +22,7 @@ void MyServerCallbacks::onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &conn
 {
     Serial.print("BLE client disconnected, reason: ");
     Serial.println(reason);
-    bleManager->onDisconnected();
+    bleManager->onDisconnected(connInfo.getConnHandle());
 }
 
 // Characteristic callbacks implementation
@@ -99,8 +99,8 @@ bool BLEManager::setup(const char *deviceName)
     // Larger interval values reduce radio duty cycle and save power.
     // Use 1-2s intervals for polite battery usage while remaining discoverable.
     // Note: Values are in 0.625ms units per BLE spec
-    const int BLE_ADV_MIN_INTERVAL = 1600;  // 1600 * 0.625ms = 1000ms (1 second)
-    const int BLE_ADV_MAX_INTERVAL = 3200;  // 3200 * 0.625ms = 2000ms (2 seconds)
+    const int BLE_ADV_MIN_INTERVAL = 1600; // 1600 * 0.625ms = 1000ms (1 second)
+    const int BLE_ADV_MAX_INTERVAL = 3200; // 3200 * 0.625ms = 2000ms (2 seconds)
     pAdvertising->setMinInterval(BLE_ADV_MIN_INTERVAL);
     pAdvertising->setMaxInterval(BLE_ADV_MAX_INTERVAL);
 
@@ -157,7 +157,7 @@ void BLEManager::process()
     if (!curConnected && prevConnected)
     {
         // Transition: was connected, now disconnected
-        const int BLE_DISCONNECT_SETTLE_MS = 300;  // 300ms for NimBLE stack to clean up connection
+        const int BLE_DISCONNECT_SETTLE_MS = 300; // 300ms for NimBLE stack to clean up connection
         delay(BLE_DISCONNECT_SETTLE_MS);
         startAdvertising();
         Serial.println("BLE disconnected - restarting advertising");
@@ -210,16 +210,28 @@ void BLEManager::updateActivity()
 
 void BLEManager::disconnect()
 {
-    if (isConnected())
+    if (!isConnected())
     {
-        Serial.println("Disconnecting BLE client...");
-        NimBLEDevice::stopAdvertising();
+        Serial.println("Disconnect requested but no BLE client is connected");
+        return;
     }
 
-    if (pAdvertising)
+    Serial.println("Disconnecting BLE client...");
+
+    if (pServer)
     {
-        pAdvertising->stop();
-        Serial.println("BLE advertising stopped");
+        if (currentConnHandle != kInvalidConnHandle)
+        {
+            pServer->disconnect(currentConnHandle);
+        }
+        else
+        {
+            Serial.println("Warning: No active connection handle tracked; disconnect request skipped");
+        }
+    }
+    else
+    {
+        Serial.println("Warning: BLE server not initialized; cannot issue disconnect");
     }
 }
 
@@ -255,8 +267,10 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
     }
 }
 
-void BLEManager::onConnected()
+void BLEManager::onConnected(uint16_t connHandle)
 {
+    currentConnHandle = connHandle;
+
     // Stateless: just notify activity
     if (activityCallback)
     {
@@ -264,7 +278,10 @@ void BLEManager::onConnected()
     }
 }
 
-void BLEManager::onDisconnected()
+void BLEManager::onDisconnected(uint16_t connHandle)
 {
-    // Stateless: nothing to track here
+    if (connHandle == currentConnHandle)
+    {
+        currentConnHandle = kInvalidConnHandle;
+    }
 }
