@@ -2,13 +2,14 @@
 #include "PowerController.h"
 #include "esp_pm.h"
 #include <esp_sleep.h>
+#include <driver/gpio.h>
 #include <Arduino.h>
 
 PowerController *PowerController::instance = nullptr;
 
 // Configuration: advertise duration before entering light sleep
 // 30 seconds provides good discoverability window while conserving power
-static const unsigned long ADVERTISE_MS = 30000UL;  // 30s advertise window before sleep
+static const unsigned long ADVERTISE_MS = 30000UL; // 30s advertise window before sleep
 
 PowerController::PowerController()
     : bleManager(nullptr), messageBuffer(nullptr), state(STATE_DISCONNECTED_ADVERTISING), advertiseStartMillis(0), lastActivityMillis(0)
@@ -67,7 +68,7 @@ void PowerController::update()
         // Inactivity timeout -> force disconnect to save power
         // 60 seconds allows for casual message reading without premature disconnection
         // Note: Android app expects 30s timeout (see BleConstants.AUTO_DISCONNECT_DELAY_MS)
-        const unsigned long INACTIVITY_TIMEOUT_MS = 60000UL;  // 60s before auto-disconnect
+        const unsigned long INACTIVITY_TIMEOUT_MS = 60000UL; // 60s before auto-disconnect
         if ((millis() - lastActivityMillis) > INACTIVITY_TIMEOUT_MS)
         {
             Serial.println("PowerController: Inactivity timeout - disconnecting BLE client");
@@ -106,6 +107,9 @@ void PowerController::update()
             Serial.print("PowerController: Advertising period ended (timeout=");
             Serial.print(ADVERTISE_MS);
             Serial.println(" ms) - entering light sleep until button press or LoRa activity");
+
+            // Stop advertising and disable BLE before sleep (critical for low power)
+            bleManager->stopAdvertising();
 
             // Prepare for light sleep. Will wake on boot button press or LoRa GPIO interrupt
             // Re-enable GPIO wakeup before each sleep (required on some ESP32 variants)
@@ -150,28 +154,23 @@ void PowerController::configurePowerManagement()
 {
     Serial.println("PowerController: Configuring power management");
 
-#if CONFIG_IDF_TARGET_ESP32
-    esp_pm_config_esp32_t pm_config = {
-        .max_freq_mhz = CPU_FREQ_MHZ,
-        .min_freq_mhz = 10,
-        .light_sleep_enable = true,
-    };
-#elif CONFIG_IDF_TARGET_ESP32S3
-    esp_pm_config_esp32s3_t pm_config = {
-        .max_freq_mhz = CPU_FREQ_MHZ,
-        .min_freq_mhz = 10,
-        .light_sleep_enable = true,
-    };
+#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+    static esp_pm_config_t esp32_config; // filled with zeros because bss
+#else
+    static esp_pm_config_esp32_t esp32_config; // filled with zeros because bss
 #endif
 
-    esp_pm_configure(&pm_config);
-
-    // Set initial CPU frequency to match power management max
-    setCpuFrequencyMhz(CPU_FREQ_MHZ);
-    Serial.print("CPU Frequency: ");
-    Serial.print(getCpuFrequencyMhz());
-    Serial.println(" MHz");
-
+    esp32_config.max_freq_mhz = CPU_FREQ_MHZ;
+    esp32_config.min_freq_mhz = 20;
+    esp32_config.light_sleep_enable = false;
+    int rv = esp_pm_configure(&esp32_config);
+    if (rv != ESP_OK)
+    {
+        Serial.print("PowerController: Failed to configure power management (err=");
+        Serial.print(rv);
+        Serial.println(")");
+        return;
+    }
     Serial.println("Power management configured (light sleep enabled)");
 }
 
@@ -179,12 +178,14 @@ void PowerController::configureWakeupSources(int wakeButton, int loraDio0)
 {
     // Configure boot button wake (ext0 for LOW trigger on RTC GPIO)
     gpio_wakeup_enable((gpio_num_t)wakeButton, GPIO_INTR_LOW_LEVEL);
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)wakeButton, 0); // 0 = LOW (button pressed)
+    // esp_sleep_enable_ext0_wakeup((gpio_num_t)wakeButton, 0); // 0 = LOW (button pressed)
 
     // Configure LoRa DIO0 wake (gpio_wakeup for HIGH trigger)
-    // Note: Don't reconfigure the pin - RadioLib already set it up as input with interrupt
-    // Just enable the wakeup capability
+    // Add pulldown to ensure clean LOW state when idle (matches Meshtastic approach)
+    gpio_pulldown_en((gpio_num_t)loraDio0);
     gpio_wakeup_enable((gpio_num_t)loraDio0, GPIO_INTR_HIGH_LEVEL);
+
+    // Enable GPIO wakeup - must be called after gpio_wakeup_enable
     esp_sleep_enable_gpio_wakeup();
 
     Serial.print("GPIO wake-up configured: Boot button (GPIO");
