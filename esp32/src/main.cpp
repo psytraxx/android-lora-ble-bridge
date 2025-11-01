@@ -392,6 +392,10 @@ void processLoRaPacket(const LoRaPacket &packet)
             Serial.print("Sending ACK for seq: ");
             Serial.println(msg.textData.seq);
 
+            // Wait 500ms before sending ACK to ensure sender has switched to RX mode
+            // Critical: Without this delay, sender may still be in TX mode and miss the ACK
+            delay(500);
+
             // Clear RX interrupt handler to allow DIO0 to signal TX completion
             radio.clearPacketReceivedAction();
 
@@ -565,8 +569,10 @@ void loop()
     }
     else
     {
-        // Idle - long delay enables automatic light sleep
-        // BLE modem and LoRa GPIO interrupts will wake the system
-        vTaskDelay(pdMS_TO_TICKS(2000)); // 2 seconds (was 100ms)
+        // Idle - 500ms delay enables automatic light sleep while maintaining responsiveness
+        // BLE modem and LoRa GPIO interrupts will wake the system early if needed
+        // 500ms provides good balance: responsive enough for messaging (~0.5s max latency)
+        // yet long enough to enter light sleep for power savings
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
