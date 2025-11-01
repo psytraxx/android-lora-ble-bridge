@@ -2,7 +2,11 @@ package com.example.lorabridge.data.protocol
 
 import com.example.lorabridge.domain.model.Message
 import com.example.lorabridge.domain.model.MessageType
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**

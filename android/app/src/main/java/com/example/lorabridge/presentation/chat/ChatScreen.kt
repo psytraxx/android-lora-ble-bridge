@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.example.lorabridge.presentation.components.ConnectionDialog
 import com.example.lorabridge.presentation.components.MessageBubble
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
@@ -103,6 +104,31 @@ fun ChatScreen(
         }
     }
 
+    // Show connection dialog when not connected
+    val shouldShowDialog =
+        uiState.connectionState !is com.example.lorabridge.domain.model.BleConnectionState.Connected
+
+    // Start scanning whenever dialog appears (when not connected)
+    LaunchedEffect(shouldShowDialog) {
+        if (shouldShowDialog && permissionsState.allPermissionsGranted) {
+            viewModel.startBleScan()
+        }
+    }
+
+    if (shouldShowDialog) {
+        ConnectionDialog(
+            connectionState = uiState.connectionState,
+            discoveredDevices = uiState.discoveredDevices,
+            onDeviceConnect = { deviceAddress ->
+                viewModel.connectToDevice(deviceAddress)
+            },
+            onDismiss = {
+                // Retry scanning
+                viewModel.startBleScan()
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -126,7 +152,8 @@ fun ChatScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val isConnected = uiState.connectionState is com.example.lorabridge.domain.model.BleConnectionState.Connected
+                val isConnected =
+                    uiState.connectionState is com.example.lorabridge.domain.model.BleConnectionState.Connected
 
                 Text(
                     text = uiState.connectionStatusText,
@@ -180,10 +207,19 @@ fun ChatScreen(
                                         // Fallback to browser
                                         val browserUri =
                                             "https://www.google.com/maps/search/?api=1&query=$lat,$lon".toUri()
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, browserUri))
+                                        context.startActivity(
+                                            Intent(
+                                                Intent.ACTION_VIEW,
+                                                browserUri
+                                            )
+                                        )
                                     }
                                 } catch (e: Exception) {
-                                    Toast.makeText(context, "Error opening map: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(
+                                        context,
+                                        "Error opening map: ${e.message}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                             }
                         )

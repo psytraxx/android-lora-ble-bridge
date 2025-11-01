@@ -17,6 +17,8 @@ lifecycleViewModel = "2.9.4"
 kotlinxSerializationJson = "1.9.0"
 ksp= "2.3.0"
 material-icons= "1.7.8"
+mockito = "5.20.0"
+mockitoKotlin = "6.1.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -58,6 +60,10 @@ accompanist-permissions = { group = "com.google.accompanist", name = "accompanis
 
 # Serialization
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+
+# Testing - Mockito
+mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito" }
+mockito-kotlin = { group = "org.mockito.kotlin", name = "mockito-kotlin", version.ref = "mockitoKotlin" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

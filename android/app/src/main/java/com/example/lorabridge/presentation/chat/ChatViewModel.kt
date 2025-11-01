@@ -59,6 +59,7 @@ class ChatViewModel @Inject constructor(
         observeReceivedMessages()
         observeLocation()
         observeChatMessages()
+        observeDiscoveredDevices()
     }
 
     /**
@@ -125,6 +126,17 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
+     * Observe discovered BLE devices
+     */
+    private fun observeDiscoveredDevices() {
+        viewModelScope.launch {
+            bleRepository.discoveredDevices.collect { devices ->
+                _uiState.value = _uiState.value.copy(discoveredDevices = devices)
+            }
+        }
+    }
+
+    /**
      * Start BLE scan
      */
     fun startBleScan() {
@@ -132,15 +144,18 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Disconnect BLE and restart scanning
+     * Connect to a specific device
+     */
+    fun connectToDevice(deviceAddress: String) {
+        bleRepository.connectToDevice(deviceAddress)
+    }
+
+    /**
+     * Disconnect BLE (scanning will restart automatically via dialog)
      */
     fun disconnect() {
         bleRepository.disconnect()
-        // Restart scanning after disconnect
-        viewModelScope.launch {
-            delay(500)  // Small delay to ensure clean disconnect
-            startBleScan()
-        }
+        // Dialog will automatically start scanning when it appears
     }
 
     /**
@@ -282,6 +297,7 @@ class ChatViewModel @Inject constructor(
                 )
                 messageRepository.addMessage(chatMessage)
             }
+
             is Message.AckMessage -> {
                 Log.d(TAG, "ACK received for seq: ${message.seq}")
 
@@ -313,15 +329,6 @@ class ChatViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(canSendMessage = true)
             }
         }
-    }
-
-    /**
-     * Validate connection state (called on resume)
-     * @see UC-1.5: Validate Connection State on Resume
-     */
-    fun validateConnectionState() {
-        // Connection state is automatically tracked via bleRepository.connectionState
-        updateGps()
     }
 
     /**
@@ -358,5 +365,6 @@ data class ChatUiState(
     val messageInput: String = "",
     val charCount: Int = 0,
     val charCountText: String = "0/50 chars (12 bytes)",
-    val canSendMessage: Boolean = false
+    val canSendMessage: Boolean = false,
+    val discoveredDevices: List<BleRepository.DiscoveredDevice> = emptyList()
 )
