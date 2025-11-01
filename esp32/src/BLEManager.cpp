@@ -118,6 +118,7 @@ void BLEManager::startAdvertising()
     Serial.println("Starting BLE advertising");
     NimBLEDevice::startAdvertising();
 }
+
 bool BLEManager::sendMessage(const Message &msg)
 {
     if (!isConnected())
@@ -204,8 +205,6 @@ void BLEManager::disconnect()
     {
         Serial.println("Disconnecting BLE client...");
         NimBLEDevice::stopAdvertising();
-        NimBLEDevice::deinit(true);
-        Serial.println("BLE client disconnected and BLE stack reset");
     }
 
     if (pAdvertising)
