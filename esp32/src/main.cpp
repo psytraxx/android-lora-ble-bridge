@@ -84,6 +84,30 @@ void onLoRaReceive(void)
     loraPacketReceived = true;
 }
 
+void printWakeupReason()
+{
+    // Log wakeup reason
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+    Serial.print("Power: Woke from light sleep - reason: ");
+    switch (wakeup_reason)
+    {
+    case ESP_SLEEP_WAKEUP_GPIO:
+        Serial.println("GPIO");
+        break;
+    case ESP_SLEEP_WAKEUP_EXT0:
+        Serial.println("EXT0 (wake button)");
+        break;
+    case ESP_SLEEP_WAKEUP_TIMER:
+        Serial.println("Timer");
+        break;
+    default:
+        Serial.print("Unknown (");
+        Serial.print(wakeup_reason);
+        Serial.println(")");
+        break;
+    }
+}
+
 /**
  * @brief Configure power management settings
  */
@@ -91,15 +115,17 @@ void configurePowerManagement()
 {
     Serial.println("Disabling WiFi and Bluetooth Classic for power savings");
 
+    printWakeupReason();
+
 #if CONFIG_IDF_TARGET_ESP32
     esp_pm_config_esp32_t pm_config = {
-        .max_freq_mhz = 80,
+        .max_freq_mhz = CPU_FREQ_MHZ,
         .min_freq_mhz = 10,
         .light_sleep_enable = true,
     };
 #elif CONFIG_IDF_TARGET_ESP32S3
     esp_pm_config_esp32s3_t pm_config = {
-        .max_freq_mhz = 80,
+        .max_freq_mhz = CPU_FREQ_MHZ,
         .min_freq_mhz = 10,
         .light_sleep_enable = true,
     };
@@ -124,7 +150,7 @@ void configurePowerManagement()
     Serial.println("Bluetooth Classic disabled (using NimBLE for BLE only)");
 
     // Set initial CPU frequency to match power management max
-    setCpuFrequencyMhz(80);
+    setCpuFrequencyMhz(CPU_FREQ_MHZ);
     Serial.print("CPU Frequency: ");
     Serial.print(getCpuFrequencyMhz());
     Serial.println(" MHz");
@@ -276,15 +302,16 @@ void initializeLoRa()
  */
 void configureWakeupSources()
 {
-    // Configure boot button wake (ext0 for LOW trigger on RTC GPIO)
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)BOOT_BUTTON, 0);
+    // Configure wake button (ext0 for LOW trigger on RTC GPIO)
+    // sp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON, 0);
+    gpio_wakeup_enable((gpio_num_t)WAKE_BUTTON, GPIO_INTR_LOW_LEVEL);
 
     // Configure LoRa DIO0 wake (gpio_wakeup for HIGH trigger)
+    // esp_sleep_enable_ext1_wakeup(1ULL << LORA_DIO0, ESP_EXT1_WAKEUP_ANY_HIGH);
     gpio_wakeup_enable((gpio_num_t)LORA_DIO0, GPIO_INTR_HIGH_LEVEL);
-    esp_sleep_enable_gpio_wakeup();
 
     Serial.print("GPIO wake-up configured: Boot button (GPIO");
-    Serial.print(BOOT_BUTTON);
+    Serial.print(WAKE_BUTTON);
     Serial.print(" on LOW), LoRa DIO0 (GPIO");
     Serial.print(LORA_DIO0);
     Serial.println(" on HIGH)");
@@ -710,25 +737,11 @@ void handleAdvertisingState()
 
     // Re-enable GPIO wakeup before each sleep
     esp_sleep_enable_gpio_wakeup();
-    delay(20);
 
-    // Enter light sleep
+    Serial.flush();
     esp_light_sleep_start();
 
-    // Log wakeup reason
-    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-    Serial.print("Power: Woke from light sleep - reason: ");
-    switch (wakeup_reason)
-    {
-    case ESP_SLEEP_WAKEUP_GPIO:
-        Serial.println("GPIO wakeup");
-        break;
-    default:
-        Serial.print("Unknown (");
-        Serial.print(wakeup_reason);
-        Serial.println(")");
-        break;
-    }
+    printWakeupReason();
 
     // Restart advertising after wake
     Serial.println("Power: Restarting advertising after wake");
