@@ -131,6 +131,9 @@ public:
     }
 
 private:
+    // Buffer capacity: 10 messages provides reasonable headroom for burst traffic
+    // Each Message is ~160 bytes, so 10 messages = ~1.6 KB RAM
+    // Drop-oldest policy when full prevents unbounded memory growth
     static const int MAX_MESSAGES = 10;
     Message buffer[MAX_MESSAGES];
     int head;  // Index of next message to read

@@ -6,8 +6,9 @@
 
 PowerController *PowerController::instance = nullptr;
 
-// Configuration: advertise duration (ms)
-static const unsigned long ADVERTISE_MS = 30000UL; // 30 seconds advertise window
+// Configuration: advertise duration before entering light sleep
+// 30 seconds provides good discoverability window while conserving power
+static const unsigned long ADVERTISE_MS = 30000UL;  // 30s advertise window before sleep
 
 PowerController::PowerController()
     : bleManager(nullptr), messageBuffer(nullptr), state(STATE_DISCONNECTED_ADVERTISING), advertiseStartMillis(0), lastActivityMillis(0)
@@ -63,8 +64,11 @@ void PowerController::update()
         if (lastActivityMillis == 0)
             lastActivityMillis = millis();
 
-        // 60s inactivity timeout -> force disconnect
-        if ((millis() - lastActivityMillis) > 60000UL)
+        // Inactivity timeout -> force disconnect to save power
+        // 60 seconds allows for casual message reading without premature disconnection
+        // Note: Android app expects 30s timeout (see BleConstants.AUTO_DISCONNECT_DELAY_MS)
+        const unsigned long INACTIVITY_TIMEOUT_MS = 60000UL;  // 60s before auto-disconnect
+        if ((millis() - lastActivityMillis) > INACTIVITY_TIMEOUT_MS)
         {
             Serial.println("PowerController: Inactivity timeout - disconnecting BLE client");
             bleManager->disconnect();

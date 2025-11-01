@@ -98,15 +98,19 @@ bool BLEManager::setup(const char *deviceName)
     // Set advertising parameters tuned for battery life.
     // Larger interval values reduce radio duty cycle and save power.
     // Use 1-2s intervals for polite battery usage while remaining discoverable.
-    pAdvertising->setMinInterval(1000); // ~1000ms
-    pAdvertising->setMaxInterval(2000); // ~2000ms
+    // Note: Values are in 0.625ms units per BLE spec
+    const int BLE_ADV_MIN_INTERVAL = 1600;  // 1600 * 0.625ms = 1000ms (1 second)
+    const int BLE_ADV_MAX_INTERVAL = 3200;  // 3200 * 0.625ms = 2000ms (2 seconds)
+    pAdvertising->setMinInterval(BLE_ADV_MIN_INTERVAL);
+    pAdvertising->setMaxInterval(BLE_ADV_MAX_INTERVAL);
 
     // Add device name to advertising data for easier identification
     pAdvertising->setName(deviceName);
 
     // Lower TX power to save energy; adjust as needed for your range requirements.
-    // ESP_PWR_LVL_P3 is about +3dBm which is a good trade-off for many use cases.
-    NimBLEDevice::setPower(ESP_PWR_LVL_P3); // ~+3dBm
+    // ESP_PWR_LVL_P3 = +3dBm provides good balance of range (~10m) vs power consumption
+    // Options: P9(+9dBm max range), P6(+6dBm), P3(+3dBm balanced), P0(0dBm), N3(-3dBm min power)
+    NimBLEDevice::setPower(ESP_PWR_LVL_P3);
 
     Serial.println("BLE service created");
 
@@ -153,7 +157,8 @@ void BLEManager::process()
     if (!curConnected && prevConnected)
     {
         // Transition: was connected, now disconnected
-        delay(300); // brief pause for the BLE stack
+        const int BLE_DISCONNECT_SETTLE_MS = 300;  // 300ms for NimBLE stack to clean up connection
+        delay(BLE_DISCONNECT_SETTLE_MS);
         startAdvertising();
         Serial.println("BLE disconnected - restarting advertising");
     }
