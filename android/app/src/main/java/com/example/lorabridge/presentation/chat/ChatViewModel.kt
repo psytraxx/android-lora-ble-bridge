@@ -132,6 +132,13 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
+     * Select a device to connect to
+     */
+    fun selectDevice(deviceAddress: String) {
+        bleRepository.selectDevice(deviceAddress)
+    }
+
+    /**
      * Disconnect BLE and restart scanning
      */
     fun disconnect() {
@@ -282,6 +289,7 @@ class ChatViewModel @Inject constructor(
                 )
                 messageRepository.addMessage(chatMessage)
             }
+
             is Message.AckMessage -> {
                 Log.d(TAG, "ACK received for seq: ${message.seq}")
 

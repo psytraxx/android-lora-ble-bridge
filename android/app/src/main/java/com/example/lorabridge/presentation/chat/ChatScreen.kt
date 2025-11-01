@@ -5,12 +5,14 @@ import android.content.Intent
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -19,6 +21,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -26,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -40,6 +46,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.example.lorabridge.domain.model.BleConnectionState
+import com.example.lorabridge.domain.model.BleDevice
 import com.example.lorabridge.presentation.components.MessageBubble
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
@@ -126,7 +134,7 @@ fun ChatScreen(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val isConnected = uiState.connectionState is com.example.lorabridge.domain.model.BleConnectionState.Connected
+                val isConnected = uiState.connectionState is BleConnectionState.Connected
 
                 Text(
                     text = uiState.connectionStatusText,
@@ -180,10 +188,19 @@ fun ChatScreen(
                                         // Fallback to browser
                                         val browserUri =
                                             "https://www.google.com/maps/search/?api=1&query=$lat,$lon".toUri()
-                                        context.startActivity(Intent(Intent.ACTION_VIEW, browserUri))
+                                        context.startActivity(
+                                            Intent(
+                                                Intent.ACTION_VIEW,
+                                                browserUri
+                                            )
+                                        )
                                     }
                                 } catch (e: Exception) {
-                                    Toast.makeText(context, "Error opening map: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(
+                                        context,
+                                        "Error opening map: ${e.message}",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                             }
                         )
@@ -233,6 +250,117 @@ fun ChatScreen(
                         contentDescription = "Send"
                     )
                 }
+            }
+        }
+    }
+
+    // Device selection dialog
+    if (uiState.connectionState is BleConnectionState.DeviceSelection) {
+        val devices = (uiState.connectionState as BleConnectionState.DeviceSelection).devices
+        DeviceSelectionDialog(
+            devices = devices,
+            onDeviceSelected = { device ->
+                viewModel.selectDevice(device.address)
+            },
+            onDismiss = {
+                viewModel.disconnect()
+            }
+        )
+    }
+}
+
+/**
+ * Dialog to select from multiple discovered BLE devices
+ * Shows devices in real-time as they're discovered
+ */
+@Composable
+fun DeviceSelectionDialog(
+    devices: List<BleDevice>,
+    onDeviceSelected: (BleDevice) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Select Device",
+                style = MaterialTheme.typography.titleLarge
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    text = if (devices.size == 1) {
+                        "Found 1 device (tap to connect or wait for more):"
+                    } else {
+                        "Found ${devices.size} devices (tap to connect):"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(devices) { device ->
+                        DeviceSelectionItem(
+                            device = device,
+                            onClick = { onDeviceSelected(device) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+/**
+ * Individual device item in the selection list
+ */
+@Composable
+fun DeviceSelectionItem(
+    device: BleDevice,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                text = device.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = device.address,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "${device.rssi} dBm",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

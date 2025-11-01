@@ -149,13 +149,15 @@ object LoRaProtocol {
 
             if (bitInByte <= 2) {
                 // The 6 bits fit within current byte
-                result[byteIdx] = (result[byteIdx].toInt() or (value.toInt() shl (2 - bitInByte))).toByte()
+                result[byteIdx] =
+                    (result[byteIdx].toInt() or (value.toInt() shl (2 - bitInByte))).toByte()
             } else {
                 // The 6 bits span two bytes
                 val bitsInFirst = 8 - bitInByte
                 val bitsInSecond = 6 - bitsInFirst
 
-                result[byteIdx] = (result[byteIdx].toInt() or (value.toInt() shr bitsInSecond)).toByte()
+                result[byteIdx] =
+                    (result[byteIdx].toInt() or (value.toInt() shr bitsInSecond)).toByte()
                 if (byteIdx + 1 < result.size) {
                     result[byteIdx + 1] = (value.toInt() shl (8 - bitsInSecond)).toByte()
                 }

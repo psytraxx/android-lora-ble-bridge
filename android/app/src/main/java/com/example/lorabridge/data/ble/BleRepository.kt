@@ -14,9 +14,11 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.os.ParcelUuid
 import android.util.Log
 import com.example.lorabridge.data.protocol.LoRaProtocol
 import com.example.lorabridge.domain.model.BleConnectionState
+import com.example.lorabridge.domain.model.BleDevice
 import com.example.lorabridge.domain.model.Message
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -44,12 +46,14 @@ class BleRepository @Inject constructor(
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + Job())
 
-    private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+    private val bluetoothManager =
+        context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
     private val bluetoothLeScanner: BluetoothLeScanner? = bluetoothAdapter?.bluetoothLeScanner
 
     // State
-    private val _connectionState = MutableStateFlow<BleConnectionState>(BleConnectionState.Disconnected)
+    private val _connectionState =
+        MutableStateFlow<BleConnectionState>(BleConnectionState.Disconnected)
     val connectionState: StateFlow<BleConnectionState> = _connectionState.asStateFlow()
 
     private val _receivedMessages = MutableSharedFlow<Message>(extraBufferCapacity = 10)
@@ -63,6 +67,7 @@ class BleRepository @Inject constructor(
     // Scanning
     private var currentScanCallback: ScanCallback? = null
     private var scanJob: Job? = null
+    private val discoveredDevices = mutableMapOf<String, BleDevice>()  // address -> device
 
     // Auto-disconnect
     private var autoDisconnectJob: Job? = null
@@ -78,6 +83,7 @@ class BleRepository @Inject constructor(
 
     /**
      * Start BLE scan for ESP32S3-LoRa device
+     * Filters by service UUID and collects all matching devices
      * @see UC-1.1: Scan for ESP32S3 Device
      */
     @SuppressLint("MissingPermission")
@@ -93,33 +99,45 @@ class BleRepository @Inject constructor(
         }
 
         stopScan()
+        discoveredDevices.clear()
 
         _connectionState.value = BleConnectionState.Scanning
-        Log.d(TAG, "Starting BLE scan for device: ${BleConstants.DEVICE_NAME}")
+        Log.d(TAG, "Starting BLE scan for service UUID: ${BleConstants.SERVICE_UUID}")
 
-        // Use lenient scan filter - don't filter by name to avoid missing devices
+        // Filter by service UUID to find only LoRa devices
+        val scanFilter = ScanFilter.Builder()
+            .setServiceUuid(ParcelUuid(BleConstants.SERVICE_UUID))
+            .build()
+
+        // Optimized scan settings for fastest device discovery
         val scanSettings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
-            .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
-            .setNumOfMatches(ScanSettings.MATCH_NUM_ONE_ADVERTISEMENT)
-            .setReportDelay(0)
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)  // Highest power, fastest discovery
+            .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)  // Report all advertisements
+            .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)  // Fewer Bluetooth filters (faster)
+            .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)  // Max callbacks for responsiveness
+            .setReportDelay(0)  // Report immediately, no batching
             .build()
 
         currentScanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val deviceName = result.device.name
+                val deviceName = result.device.name ?: "Unknown"
                 val deviceAddress = result.device.address
-                Log.d(TAG, "BLE device found: name='$deviceName', address=$deviceAddress, rssi=${result.rssi}")
+                Log.d(
+                    TAG,
+                    "LoRa device found: name='$deviceName', address=$deviceAddress, rssi=${result.rssi}"
+                )
 
-                // Check if this is our target device
-                if (deviceName == BleConstants.DEVICE_NAME) {
-                    Log.d(TAG, "Target device found! Connecting...")
-                    stopScan()
-                    connectToDevice(result.device)
-                } else {
-                    Log.d(TAG, "Ignoring device (name mismatch)")
-                }
+                // Add to discovered devices
+                val bleDevice = BleDevice(
+                    name = deviceName,
+                    address = deviceAddress,
+                    rssi = result.rssi
+                )
+                discoveredDevices[deviceAddress] = bleDevice
+                Log.d(TAG, "Total devices found: ${discoveredDevices.size}")
+
+                // Immediately update UI with discovered devices
+                updateDiscoveredDevicesState()
             }
 
             override fun onScanFailed(errorCode: Int) {
@@ -128,16 +146,53 @@ class BleRepository @Inject constructor(
             }
         }
 
-        bluetoothLeScanner.startScan(null, scanSettings, currentScanCallback)
+        bluetoothLeScanner.startScan(listOf(scanFilter), scanSettings, currentScanCallback)
 
-        // Scan timeout
+        // Scan timeout - then decide if we need device selection
         scanJob = scope.launch {
             delay(BleConstants.SCAN_TIMEOUT_MS)
             if (_connectionState.value is BleConnectionState.Scanning) {
                 stopScan()
-                _connectionState.value = BleConnectionState.Error("Device not found", canRetry = true)
+                handleScanComplete()
             }
         }
+    }
+
+    /**
+     * Update discovered devices state in real-time during scanning
+     */
+    private fun updateDiscoveredDevicesState() {
+        // Only update if we're still in scanning state
+        if (_connectionState.value !is BleConnectionState.Scanning) {
+            return
+        }
+
+        when (discoveredDevices.size) {
+            0 -> {
+                // Keep scanning
+            }
+            1 -> {
+                // Single device - show it immediately but keep scanning for more
+                val devices = discoveredDevices.values.sortedByDescending { it.rssi }
+                _connectionState.value = BleConnectionState.DeviceSelection(devices)
+            }
+            else -> {
+                // Multiple devices - update the list
+                val devices = discoveredDevices.values.sortedByDescending { it.rssi }
+                _connectionState.value = BleConnectionState.DeviceSelection(devices)
+            }
+        }
+    }
+
+    /**
+     * Handle scan completion - show error if no devices found
+     */
+    private fun handleScanComplete() {
+        if (discoveredDevices.isEmpty()) {
+            Log.d(TAG, "No devices found after timeout")
+            _connectionState.value = BleConnectionState.Error("No devices found", canRetry = true)
+        }
+        // If devices were found, they're already being shown via updateDiscoveredDevicesState()
     }
 
     /**
@@ -158,6 +213,30 @@ class BleRepository @Inject constructor(
     }
 
     /**
+     * Select and connect to a device from the discovered devices
+     */
+    fun selectDevice(deviceAddress: String) {
+        Log.d(TAG, "User selected device: $deviceAddress")
+        // Stop scanning immediately when user makes selection
+        stopScan()
+        connectToDeviceByAddress(deviceAddress)
+    }
+
+    /**
+     * Connect to BLE device by address
+     */
+    @SuppressLint("MissingPermission")
+    private fun connectToDeviceByAddress(address: String) {
+        val device = bluetoothAdapter?.getRemoteDevice(address)
+        if (device == null) {
+            Log.e(TAG, "Device not found: $address")
+            _connectionState.value = BleConnectionState.Error("Device not found")
+            return
+        }
+        connectToDevice(device)
+    }
+
+    /**
      * Connect to BLE device
      * @see UC-1.2: Connect to ESP32S3 Device
      */
@@ -173,7 +252,8 @@ class BleRepository @Inject constructor(
             withTimeoutOrNull(BleConstants.CONNECTION_TIMEOUT_MS) {
                 // Wait for connection
                 while (_connectionState.value !is BleConnectionState.Connected &&
-                    _connectionState.value !is BleConnectionState.Error) {
+                    _connectionState.value !is BleConnectionState.Error
+                ) {
                     delay(100)
                 }
             } ?: run {
@@ -197,11 +277,13 @@ class BleRepository @Inject constructor(
                     _connectionState.value = BleConnectionState.NegotiatingMtu
                     gatt.requestMtu(BleConstants.MTU_SIZE)
                 }
+
                 newState == BluetoothGatt.STATE_DISCONNECTED -> {
                     Log.d(TAG, "GATT disconnected")
                     cleanup()
                     _connectionState.value = BleConnectionState.Disconnected
                 }
+
                 status != BluetoothGatt.GATT_SUCCESS -> {
                     Log.e(TAG, "Connection failed: status=$status")
                     cleanup()
@@ -263,7 +345,11 @@ class BleRepository @Inject constructor(
             }
         }
 
-        override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+        override fun onDescriptorWrite(
+            gatt: BluetoothGatt,
+            descriptor: BluetoothGattDescriptor,
+            status: Int
+        ) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.d(TAG, "Notifications enabled - connection complete!")
                 _connectionState.value = BleConnectionState.Connected
@@ -275,7 +361,10 @@ class BleRepository @Inject constructor(
         }
 
         @Deprecated("Deprecated in API 33")
-        override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic
+        ) {
             // Only handle in the deprecated callback for API < 33
             if (android.os.Build.VERSION.SDK_INT < 33 && characteristic.uuid == BleConstants.TX_CHAR_UUID) {
                 handleReceivedData(characteristic.value)

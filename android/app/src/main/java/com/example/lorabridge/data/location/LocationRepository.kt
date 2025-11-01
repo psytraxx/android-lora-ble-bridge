@@ -34,7 +34,8 @@ class LocationRepository @Inject constructor(
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + Job())
 
-    private val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    private val locationManager =
+        context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     private val fusedLocationClient: FusedLocationProviderClient =
         LocationServices.getFusedLocationProviderClient(context)
 
@@ -76,7 +77,10 @@ class LocationRepository @Inject constructor(
                     updateLocation(location, "Fused")
                     Log.d(TAG, "Got location from Fused provider")
                 } else {
-                    Log.w(TAG, "Fused provider returned null, falling back to traditional providers")
+                    Log.w(
+                        TAG,
+                        "Fused provider returned null, falling back to traditional providers"
+                    )
                     requestFromTraditionalProviders()
                 }
             } catch (e: Exception) {
@@ -107,7 +111,11 @@ class LocationRepository @Inject constructor(
                 updateLocation(location, "Network")
                 removeListeners()
             }
-            locationManager.requestSingleUpdate(LocationManager.NETWORK_PROVIDER, networkListener!!, null)
+            locationManager.requestSingleUpdate(
+                LocationManager.NETWORK_PROVIDER,
+                networkListener!!,
+                null
+            )
             Log.d(TAG, "Requested single update from Network")
         }
     }
@@ -121,7 +129,10 @@ class LocationRepository @Inject constructor(
         // Return cached if recent
         _currentLocation.value?.let { cached ->
             if (System.currentTimeMillis() - cached.timestamp < LOCATION_CACHE_VALIDITY_MS) {
-                Log.d(TAG, "Returning cached location (${System.currentTimeMillis() - cached.timestamp}ms old)")
+                Log.d(
+                    TAG,
+                    "Returning cached location (${System.currentTimeMillis() - cached.timestamp}ms old)"
+                )
                 return cached
             }
         }
