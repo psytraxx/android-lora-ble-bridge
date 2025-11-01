@@ -196,7 +196,11 @@ void BLEManager::stopAdvertising()
 
 void BLEManager::updateActivity()
 {
-    lastActivityTime = millis();
+    // Notify PowerController of activity (e.g., LoRa packet received)
+    if (activityCallback)
+    {
+        activityCallback();
+    }
 }
 
 void BLEManager::disconnect()

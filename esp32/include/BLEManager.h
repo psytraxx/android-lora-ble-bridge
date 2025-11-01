@@ -148,8 +148,6 @@ private:
     MyCharacteristicCallbacks *rxCallbacks{nullptr};
 
     void (*activityCallback)() = nullptr; // Optional activity callback
-
-    unsigned long lastActivityTime{0};
 };
 
 #endif // BLE_MANAGER_H

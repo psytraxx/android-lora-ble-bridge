@@ -44,8 +44,6 @@ struct LoRaPacket
     float snr;
 };
 
-QueueHandle_t loRaQueue;
-
 // BLEManager declared after queues
 BLEManager *bleManager;
 
@@ -109,9 +107,8 @@ void setup()
     // Create message queues
     bleToLoraQueue = xQueueCreate(BLE_TO_LORA_QUEUE_SIZE, sizeof(Message));
     loraToBleQueue = xQueueCreate(LORA_TO_BLE_QUEUE_SIZE, sizeof(Message));
-    loRaQueue = xQueueCreate(15, sizeof(LoRaPacket));
 
-    if (bleToLoraQueue == nullptr || loraToBleQueue == nullptr || loRaQueue == nullptr)
+    if (bleToLoraQueue == nullptr || loraToBleQueue == nullptr)
     {
         Serial.println("Failed to create message queues. Halting execution.");
         while (1)
@@ -259,10 +256,13 @@ void handleLoRaToBleForwarding()
         Serial.println(" buffered messages");
 
         Message bufferedMsg;
-        while (messageBuffer.get(bufferedMsg))
+        // Use peek/pop pattern to avoid reordering messages on failure
+        while (messageBuffer.peek(bufferedMsg))
         {
             if (bleManager->sendMessage(bufferedMsg))
             {
+                // Message sent successfully - remove from buffer
+                messageBuffer.popFront();
                 Serial.println("Buffered message sent successfully");
 #ifdef LED_PIN
                 ledManager.blink();
@@ -271,10 +271,8 @@ void handleLoRaToBleForwarding()
             }
             else
             {
-                Serial.println("Failed to send buffered message - keeping remaining messages in buffer");
-                // Re-add the failed message at the end (simple approach)
-                messageBuffer.add(bufferedMsg);
-                break; // Stop if send fails
+                Serial.println("Failed to send buffered message - will retry on next connection");
+                break; // Stop if send fails, keeping message at front of buffer
             }
         }
     }
@@ -301,6 +299,32 @@ void handleLoRaToBleForwarding()
             Serial.print(messageBuffer.getCount());
             Serial.println(")");
         }
+    }
+}
+
+/**
+ * @brief Queue message to BLE or buffer if disconnected
+ * @param msg Message to send
+ * @param msgTypeName Human-readable message type for logging
+ */
+void queueOrBufferMessage(const Message &msg, const char *msgTypeName)
+{
+    if (bleManager->isConnected())
+    {
+        if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
+        {
+            Serial.println("Warning: LoRa to BLE queue full, buffering");
+            messageBuffer.add(msg);
+        }
+    }
+    else
+    {
+        messageBuffer.add(msg);
+        Serial.print("Buffered ");
+        Serial.print(msgTypeName);
+        Serial.print(" (total: ");
+        Serial.print(messageBuffer.getCount());
+        Serial.println(")");
     }
 }
 
@@ -397,21 +421,7 @@ void processLoRaPacket(const LoRaPacket &packet)
         }
 
         // Queue or buffer message for BLE delivery
-        if (bleManager->isConnected())
-        {
-            if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
-            {
-                Serial.println("Warning: LoRa to BLE queue full, buffering");
-                messageBuffer.add(msg);
-            }
-        }
-        else
-        {
-            messageBuffer.add(msg);
-            Serial.print("Buffered text message (total: ");
-            Serial.print(messageBuffer.getCount());
-            Serial.println(")");
-        }
+        queueOrBufferMessage(msg, "text message");
 
 #ifdef LED_PIN
         ledManager.blink();
@@ -425,21 +435,7 @@ void processLoRaPacket(const LoRaPacket &packet)
         Serial.println(msg.ackData.seq);
 
         // Queue or buffer ACK for BLE delivery
-        if (bleManager->isConnected())
-        {
-            if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
-            {
-                Serial.println("Warning: LoRa to BLE queue full, buffering");
-                messageBuffer.add(msg);
-            }
-        }
-        else
-        {
-            messageBuffer.add(msg);
-            Serial.print("Buffered ACK (total: ");
-            Serial.print(messageBuffer.getCount());
-            Serial.println(")");
-        }
+        queueOrBufferMessage(msg, "ACK");
 
 #ifdef LED_PIN
         ledManager.blink();

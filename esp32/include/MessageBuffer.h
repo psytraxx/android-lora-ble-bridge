@@ -67,6 +67,43 @@ public:
     }
 
     /**
+     * @brief Peek at the next (oldest) message without removing it.
+     *
+     * @param[out] msg Destination reference where the message will be copied.
+     * @return true if a message was returned, false if buffer was empty.
+     */
+    bool peek(Message &msg) const
+    {
+        if (count == 0)
+        {
+            return false;
+        }
+
+        msg = buffer[head];
+        return true;
+    }
+
+    /**
+     * @brief Remove the front (oldest) message from the buffer.
+     *
+     * Use this after peek() to implement peek-then-pop pattern for
+     * reliable message processing.
+     *
+     * @return true if a message was removed, false if buffer was empty.
+     */
+    bool popFront()
+    {
+        if (count == 0)
+        {
+            return false;
+        }
+
+        head = (head + 1) % MAX_MESSAGES;
+        count--;
+        return true;
+    }
+
+    /**
      * @brief Number of messages currently stored.
      * @return int Count of messages (0..MAX_MESSAGES)
      */
