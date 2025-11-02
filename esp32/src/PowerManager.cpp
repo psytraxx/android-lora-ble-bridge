@@ -14,8 +14,6 @@ void PowerManager::configurePowerManagement()
 
 // Check if power management is available (requires CONFIG_PM_ENABLE in ESP-IDF)
 // Arduino framework for ESP32-S3 does not enable CONFIG_PM_ENABLE by default
-#ifdef POWER_MANAGEMENT_ENABLED
-    // Select appropriate power management config type based on chip
 #if defined(CONFIG_IDF_TARGET_ESP32)
     static esp_pm_config_t pm_config = {};
 #elif defined(CONFIG_IDF_TARGET_ESP32S2)
@@ -40,11 +38,6 @@ void PowerManager::configurePowerManagement()
     }
 
     ESP_LOGI(TAG_POWER, "Power management configured (CPU: %d MHz max, %d MHz min)", CPU_FREQ_MHZ, PowerConstants::CPU_MIN_FREQ_MHZ);
-#else
-    setCpuFrequencyMhz(CPU_FREQ_MHZ);
-    ESP_LOGW(TAG_POWER, "Dynamic frequency scaling not available (CONFIG_PM_ENABLE not set)");
-    ESP_LOGI(TAG_POWER, "CPU running at fixed %d MHz", CPU_FREQ_MHZ);
-#endif
 }
 
 void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
