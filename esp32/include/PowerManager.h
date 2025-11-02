@@ -38,9 +38,16 @@ public:
     /**
      * @brief Configure GPIO pins for wakeup from light sleep
      *
-     * Sets up wake sources:
-     *  - Button: LOW level trigger (pressed = LOW)
-     *  - LoRa DIO0: HIGH level trigger (LoRa interrupt = HIGH)
+     * Sets up wake sources with proper pull resistors and interrupt detection:
+     *  - Button: LOW level trigger with internal pull-up (pressed = LOW)
+     *  - LoRa DIO0: HIGH level trigger with pull-down (LoRa interrupt = HIGH)
+     *
+     * On ESP32 (original): Uses EXT0 wakeup for RTC-capable GPIOs (lower power),
+     *                      falls back to GPIO wakeup for non-RTC GPIOs
+     * On ESP32-S3/C3:      Uses GPIO wakeup (no EXT0 support)
+     *
+     * This method automatically selects the best wakeup mechanism based on
+     * chip capabilities and GPIO pin properties.
      *
      * @param wakeButton GPIO pin for boot button (e.g., GPIO0)
      * @param loraDio0 GPIO pin for LoRa DIO0 interrupt
@@ -50,12 +57,24 @@ public:
     /**
      * @brief Enter light sleep mode (blocking)
      *
-     * Enters light sleep until woken by configured GPIO sources.
-     * This is a BLOCKING call - execution resumes after wake event.
+     * Enters light sleep with RTC peripherals enabled until woken by
+     * configured GPIO sources. This is a BLOCKING call - execution
+     * resumes after a wake event occurs.
      *
      * Wakeup sources must be configured via configureWakeupSources() first.
      *
-     * @return Wakeup cause (see esp_sleep_wakeup_cause_t)
+     * The function will:
+     *  1. Configure RTC domain to stay powered (needed for GPIO wakeup)
+     *  2. Flush UART buffers to ensure logs are sent
+     *  3. Enter light sleep (CPU halted, RAM preserved)
+     *  4. Wake on GPIO interrupt or timer
+     *  5. Return the wakeup cause
+     *
+     * @return Wakeup cause (see esp_sleep_wakeup_cause_t):
+     *         - ESP_SLEEP_WAKEUP_GPIO: GPIO interrupt (button or LoRa)
+     *         - ESP_SLEEP_WAKEUP_EXT0: EXT0 wakeup (RTC GPIO, ESP32 only)
+     *         - ESP_SLEEP_WAKEUP_TIMER: Timer expired
+     *         - ESP_SLEEP_WAKEUP_UNDEFINED: Error occurred
      */
     static int enterLightSleep();
 
