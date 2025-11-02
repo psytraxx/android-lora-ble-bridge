@@ -4,7 +4,7 @@
 /// Automatically converts lowercase to uppercase
 int char_to_6bit(char ch)
 {
-    char upper_ch = toupper(ch);
+    char upper_ch = std::toupper(static_cast<unsigned char>(ch));
     for (int i = 0; i < 64; i++)
     {
         if (CHARSET[i] == upper_ch)
@@ -31,7 +31,7 @@ char sixbit_to_char(uint8_t val)
 /// 50 chars × 6 bits = 300 bits = 37.5 bytes → 38 bytes
 int pack_text(const char *text, uint8_t *output, size_t maxLen)
 {
-    size_t charCount = strlen(text);
+    size_t charCount = std::strlen(text);
 
     // Calculate required bytes: (charCount * 6 + 7) / 8 (round up)
     size_t byteCount = (charCount * 6 + 7) / 8;
@@ -42,7 +42,7 @@ int pack_text(const char *text, uint8_t *output, size_t maxLen)
     }
 
     // Initialize output buffer to zero
-    memset(output, 0, byteCount);
+    std::memset(output, 0, byteCount);
 
     size_t bitOffset = 0;
 
@@ -145,12 +145,12 @@ Message Message::createText(uint8_t seq, const char *text)
     msg.type = MessageType::Text;
     msg.textData.seq = seq;
     // Copy text to fixed-size buffer, ensure null-termination
-    size_t len = strlen(text);
+    size_t len = std::strlen(text);
     if (len > MAX_TEXT_LENGTH)
     {
         len = MAX_TEXT_LENGTH; // Truncate if too long
     }
-    memcpy(msg.textData.text, text, len);
+    std::memcpy(msg.textData.text, text, len);
     msg.textData.text[len] = '\0';
     msg.textData.hasGps = false;
     msg.textData.lat = 0;
@@ -164,12 +164,12 @@ Message Message::createTextWithGps(uint8_t seq, const char *text, int32_t lat, i
     msg.type = MessageType::Text;
     msg.textData.seq = seq;
     // Copy text to fixed-size buffer, ensure null-termination
-    size_t len = strlen(text);
+    size_t len = std::strlen(text);
     if (len > MAX_TEXT_LENGTH)
     {
         len = MAX_TEXT_LENGTH; // Truncate if too long
     }
-    memcpy(msg.textData.text, text, len);
+    std::memcpy(msg.textData.text, text, len);
     msg.textData.text[len] = '\0';
     msg.textData.hasGps = true;
     msg.textData.lat = lat;
@@ -193,7 +193,7 @@ int Message::serialize(uint8_t *buf, size_t bufSize) const
     {
     case MessageType::Text:
     {
-        size_t textLen = strlen(textData.text);
+        size_t textLen = std::strlen(textData.text);
         if (textLen > MAX_TEXT_LENGTH)
         {
             return -1; // Text too long
@@ -222,13 +222,13 @@ int Message::serialize(uint8_t *buf, size_t bufSize) const
         buf[1] = textData.seq;
         buf[2] = textLen;   // Store original character count
         buf[3] = packedLen; // Store packed byte count
-        memcpy(buf + 4, packedText, packedLen);
+        std::memcpy(buf + 4, packedText, packedLen);
         buf[4 + packedLen] = textData.hasGps ? 1 : 0;
 
         if (textData.hasGps)
         {
-            memcpy(buf + 5 + packedLen, &textData.lat, 4); // Little-endian
-            memcpy(buf + 9 + packedLen, &textData.lon, 4); // Little-endian
+            std::memcpy(buf + 5 + packedLen, &textData.lat, 4); // Little-endian
+            std::memcpy(buf + 9 + packedLen, &textData.lon, 4); // Little-endian
         }
 
         return totalSize;
@@ -291,8 +291,8 @@ bool Message::deserialize(const uint8_t *buf, size_t len)
             {
                 return false; // Buffer too small for GPS data
             }
-            memcpy(&textData.lat, buf + 5 + packedLen, 4); // Little-endian
-            memcpy(&textData.lon, buf + 9 + packedLen, 4); // Little-endian
+            std::memcpy(&textData.lat, buf + 5 + packedLen, 4); // Little-endian
+            std::memcpy(&textData.lon, buf + 9 + packedLen, 4); // Little-endian
         }
         else
         {

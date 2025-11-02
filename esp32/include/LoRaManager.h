@@ -1,0 +1,167 @@
+#ifndef LORA_MANAGER_H
+#define LORA_MANAGER_H
+
+#include <Arduino.h>
+#include <RadioLib.h>
+#include <functional>
+#include "Protocol.h"
+
+/**
+ * @file LoRaManager.h
+ * @brief Encapsulates LoRa radio operations and message handling
+ *
+ * This class provides a high-level interface for LoRa communication,
+ * abstracting RadioLib details and providing event-driven packet handling.
+ * Designed to reduce coupling and improve testability of the main application.
+ */
+
+/// Configuration for LoRa radio parameters
+struct LoRaConfig
+{
+    float frequency;        // MHz (e.g., 433.92)
+    float bandwidth;        // kHz (e.g., 31.25)
+    uint8_t spreadingFactor; // SF (7-12)
+    uint8_t codingRate;     // CR (5-8 for 4/5 to 4/8)
+    int8_t txPower;         // dBm (e.g., 20)
+    uint8_t syncWord;       // Sync word (default: 0x12)
+};
+
+/// LoRa packet with metadata (RSSI, SNR)
+struct LoRaPacket
+{
+    uint8_t buffer[256]; // 256 bytes = max LoRa payload (RadioLib limit)
+    int len;             // Actual packet length
+    int rssi;            // Received Signal Strength Indicator (dBm)
+    float snr;           // Signal-to-Noise Ratio (dB)
+};
+
+/// Callback type for received packets
+using LoRaReceiveCallback = std::function<void(const LoRaPacket &packet)>;
+
+/**
+ * @brief High-level manager for LoRa radio operations
+ *
+ * Responsibilities:
+ *  - Initialize and configure LoRa radio with specified parameters
+ *  - Transmit messages via LoRa with proper mode switching
+ *  - Receive packets using interrupt-driven approach
+ *  - Provide event callbacks for received packets
+ *  - Abstract RadioLib implementation details from application
+ */
+class LoRaManager
+{
+public:
+    /**
+     * @brief Construct LoRaManager with GPIO pin configuration
+     * @param sck SPI clock pin
+     * @param miso SPI MISO pin
+     * @param mosi SPI MOSI pin
+     * @param ss SPI slave select pin
+     * @param rst Reset pin
+     * @param dio0 DIO0 interrupt pin
+     */
+    LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0);
+
+    /**
+     * @brief Initialize LoRa radio with configuration
+     * @param config LoRa parameters (frequency, SF, BW, etc.)
+     * @param retryCount Number of retry attempts on failure (default: 3)
+     * @return true on success, false on failure
+     */
+    bool begin(const LoRaConfig &config, int retryCount = 3);
+
+    /**
+     * @brief Start continuous receive mode
+     * @return true on success, false on failure
+     */
+    bool startReceive();
+
+    /**
+     * @brief Transmit data via LoRa
+     *
+     * This method handles mode switching (RX -> TX -> RX) and
+     * ensures the radio returns to receive mode after transmission.
+     *
+     * @param data Pointer to data buffer
+     * @param len Length of data to transmit
+     * @return true if transmission successful, false otherwise
+     */
+    bool transmit(const uint8_t *data, size_t len);
+
+    /**
+     * @brief Set callback for received packets
+     *
+     * The callback will be invoked from the main loop (not ISR)
+     * when a packet is successfully received.
+     *
+     * @param callback Function to call with received packet
+     */
+    void setReceiveCallback(LoRaReceiveCallback callback);
+
+    /**
+     * @brief Process LoRa events (call from main loop)
+     *
+     * Checks for received packets and invokes the callback if set.
+     * This should be called regularly from the main loop.
+     */
+    void process();
+
+    /**
+     * @brief Get current RSSI of last received packet
+     * @return RSSI in dBm
+     */
+    int getRSSI() const;
+
+    /**
+     * @brief Get current SNR of last received packet
+     * @return SNR in dB
+     */
+    float getSNR() const;
+
+    /**
+     * @brief Check if LoRa radio is initialized
+     * @return true if initialized, false otherwise
+     */
+    bool isInitialized() const { return initialized; }
+
+    /**
+     * @brief Static ISR handler for LoRa DIO0 interrupt
+     * Must be public to be registered as ISR callback
+     */
+    static void ICACHE_RAM_ATTR onReceiveISR();
+
+private:
+    // GPIO pin configuration
+    int pinSCK;
+    int pinMISO;
+    int pinMOSI;
+    int pinSS;
+    int pinRST;
+    int pinDIO0;
+
+    // RadioLib radio instance
+    SX1278 *radio;
+
+    // State flags
+    bool initialized;
+    volatile bool packetReceived;
+
+    // Callback for received packets
+    LoRaReceiveCallback receiveCallback;
+
+    // Singleton instance for ISR access
+    static LoRaManager *instance;
+
+    /**
+     * @brief Internal ISR handler (called by static onReceiveISR)
+     */
+    void handleReceiveInterrupt();
+
+    /**
+     * @brief Wait for radio to settle after mode change
+     * @param delayMs Delay in milliseconds (default: 50ms)
+     */
+    void waitForRadioSettle(int delayMs = 50);
+};
+
+#endif // LORA_MANAGER_H

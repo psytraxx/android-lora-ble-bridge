@@ -1,15 +1,12 @@
 // PowerController.cpp
 #include "PowerController.h"
+#include "FirmwareConfig.h"
 #include "esp_pm.h"
 #include <esp_sleep.h>
 #include <driver/gpio.h>
 #include <Arduino.h>
 
 PowerController *PowerController::instance = nullptr;
-
-// Configuration: advertise duration before entering light sleep
-// 30 seconds provides good discoverability window while conserving power
-static const unsigned long ADVERTISE_MS = 30000UL; // 30s advertise window before sleep
 
 PowerController::PowerController()
     : bleManager(nullptr), messageBuffer(nullptr), state(STATE_DISCONNECTED_ADVERTISING), advertiseStartMillis(0), lastActivityMillis(0)
@@ -66,10 +63,7 @@ void PowerController::update()
             lastActivityMillis = millis();
 
         // Inactivity timeout -> force disconnect to save power
-        // 60 seconds allows for casual message reading without premature disconnection
-        // Note: Android app expects 30s timeout (see BleConstants.AUTO_DISCONNECT_DELAY_MS)
-        const unsigned long INACTIVITY_TIMEOUT_MS = 60000UL; // 60s before auto-disconnect
-        if ((millis() - lastActivityMillis) > INACTIVITY_TIMEOUT_MS)
+        if ((millis() - lastActivityMillis) > PowerConstants::INACTIVITY_TIMEOUT_MS)
         {
             Serial.println("PowerController: Inactivity timeout - disconnecting BLE client");
             bleManager->disconnect();
@@ -102,10 +96,10 @@ void PowerController::update()
             advertiseStartMillis = millis();
         }
 
-        if (millis() - advertiseStartMillis >= ADVERTISE_MS)
+        if (millis() - advertiseStartMillis >= PowerConstants::ADVERTISE_DURATION_MS)
         {
             Serial.print("PowerController: Advertising period ended (timeout=");
-            Serial.print(ADVERTISE_MS);
+            Serial.print(PowerConstants::ADVERTISE_DURATION_MS);
             Serial.println(" ms) - entering light sleep until button press or LoRa activity");
 
             // Stop advertising and disable BLE before sleep (critical for low power)
@@ -154,16 +148,24 @@ void PowerController::configurePowerManagement()
 {
     Serial.println("PowerController: Configuring power management");
 
-#if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
-    static esp_pm_config_t esp32_config; // filled with zeros because bss
+    // Select appropriate power management config type based on chip
+#if defined(CONFIG_IDF_TARGET_ESP32)
+    static esp_pm_config_esp32_t pm_config = {};
+#elif defined(CONFIG_IDF_TARGET_ESP32S2)
+    static esp_pm_config_esp32s2_t pm_config = {};
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+    static esp_pm_config_esp32s3_t pm_config = {};
+#elif defined(CONFIG_IDF_TARGET_ESP32C3)
+    static esp_pm_config_esp32c3_t pm_config = {};
 #else
-    static esp_pm_config_esp32_t esp32_config; // filled with zeros because bss
+    #error "Unsupported ESP32 variant"
 #endif
 
-    esp32_config.max_freq_mhz = CPU_FREQ_MHZ;
-    esp32_config.min_freq_mhz = 20;
-    esp32_config.light_sleep_enable = false;
-    int rv = esp_pm_configure(&esp32_config);
+    pm_config.max_freq_mhz = CPU_FREQ_MHZ;
+    pm_config.min_freq_mhz = PowerConstants::CPU_MIN_FREQ_MHZ;
+    pm_config.light_sleep_enable = false;
+
+    int rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
     {
         Serial.print("PowerController: Failed to configure power management (err=");
