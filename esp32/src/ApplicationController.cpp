@@ -1,5 +1,6 @@
 #include "ApplicationController.h"
 #include "LEDManager.h"
+#include "PowerManager.h"
 #include <esp_task_wdt.h>
 
 // External LED manager reference (if defined)
@@ -71,7 +72,6 @@ void ApplicationController::processStateMachine()
     {
         // Connection lost
         transitionTo(AppState::DISCONNECTED_ADVERTISING);
-        advertiseStartMillis = 0; // Will restart advertising
         Serial.println("AppController: BLE disconnected");
     }
 
@@ -143,9 +143,20 @@ void ApplicationController::handleConnectedIdle()
 
 void ApplicationController::handleSleeping()
 {
-    // This state is entered but sleep is managed by PowerManager
-    // The actual sleep blocking call would be in main loop coordination
-    Serial.println("AppController: SLEEPING state (sleep managed externally)");
+    Serial.println("AppController: Entering light sleep");
+
+    // Stop advertising before sleep
+    bleManager->stopAdvertising();
+
+    // Refresh wakeup sources before sleep (required on some ESP32 variants)
+    PowerManager::refreshWakeupSources();
+
+    // Enter light sleep (blocking call until wakeup)
+    PowerManager::enterLightSleep();
+
+    // Woke up - transition back to advertising
+    Serial.println("AppController: Woke from sleep, restarting advertising");
+    transitionTo(AppState::DISCONNECTED_ADVERTISING);
 }
 
 void ApplicationController::processBleToLoraQueue()
@@ -323,7 +334,8 @@ void ApplicationController::transitionTo(AppState newState)
     switch (newState)
     {
     case AppState::DISCONNECTED_ADVERTISING:
-        // Stop advertising will be handled in handleDisconnectedAdvertising()
+        // Reset advertising timer so it will restart fresh
+        advertiseStartMillis = 0;
         break;
 
     case AppState::CONNECTED_ACTIVE:
