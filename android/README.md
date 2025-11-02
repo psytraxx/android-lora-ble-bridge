@@ -84,7 +84,7 @@ A long-range messaging system enabling text messages (up to 50 characters) and G
 - **Async:** Kotlin Coroutines + StateFlow
 - **Location:** Google Play Services Location
 - **Min SDK:** 29 (Android 10)
-- **Target SDK:** 35
+- **Target SDK:** 36
 
 ---
 
@@ -121,8 +121,8 @@ A long-range messaging system enabling text messages (up to 50 characters) and G
 ## 🚀 Build & Run
 
 ### Prerequisites
-- JDK 17 or 21 (avoid JDK 25 - compatibility issues)
-- Android SDK 35
+- JDK 11 or higher (JDK 17 or 21 recommended)
+- Android SDK 36
 - Android Studio Ladybug or newer
 
 ### Build
@@ -143,7 +143,7 @@ cd lorabridge
 ./gradlew test
 ```
 
-**Coverage:** 43 unit tests across 4 test files
+**Coverage:** 74 unit tests across multiple test files
 
 ---
 

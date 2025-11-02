@@ -1,11 +1,11 @@
 
 # Android LoRa BLE Bridge
 
-A long-range communication system for sending text messages (up to 50 characters) and GPS coordinates via 433 MHz LoRa using ESP32-S3 (C++/Arduino firmware) and Android devices.
+A long-range communication system for sending text messages (up to 50 characters) and GPS coordinates via 433 MHz LoRa using ESP32/ESP32-S3 and Android devices.
 
 ## Features
 
-- 📱 **Android App**: Modern Kotlin app with Jetpack Compose, Clean Architecture, GPS integration, and BLE communication
+- 📱 **Android App**: Modern Kotlin app with Jetpack Compose, GPS integration, and BLE communication
 - 📡 **Long Range**: 5-10 km typical range (up to 15+ km in ideal conditions)
 - 🔋 **Power Optimized**: 40-50% power savings (70-100 hours on 2500 mAh battery)
 - 📦 **Message Buffering**: Buffers up to 10 messages when phone is disconnected
@@ -19,12 +19,12 @@ A long-range communication system for sending text messages (up to 50 characters
 
 ```mermaid
 graph TD
-    A[Android Phone 1<br/>- Internal GPS<br/>- Text Input<br/>- Display<br/>- Java App] -->|Text + GPS Data| B[BLE]
-  B --> C[ESP32-S3<br/>LoRa Transmitter<br/>- Sx1276 Module<br/>- Pins: SCK12, MISO13, MOSI11, CS10, RST43, DIO044<br/>- Firmware: C++/Arduino]
+    A[Android Phone 1<br/>- Internal GPS<br/>- Text Input<br/>- Display<br/>- Kotlin + Compose App] -->|Text + GPS Data| B[BLE]
+  B --> C[ESP32-S3<br/>LoRa Transmitter<br/>- Sx1276 Module<br/>- Pins: SCK12, MISO13, MOSI11, CS10, RST43, DIO044<br/>- Firmware: C++/Arduino or Rust]
     C -->|LoRa Transmission| D[LoRa Radio Waves]
-  D -->     E[ESP32-S3<br/>LoRa Receiver<br/>- Same hardware/firmware<br/>- C++/Arduino]
+  D -->     E[ESP32-S3<br/>LoRa Receiver<br/>- Same hardware/firmware<br/>- C++/Arduino or Rust]
     E -->|Forwarded Data| F[BLE]
-    F --> G[Android Phone 2<br/>- Display<br/>- Receives Text + GPS<br/>- Same Java App]
+    F --> G[Android Phone 2<br/>- Display<br/>- Receives Text + GPS<br/>- Same Kotlin App]
     
     E -->|ACK| D
     D --> C
@@ -48,9 +48,10 @@ graph TD
 
 ```
 android-lora-ble-bridge/
-├── android/              # Android application (Java)
+├── android/              # Android application (Kotlin + Jetpack Compose)
 ├── esp32/                # ESP32 firmware (C++/Arduino) - Transceiver with BLE
-├── esp32s3-debugger/     # ESP32-S3 LoRa receiver with display (C++/Arduino)
+├── esp32s3-debugger/     # ESP32-S3 LoRa debugger with display (C++/Arduino)
+├── shared/               # Shared protocol libraries (C++)
 ├── protocol.md           # Protocol specification
 ├── CHANGELOG.md          # Project changelog
 └── README.md             # This file (you are here)
@@ -62,7 +63,7 @@ android-lora-ble-bridge/
 
 #### Android App
 - [Android Studio](https://developer.android.com/studio) or Android SDK
-- JDK 17 or higher (for ViewBinding support)
+- JDK 11 or higher (for Kotlin + Compose)
 - Gradle (included in Android Studio)
 
 ### Android App Build
@@ -85,20 +86,16 @@ cd android
 **Android App:**
 ```bash
 cd android
-./gradlew test                     # Run unit tests (43 tests)
+./gradlew test                     # Run unit tests (74 tests)
 ./gradlew connectedAndroidTest     # Run instrumentation tests
 ```
 
 ### Test Coverage
-- **ESP32**: Protocol serialization/deserialization, 6-bit packing
-- **Android**: 43 comprehensive unit tests covering:
-  - Protocol serialization (LoRaProtocolTest - 13 tests)
-  - Domain models (ChatMessageTest - 10 tests, LocationDataTest - 9 tests)
-  - Message repository (MessageRepositoryTest - 11 tests)
-  - TextMessage (with/without GPS), AckMessage serialization
-  - 6-bit character packing/unpacking
-  - Round-trip encoding/decoding
-  - Character validation and support
+- **ESP32 (C++)**: Protocol serialization/deserialization, 6-bit packing
+- **Android**: 74 comprehensive unit tests covering:
+  - Protocol: TextMessage/AckMessage serialization, 6-bit packing/unpacking
+  - Domain: Location data, chat messages, round-trip encoding
+  - Repository: Message handling, character validation
   - Edge cases and error handling
 
 ## Hardware Setup
@@ -112,7 +109,7 @@ cd android
 | MOSI | GPIO11 | SPI MOSI |
 | NSS/CS | GPIO10 | Chip Select |
 | RESET | GPIO43 | Reset |
-| DIO0 | GPIO3 | Interrupt (RTC GPIO for wake-up) |
+| DIO0 | GPIO3 | Interrupt |
 | 3.3V | 3.3V | Power |
 | GND | GND | Ground |
 
@@ -186,10 +183,10 @@ The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
 - **Latency**: 1-2 seconds end-to-end
 - **Battery**: 70-100 hours on 2500 mAh
 - **Time on Air**:
-  - Note: Actual values depend on SF10 + BW31kHz configuration
-  - Longer than SF10+BW125kHz due to narrower bandwidth (31.25kHz vs 125kHz)
+  - Note: Actual values depend on SF11 + BW31kHz configuration
+  - Significantly longer than previous SF10+BW125kHz estimates
   - See protocol.md and use [LoRa Calculator](https://www.loratools.nl/#/airtime)
-- **LoRa Config**: SF10, BW31.25kHz, CR4/5, 433.92 MHz default, 20 dBm
+- **LoRa Config**: SF11, BW31kHz, CR4/5, 433.92 MHz default, 20 dBm
 - **Duty Cycle**: Calculate using actual Time on Air values (EU 1% = 36s/hour)
 
 See **[protocol.md](protocol.md)** for detailed Time on Air calculations and duty cycle compliance.
@@ -289,11 +286,11 @@ delay(50);  // Ensure radio is fully in RX mode
 | Phase | Time | Description |
 |-------|------|-------------|
 | **BLE Transfer** | 10-50ms | Android ↔ ESP32 via Bluetooth LE |
-| **LoRa Airtime** | Varies | Text+GPS packet at SF10, BW31.25kHz (depends on message length) |
+| **LoRa Airtime** | Varies | Text+GPS packet at SF11, BW31kHz (depends on message length) |
 | **Mode Switch (TX→RX)** | 10-50ms | SX1278 radio mode transition |
 | **RX Settle** | 50ms | Additional settle time in code |
 | **ACK Wait** | 500ms | Deliberate delay before ACK sent |
-| **ACK Airtime** | Varies | ACK packet (2 bytes) at SF10, BW31.25kHz |
+| **ACK Airtime** | Varies | ACK packet (2 bytes) at SF11, BW31kHz |
 
 ### Why These Timings Matter
 
