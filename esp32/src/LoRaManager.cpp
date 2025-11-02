@@ -5,7 +5,7 @@
 // Static instance for ISR access
 LoRaManager *LoRaManager::instance = nullptr;
 
-static const char *TAG_LORA = "LoRaManager";
+static const char *TAG_LORA = "LORA";
 
 LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0)
     : pinSCK(sck),

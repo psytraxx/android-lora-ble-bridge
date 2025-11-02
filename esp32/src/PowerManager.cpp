@@ -6,7 +6,7 @@
 #include <driver/uart.h>
 #include <esp_log.h>
 
-static const char *TAG_POWER = "PowerManager";
+static const char *TAG_POWER = "PWR";
 
 void PowerManager::configurePowerManagement()
 {

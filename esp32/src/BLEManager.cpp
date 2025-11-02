@@ -1,7 +1,7 @@
 #include "BLEManager.h"
 #include <string.h>
 
-static const char *TAG_BLE = "BLEManager";
+static const char *TAG_BLE = "BLE";
 
 // Server callbacks implementation
 void MyServerCallbacks::onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo)
@@ -145,13 +145,9 @@ bool BLEManager::isConnected() const
     NimBLEServer *srv = NimBLEDevice::getServer();
     if (!srv)
         return false;
-#ifdef ARDUINO_ARCH_ESP32
-    // NimBLEServer provides getConnectedCount()
+
+    // NimBLEServer::getConnectedCount() works in both Arduino and ESP-IDF
     return srv->getConnectedCount() > 0;
-#else
-    // Fallback: assume false on other platforms
-    return false;
-#endif
 }
 // Note: Removed BLE advertising inactivity timeout
 // Requirement: Always able to receive LoRa messages and deliver to Android
