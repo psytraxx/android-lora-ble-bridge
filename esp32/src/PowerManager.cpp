@@ -3,6 +3,7 @@
 #include "esp_pm.h"
 #include <esp_sleep.h>
 #include <driver/gpio.h>
+#include <driver/uart.h>
 #include <esp_log.h>
 
 static const char *TAG_POWER = "PowerManager";
@@ -72,6 +73,10 @@ void PowerManager::refreshWakeupSources()
 int PowerManager::enterLightSleep()
 {
     ESP_LOGI(TAG_POWER, "Entering light sleep...");
+
+    // Flush all pending UART output before sleeping
+    // This ensures log messages are actually transmitted before entering sleep
+    uart_wait_tx_done((uart_port_t)CONFIG_ESP_CONSOLE_UART_NUM, portMAX_DELAY);
 
     // Enter light sleep (blocking call)
     esp_light_sleep_start();
