@@ -1,6 +1,11 @@
 #include "LoRaManager.h"
 #include "esp_log.h"
-#include "EspHal.h"
+#if CONFIG_IDF_TARGET_ESP32
+#include "Esp32Hal.h"
+#endif
+#if CONFIG_IDF_TARGET_ESP32S3
+#include "EspHalS3.h"
+#endif
 
 // Static instance for ISR access
 LoRaManager *LoRaManager::instance = nullptr;
