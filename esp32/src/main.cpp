@@ -295,3 +295,21 @@ void loop()
     // Adaptive delay based on activity (managed by ApplicationController)
     vTaskDelay(pdMS_TO_TICKS(appController.getLoopDelay()));
 }
+
+/**
+ * @brief ESP-IDF entry point
+ *
+ * In ESP-IDF, app_main() runs as a task. We call setup() once,
+ * then enter the main loop directly without creating another task.
+ */
+extern "C" void app_main(void)
+{
+    // Call setup once
+    setup();
+
+    // Run main loop continuously
+    while (1)
+    {
+        loop();
+    }
+}

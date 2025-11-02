@@ -2,8 +2,6 @@
 #define BLE_MANAGER_H
 
 #include "esp_log.h"
-#include "nimble/nimble_port.h"
-#include "nimble/nimble_port_freertos.h"
 #include <NimBLEDevice.h>
 #include <freertos/queue.h>
 #include "Protocol.h"

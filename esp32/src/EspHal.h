@@ -4,18 +4,25 @@
 // include RadioLib
 #include <RadioLib.h>
 
-// this example only works on ESP32 and is unlikely to work on ESP32S2/S3 etc.
-// if you need high portability, you should probably use Arduino anyway ...
-#if CONFIG_IDF_TARGET_ESP32 == 0
-#error Target is not ESP32!
+// Support ESP32 and ESP32-S3 targets
+#if !defined(CONFIG_IDF_TARGET_ESP32) && !defined(CONFIG_IDF_TARGET_ESP32S3)
+#error Target must be ESP32 or ESP32-S3!
 #endif
 
 // include all the dependencies
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#if defined(CONFIG_IDF_TARGET_ESP32)
 #include "esp32/rom/gpio.h"
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+#include "esp32s3/rom/gpio.h"
+#endif
 #include "soc/rtc.h"
+#if defined(CONFIG_IDF_TARGET_ESP32)
 #include "soc/dport_reg.h"
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+#include "soc/system_reg.h"
+#endif
 #include "soc/spi_reg.h"
 #include "soc/spi_struct.h"
 #include "driver/gpio.h"
@@ -286,18 +293,28 @@ public:
   void spiBegin()
   {
     // enable peripheral
+#if defined(CONFIG_IDF_TARGET_ESP32)
     DPORT_SET_PERI_REG_MASK(DPORT_PERIP_CLK_EN_REG, DPORT_SPI2_CLK_EN);
     DPORT_CLEAR_PERI_REG_MASK(DPORT_PERIP_RST_EN_REG, DPORT_SPI2_RST);
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+    // ESP32-S3 uses SYSTEM registers instead of DPORT
+    SET_PERI_REG_MASK(SYSTEM_PERIP_CLK_EN1_REG, SYSTEM_SPI2_CLK_EN);
+    CLEAR_PERI_REG_MASK(SYSTEM_PERIP_RST_EN1_REG, SYSTEM_SPI2_RST);
+#endif
 
     // reset the control struct
+#if defined(CONFIG_IDF_TARGET_ESP32)
     this->spi->slave.trans_done = 0;
     this->spi->slave.val = 0;
     this->spi->pin.val = 0;
+#endif
     this->spi->user.val = 0;
     this->spi->user1.val = 0;
     this->spi->ctrl.val = 0;
+#if defined(CONFIG_IDF_TARGET_ESP32)
     this->spi->ctrl1.val = 0;
     this->spi->ctrl2.val = 0;
+#endif
     this->spi->clock.val = 0;
     this->spi->user.usr_mosi = 1;
     this->spi->user.usr_miso = 1;
@@ -308,7 +325,9 @@ public:
     }
 
     // set SPI mode 0
+#if defined(CONFIG_IDF_TARGET_ESP32)
     this->spi->pin.ck_idle_edge = 0;
+#endif
     this->spi->user.ck_out_edge = 0;
 
     // set bit order to MSB first
@@ -322,9 +341,16 @@ public:
     this->pinMode(this->spiSCK, OUTPUT);
     this->pinMode(this->spiMISO, INPUT);
     this->pinMode(this->spiMOSI, OUTPUT);
+#if defined(CONFIG_IDF_TARGET_ESP32)
     gpio_matrix_out(this->spiSCK, HSPICLK_OUT_IDX, false, false);
     gpio_matrix_in(this->spiMISO, HSPIQ_OUT_IDX, false);
     gpio_matrix_out(this->spiMOSI, HSPID_IN_IDX, false, false);
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+    // ESP32-S3 uses different GPIO matrix signal names
+    gpio_matrix_out(this->spiSCK, SPICLK_OUT_IDX, false, false);
+    gpio_matrix_in(this->spiMISO, SPIQ_OUT_IDX, false);
+    gpio_matrix_out(this->spiMOSI, SPID_IN_IDX, false, false);
+#endif
   }
 
   void spiBeginTransaction()
@@ -335,8 +361,13 @@ public:
 
   uint8_t spiTransferByte(uint8_t b)
   {
+#if defined(CONFIG_IDF_TARGET_ESP32)
     this->spi->mosi_dlen.usr_mosi_dbitlen = 7;
     this->spi->miso_dlen.usr_miso_dbitlen = 7;
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+    // ESP32-S3 uses different member names
+    this->spi->ms_dlen.ms_data_bitlen = 7;
+#endif
     this->spi->data_buf[0] = b;
     this->spi->cmd.usr = 1;
     while (this->spi->cmd.usr)
