@@ -17,30 +17,30 @@
 #include "LEDManager.h"
 #include "MessageBuffer.h"
 #include "FirmwareConfig.h"
+#include "ApplicationController.h"
+#include "PowerManager.h"
 #include <freertos/queue.h>
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
 #include <esp_wifi.h>
-#include "PowerController.h"
 
-// LoRaManager instance
+// Component instances
 LoRaManager *loraManager;
+BLEManager *bleManager;
 
 #ifdef LED_PIN
 LEDManager ledManager(LED_PIN);
 #endif
 
+// Message queues
 QueueHandle_t bleToLoraQueue;
 QueueHandle_t loraToBleQueue;
 
-// BLEManager declared after queues
-BLEManager *bleManager;
-
-// Power controller instance
-PowerController powerController;
-
-// Message buffer for when BLE is disconnected (SINGLE GLOBAL INSTANCE)
+// Message buffer for when BLE is disconnected
 MessageBuffer messageBuffer;
+
+// Application state machine
+ApplicationController appController;
 
 // Forward declaration
 void onLoRaPacketReceived(const LoRaPacket &packet);
@@ -55,7 +55,7 @@ void setup()
     Serial.println("Disabling WiFi and Bluetooth Classic for power savings");
 
     // Configure power management (CPU frequency scaling and light sleep)
-    powerController.configurePowerManagement();
+    PowerManager::configurePowerManagement();
 
     // Disable WiFi completely (saves ~50-80 mA)
     // WiFi is initialized by default in ESP32 Arduino framework
@@ -141,9 +141,6 @@ void setup()
 
     bleManager->startAdvertising();
 
-    // Initialize power controller with BLE manager and message buffer
-    powerController.begin(bleManager, &messageBuffer);
-
     // Initialize LoRa Manager
     loraManager = new LoRaManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0);
 
@@ -180,7 +177,10 @@ void setup()
     }
 
     // Configure GPIO wake-up for LoRa interrupt (allows wake from light sleep)
-    powerController.configureWakeupSources(WAKE_BUTTON, LORA_DIO0);
+    PowerManager::configureWakeupSources(WAKE_BUTTON, LORA_DIO0);
+
+    // Initialize application controller
+    appController.begin(bleManager, loraManager, &messageBuffer, bleToLoraQueue, loraToBleQueue);
 
     // Initialize LED
 #ifdef LED_PIN
@@ -191,108 +191,16 @@ void setup()
 }
 
 /**
- * @brief Handle LoRa to BLE message forwarding and buffering
- */
-void handleLoRaToBleForwarding()
-{
-    // Track connection state and add setup delay for new connections
-    static bool wasConnected = false;
-    static unsigned long connectionEstablishedTime = 0;
-    bool isCurrentlyConnected = bleManager->isConnected();
-
-    // Detect new connection
-    if (isCurrentlyConnected && !wasConnected)
-    {
-        connectionEstablishedTime = millis();
-        Serial.println("BLE newly connected - waiting for Android to enable notifications");
-    }
-    wasConnected = isCurrentlyConnected;
-
-    // Send buffered messages with delay after new connection
-    // Wait for Android to: request MTU, discover services, enable notifications
-    if (isCurrentlyConnected && !messageBuffer.isEmpty())
-    {
-        unsigned long timeSinceConnection = millis() - connectionEstablishedTime;
-        if (timeSinceConnection < BLEConstants::CONNECTION_SETUP_DELAY_MS)
-        {
-            // Too soon - Android may not be ready yet
-            return;
-        }
-
-        Serial.print("BLE connected - sending ");
-        Serial.print(messageBuffer.getCount());
-        Serial.println(" buffered messages");
-
-        Message bufferedMsg;
-        // Use peek/pop pattern to avoid reordering messages on failure
-        while (messageBuffer.peek(bufferedMsg))
-        {
-            if (bleManager->sendMessage(bufferedMsg))
-            {
-                // Message sent successfully - remove from buffer
-                messageBuffer.popFront();
-                Serial.println("Buffered message sent successfully");
-#ifdef LED_PIN
-                ledManager.blink();
-#endif
-                delay(BLEConstants::MESSAGE_SPACING_MS);
-            }
-            else
-            {
-                Serial.println("Failed to send buffered message - will retry on next connection");
-                break; // Stop if send fails, keeping message at front of buffer
-            }
-        }
-    }
-
-    // Process live queue messages
-    Message loraMsg;
-    if (xQueueReceive(loraToBleQueue, &loraMsg, 0) == pdTRUE)
-    {
-        if (bleManager->isConnected())
-        {
-            if (bleManager->sendMessage(loraMsg))
-            {
-                Serial.println("Message forwarded from LoRa to BLE");
-#ifdef LED_PIN
-                ledManager.blink();
-#endif
-            }
-        }
-        else
-        {
-            // Buffer message for later delivery
-            messageBuffer.add(loraMsg);
-            Serial.print("Buffered message (total: ");
-            Serial.print(messageBuffer.getCount());
-            Serial.println(")");
-        }
-    }
-}
-
-/**
- * @brief Queue message to BLE or buffer if disconnected
+ * @brief Queue message to LoRa→BLE queue (called from LoRa callback)
  * @param msg Message to send
  * @param msgTypeName Human-readable message type for logging
  */
 void queueOrBufferMessage(const Message &msg, const char *msgTypeName)
 {
-    if (bleManager->isConnected())
+    if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
     {
-        if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
-        {
-            Serial.println("Warning: LoRa to BLE queue full, buffering");
-            messageBuffer.add(msg);
-        }
-    }
-    else
-    {
-        messageBuffer.add(msg);
-        Serial.print("Buffered ");
-        Serial.print(msgTypeName);
-        Serial.print(" (total: ");
-        Serial.print(messageBuffer.getCount());
-        Serial.println(")");
+        Serial.print("Warning: LoRa to BLE queue full, dropping ");
+        Serial.println(msgTypeName);
     }
 }
 
@@ -302,13 +210,9 @@ void queueOrBufferMessage(const Message &msg, const char *msgTypeName)
 void onLoRaPacketReceived(const LoRaPacket &packet)
 {
     Serial.println("onLoRaPacketReceived: packet received");
-    bleManager->updateActivity();
 
-    // If not connected, just note activity; PowerController will manage advertising
-    if (!bleManager->isConnected())
-    {
-        Serial.println("onLoRaPacketReceived: no BLE connection - buffering for later");
-    }
+    // Notify application controller of activity
+    appController.notifyActivity();
 
     // Deserialize message
     Message msg;
@@ -388,71 +292,20 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
 }
 
 /**
- * @brief Main loop - handles BLE<->LoRa message bridging with light sleep for power savings
+ * @brief Main loop - thin coordinator for components and state machine
  */
 void loop()
 {
     // Reset watchdog
     esp_task_wdt_reset();
 
-    // Process BLE events (non-blocking)
+    // Process component events (non-blocking)
     bleManager->process();
-
-    // Process LoRa events (non-blocking)
     loraManager->process();
 
-    // Check for messages from BLE to send via LoRa
-    Message bleMsg;
-    if (xQueueReceive(bleToLoraQueue, &bleMsg, 0) == pdTRUE)
-    {
-        Serial.print("Received from BLE queue: type=");
-        Serial.println((int)bleMsg.type);
+    // Application state machine handles all logic
+    appController.update();
 
-        // Serialize and send via LoRa
-        uint8_t buf[64]; // 64 bytes: enough for any message type (ACK=2, Text+GPS=52)
-        int len = bleMsg.serialize(buf, sizeof(buf));
-
-        if (len > 0)
-        {
-            // Reset watchdog before long LoRa transmission
-            esp_task_wdt_reset();
-
-            // Transmit via LoRaManager (handles mode switching)
-            if (loraManager->transmit(buf, len))
-            {
-#ifdef LED_PIN
-                ledManager.blink(2);
-#endif
-            }
-        }
-        else
-        {
-            Serial.println("Failed to serialize message for LoRa TX");
-        }
-    }
-
-    // Forward queued/buffered messages from LoRa to BLE
-    handleLoRaToBleForwarding();
-
-    // Power controller manages advertise/sleep cycle and inactivity
-    powerController.update();
-
-    // Determine if there is pending activity
-    bool hasActivity = uxQueueMessagesWaiting(bleToLoraQueue) > 0;
-
-    // Adaptive delay for power savings
-    // With automatic light sleep enabled, longer delays allow the system to
-    // enter light sleep mode for significant power savings
-
-    if (hasActivity)
-    {
-        // Activity detected - short delay for responsiveness
-        vTaskDelay(pdMS_TO_TICKS(LoopConstants::ACTIVE_DELAY_MS));
-    }
-    else
-    {
-        // Idle - longer delay enables automatic light sleep while maintaining responsiveness
-        // BLE modem and LoRa GPIO interrupts will wake the system early if needed
-        vTaskDelay(pdMS_TO_TICKS(LoopConstants::IDLE_DELAY_MS));
-    }
+    // Adaptive delay based on activity (managed by ApplicationController)
+    vTaskDelay(pdMS_TO_TICKS(appController.getLoopDelay()));
 }

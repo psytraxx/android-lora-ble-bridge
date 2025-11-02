@@ -47,8 +47,7 @@ BLEManager::BLEManager(QueueHandle_t queue)
       bleToLoraQueue(queue),
       deviceNameStr(""),
       serverCallbacks(nullptr),
-      rxCallbacks(nullptr),
-      activityCallback(nullptr)
+      rxCallbacks(nullptr)
 {
 }
 
@@ -143,25 +142,8 @@ bool BLEManager::sendMessage(const Message &msg)
 
 void BLEManager::process()
 {
-    // Stateless connection detection: compare current server connection count
-    static bool prevConnected = false;
-    bool curConnected = isConnected();
-
-    if (!curConnected && prevConnected)
-    {
-        // Transition: was connected, now disconnected
-        delay(BLEConstants::DISCONNECT_SETTLE_MS);
-        startAdvertising();
-        Serial.println("BLE disconnected - restarting advertising");
-    }
-
-    if (curConnected && !prevConnected)
-    {
-        // Transition: newly connected
-        Serial.println("BLE connected");
-    }
-
-    prevConnected = curConnected;
+    // Minimal processing - let NimBLE handle internal tasks if needed
+    // Connection state management moved to ApplicationController
 }
 
 bool BLEManager::isConnected() const
@@ -191,14 +173,6 @@ void BLEManager::stopAdvertising()
     }
 }
 
-void BLEManager::updateActivity()
-{
-    // Notify PowerController of activity (e.g., LoRa packet received)
-    if (activityCallback)
-    {
-        activityCallback();
-    }
-}
 
 void BLEManager::disconnect()
 {
@@ -232,12 +206,6 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
     Serial.print("Parsing BLE message, length: ");
     Serial.println(length);
 
-    // Update activity callback if set
-    if (activityCallback)
-    {
-        activityCallback();
-    }
-
     Message msg;
     if (msg.deserialize(data, length))
     {
@@ -262,12 +230,6 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
 void BLEManager::onConnected(uint16_t connHandle)
 {
     currentConnHandle = connHandle;
-
-    // Stateless: just notify activity
-    if (activityCallback)
-    {
-        activityCallback();
-    }
 }
 
 void BLEManager::onDisconnected(uint16_t connHandle)
