@@ -1,0 +1,41 @@
+name: Firmware
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "esp32/**"
+      - ".github/workflows/firmware-compile.yml"
+  push:
+    branches: [main]
+    paths:
+      - "esp32/**"
+      - ".github/workflows/firmware-compile.yml"
+
+jobs:
+  test:
+    name: Build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: esp32
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Build PlatformIO Project
+        run: pio run
