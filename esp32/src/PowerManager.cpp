@@ -46,10 +46,11 @@ void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
     // TODO: not working as expected on ESP32-S3 - needs further investigation
     gpio_wakeup_enable((gpio_num_t)wakeButton, GPIO_INTR_LOW_LEVEL);
 
+    // TODO: not working as expected - needs further investigation
     // Configure LoRa DIO0 wake (GPIO wakeup for HIGH trigger)
     // Add pulldown to ensure clean LOW state when idle
-    gpio_pulldown_en((gpio_num_t)loraDio0);
-    gpio_wakeup_enable((gpio_num_t)loraDio0, GPIO_INTR_HIGH_LEVEL);
+    // gpio_pulldown_en((gpio_num_t)loraDio0);
+    // gpio_wakeup_enable((gpio_num_t)loraDio0, GPIO_INTR_HIGH_LEVEL);
 
     // Enable GPIO wakeup - must be called after gpio_wakeup_enable
     esp_sleep_enable_gpio_wakeup();
