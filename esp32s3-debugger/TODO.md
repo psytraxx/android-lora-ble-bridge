@@ -1,1 +1,0 @@
-right now we can wakup from deep sleep via dio0 pin (LoRa RX) - but we miss the initial incoming message that triggered the wakeup. We should buffer that message in RTC memory so we can process it after wakeup. - or we need to introduce wake up messages type
