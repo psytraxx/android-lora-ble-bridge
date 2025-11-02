@@ -1,10 +1,10 @@
 #ifndef LORA_MANAGER_H
 #define LORA_MANAGER_H
 
-#include <Arduino.h>
 #include <RadioLib.h>
 #include <functional>
 #include "Protocol.h"
+#include "esp_attr.h"
 
 /**
  * @file LoRaManager.h
@@ -18,12 +18,12 @@
 /// Configuration for LoRa radio parameters
 struct LoRaConfig
 {
-    float frequency;        // MHz (e.g., 433.92)
-    float bandwidth;        // kHz (e.g., 31.25)
+    float frequency;         // MHz (e.g., 433.92)
+    float bandwidth;         // kHz (e.g., 31.25)
     uint8_t spreadingFactor; // SF (7-12)
-    uint8_t codingRate;     // CR (5-8 for 4/5 to 4/8)
-    int8_t txPower;         // dBm (e.g., 20)
-    uint8_t syncWord;       // Sync word (default: 0x12)
+    uint8_t codingRate;      // CR (5-8 for 4/5 to 4/8)
+    int8_t txPower;          // dBm (e.g., 20)
+    uint8_t syncWord;        // Sync word (default: 0x12)
 };
 
 /// LoRa packet with metadata (RSSI, SNR)
@@ -128,7 +128,7 @@ public:
      * @brief Static ISR handler for LoRa DIO0 interrupt
      * Must be public to be registered as ISR callback
      */
-    static void ICACHE_RAM_ATTR onReceiveISR();
+    static void IRAM_ATTR onReceiveISR();
 
 private:
     // GPIO pin configuration

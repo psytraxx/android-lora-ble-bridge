@@ -1,27 +1,24 @@
 #include "BLEManager.h"
+#include <string.h>
+
+static const char *TAG_BLE = "BLE";
 
 // Server callbacks implementation
 void MyServerCallbacks::onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo)
 {
-    Serial.print("BLE client connected: ");
-    Serial.print(connInfo.getAddress().toString().c_str());
-    Serial.print(" (conn=");
-    Serial.print(connInfo.getConnHandle());
-    Serial.print(", mtu=");
-    Serial.print(connInfo.getMTU());
-    Serial.println(")");
+    ESP_LOGI(TAG_BLE, "BLE client connected: %s", connInfo.getAddress().toString().c_str());
+    ESP_LOGI(TAG_BLE, " (conn=%d, mtu=%d)", connInfo.getConnHandle(), connInfo.getMTU());
 
     bleManager->onConnected(connInfo.getConnHandle());
 
     // Stop advertising when connected
     NimBLEDevice::getAdvertising()->stop();
-    Serial.println("BLE connected - advertising stopped");
+    ESP_LOGI(TAG_BLE, "BLE connected - advertising stopped");
 }
 
 void MyServerCallbacks::onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo, int reason)
 {
-    Serial.print("BLE client disconnected, reason: ");
-    Serial.println(reason);
+    ESP_LOGI(TAG_BLE, "BLE client disconnected, reason: %d", reason);
     bleManager->onDisconnected(connInfo.getConnHandle());
 }
 
@@ -31,9 +28,7 @@ void MyCharacteristicCallbacks::onWrite(NimBLECharacteristic *pCharacteristic, N
     std::string value = pCharacteristic->getValue();
     if (value.length() > 0)
     {
-        Serial.print("BLE write received (");
-        Serial.print(value.length());
-        Serial.println(" bytes)");
+        ESP_LOGI(TAG_BLE, "BLE write received (%d bytes)", value.length());
         bleManager->onMessageReceived((const uint8_t *)value.data(), value.length());
     }
 }
@@ -53,10 +48,10 @@ BLEManager::BLEManager(QueueHandle_t queue)
 
 bool BLEManager::setup(const char *deviceName)
 {
-    Serial.println("Initializing BLE");
+    ESP_LOGI(TAG_BLE, "Initializing BLE");
 
     // Store device name for debugging
-    deviceNameStr = String(deviceName);
+    deviceNameStr = std::string(deviceName);
 
     // Create the BLE Device
     NimBLEDevice::init(deviceName);
@@ -104,14 +99,14 @@ bool BLEManager::setup(const char *deviceName)
     // Lower TX power to save energy
     NimBLEDevice::setPower(ESP_PWR_LVL_P3);
 
-    Serial.println("BLE service created");
+    ESP_LOGI(TAG_BLE, "BLE service created");
 
     return true;
 }
 
 void BLEManager::startAdvertising()
 {
-    Serial.println("Starting BLE advertising");
+    ESP_LOGI(TAG_BLE, "Starting BLE advertising");
     NimBLEDevice::startAdvertising();
 }
 
@@ -119,7 +114,7 @@ bool BLEManager::sendMessage(const Message &msg)
 {
     if (!isConnected())
     {
-        Serial.println("Cannot send message: BLE not connected");
+        ESP_LOGW(TAG_BLE, "Cannot send message: BLE not connected");
         return false;
     }
 
@@ -128,15 +123,13 @@ bool BLEManager::sendMessage(const Message &msg)
 
     if (len < 0)
     {
-        Serial.println("Failed to serialize message for BLE");
+        ESP_LOGE(TAG_BLE, "Failed to serialize message for BLE");
         return false;
     }
 
     pTxCharacteristic->setValue(buf, len);
     pTxCharacteristic->notify();
-    Serial.print("BLE notify sent (");
-    Serial.print(len);
-    Serial.println(" bytes)");
+    ESP_LOGI(TAG_BLE, "BLE notify sent (%d bytes)", len);
     return true;
 }
 
@@ -152,13 +145,9 @@ bool BLEManager::isConnected() const
     NimBLEServer *srv = NimBLEDevice::getServer();
     if (!srv)
         return false;
-#ifdef ARDUINO_ARCH_ESP32
-    // NimBLEServer provides getConnectedCount()
+
+    // NimBLEServer::getConnectedCount() works in both Arduino and ESP-IDF
     return srv->getConnectedCount() > 0;
-#else
-    // Fallback: assume false on other platforms
-    return false;
-#endif
 }
 // Note: Removed BLE advertising inactivity timeout
 // Requirement: Always able to receive LoRa messages and deliver to Android
@@ -169,20 +158,19 @@ void BLEManager::stopAdvertising()
     if (pAdvertising)
     {
         pAdvertising->stop();
-        Serial.println("BLE advertising manually stopped");
+        ESP_LOGI(TAG_BLE, "BLE advertising manually stopped");
     }
 }
-
 
 void BLEManager::disconnect()
 {
     if (!isConnected())
     {
-        Serial.println("Disconnect requested but no BLE client is connected");
+        ESP_LOGW(TAG_BLE, "Disconnect requested but no BLE client is connected");
         return;
     }
 
-    Serial.println("Disconnecting BLE client...");
+    ESP_LOGI(TAG_BLE, "Disconnecting BLE client...");
 
     if (pServer)
     {
@@ -192,38 +180,36 @@ void BLEManager::disconnect()
         }
         else
         {
-            Serial.println("Warning: No active connection handle tracked; disconnect request skipped");
+            ESP_LOGW(TAG_BLE, "Warning: No active connection handle tracked; disconnect request skipped");
         }
     }
     else
     {
-        Serial.println("Warning: BLE server not initialized; cannot issue disconnect");
+        ESP_LOGW(TAG_BLE, "Warning: BLE server not initialized; cannot issue disconnect");
     }
 }
 
 void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
 {
-    Serial.print("Parsing BLE message, length: ");
-    Serial.println(length);
+    ESP_LOGI(TAG_BLE, "Parsing BLE message, length: %d", length);
 
     Message msg;
     if (msg.deserialize(data, length))
     {
-        Serial.print("Deserialized message type: ");
-        Serial.println((int)msg.type);
+        ESP_LOGI(TAG_BLE, "Deserialized message type: %d", (int)msg.type);
         // Send to queue instead of storing internally
         if (xQueueSend(bleToLoraQueue, &msg, 0) != pdTRUE)
         {
-            Serial.println("Warning: BLE to LoRa queue full, message dropped");
+            ESP_LOGW(TAG_BLE, "Warning: BLE to LoRa queue full, message dropped");
         }
         else
         {
-            Serial.println("Message forwarded from BLE to LoRa queue");
+            ESP_LOGI(TAG_BLE, "Message forwarded from BLE to LoRa queue");
         }
     }
     else
     {
-        Serial.println("Failed to deserialize message from BLE");
+        ESP_LOGE(TAG_BLE, "Failed to deserialize message from BLE");
     }
 }
 

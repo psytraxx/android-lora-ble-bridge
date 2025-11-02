@@ -2,11 +2,14 @@
 #include "LEDManager.h"
 #include "PowerManager.h"
 #include <esp_task_wdt.h>
+#include <esp_timer.h>
 
 // External LED manager reference (if defined)
 #ifdef LED_PIN
 extern LEDManager ledManager;
 #endif
+
+static const char *TAG_APP = "APP";
 
 ApplicationController::ApplicationController()
     : bleManager(nullptr),
@@ -39,11 +42,11 @@ void ApplicationController::begin(
     // Initialize state
     state = AppState::DISCONNECTED_ADVERTISING;
     previousState = state;
-    advertiseStartMillis = millis();
-    lastActivityMillis = millis();
+    advertiseStartMillis = esp_timer_get_time() / 1000ULL;
+    lastActivityMillis = esp_timer_get_time() / 1000ULL;
     wasConnected = false;
 
-    Serial.println("ApplicationController: Initialized");
+    ESP_LOGI(TAG_APP, "ApplicationController: Initialized");
 }
 
 void ApplicationController::update()
@@ -64,15 +67,22 @@ void ApplicationController::processStateMachine()
     if (isCurrentlyConnected && !wasConnected)
     {
         // New connection established
-        connectionEstablishedMillis = millis();
+        connectionEstablishedMillis = esp_timer_get_time() / 1000ULL;
         transitionTo(AppState::CONNECTED_ACTIVE);
-        Serial.println("AppController: BLE connected");
+        ESP_LOGI(TAG_APP, "BLE connected");
     }
     else if (!isCurrentlyConnected && wasConnected)
     {
         // Connection lost
         transitionTo(AppState::DISCONNECTED_ADVERTISING);
-        Serial.println("AppController: BLE disconnected");
+        ESP_LOGI(TAG_APP, "BLE disconnected");
+    }
+
+    // Debug logging for connection state issues
+    if (isCurrentlyConnected != wasConnected)
+    {
+        ESP_LOGI(TAG_APP, "Connection state change detected - isConnected=%d, wasConnected=%d, state=%d",
+                 isCurrentlyConnected, wasConnected, (int)state);
     }
 
     wasConnected = isCurrentlyConnected;
@@ -103,18 +113,16 @@ void ApplicationController::handleDisconnectedAdvertising()
     // Start advertising if not already started
     if (advertiseStartMillis == 0)
     {
-        Serial.println("AppController: Starting BLE advertising");
+        ESP_LOGI(TAG_APP, "Starting BLE advertising");
         bleManager->startAdvertising();
-        advertiseStartMillis = millis();
+        advertiseStartMillis = esp_timer_get_time() / 1000ULL;
     }
 
     // Check for advertising timeout
-    unsigned long advertisingDuration = millis() - advertiseStartMillis;
+    unsigned long advertisingDuration = (esp_timer_get_time() / 1000ULL) - advertiseStartMillis;
     if (advertisingDuration >= PowerConstants::ADVERTISE_DURATION_MS)
     {
-        Serial.print("AppController: Advertising timeout (");
-        Serial.print(PowerConstants::ADVERTISE_DURATION_MS);
-        Serial.println(" ms) - transitioning to sleep");
+        ESP_LOGI(TAG_APP, "Advertising timeout (%d ms) - transitioning to sleep", PowerConstants::ADVERTISE_DURATION_MS);
         transitionTo(AppState::SLEEPING);
     }
 }
@@ -125,10 +133,10 @@ void ApplicationController::handleConnectedActive()
     forwardBufferedMessages();
 
     // Check for inactivity
-    unsigned long idleTime = millis() - lastActivityMillis;
+    unsigned long idleTime = (esp_timer_get_time() / 1000ULL) - lastActivityMillis;
     if (idleTime > PowerConstants::INACTIVITY_TIMEOUT_MS)
     {
-        Serial.println("AppController: Inactivity timeout - forcing disconnect");
+        ESP_LOGI(TAG_APP, "Inactivity timeout - forcing disconnect");
         bleManager->disconnect();
         // State will transition to DISCONNECTED_ADVERTISING on next update
     }
@@ -143,7 +151,7 @@ void ApplicationController::handleConnectedIdle()
 
 void ApplicationController::handleSleeping()
 {
-    Serial.println("AppController: Entering light sleep");
+    ESP_LOGI(TAG_APP, "Entering light sleep");
 
     // Stop advertising before sleep
     bleManager->stopAdvertising();
@@ -155,7 +163,7 @@ void ApplicationController::handleSleeping()
     PowerManager::enterLightSleep();
 
     // Woke up - transition back to advertising
-    Serial.println("AppController: Woke from sleep, restarting advertising");
+    ESP_LOGI(TAG_APP, "Woke from sleep, restarting advertising");
     transitionTo(AppState::DISCONNECTED_ADVERTISING);
 }
 
@@ -164,8 +172,7 @@ void ApplicationController::processBleToLoraQueue()
     Message bleMsg;
     if (xQueueReceive(bleToLoraQueue, &bleMsg, 0) == pdTRUE)
     {
-        Serial.print("AppController: BLE → LoRa, type=");
-        Serial.println((int)bleMsg.type);
+        ESP_LOGI(TAG_APP, "BLE → LoRa, type=%d", (int)bleMsg.type);
 
         // Serialize and transmit via LoRa
         uint8_t buf[BufferConstants::MAX_PROTOCOL_MESSAGE];
@@ -186,7 +193,7 @@ void ApplicationController::processBleToLoraQueue()
         }
         else
         {
-            Serial.println("AppController: Failed to serialize message for LoRa TX");
+            ESP_LOGI(TAG_APP, "Failed to serialize message for LoRa TX");
         }
 
         // Update activity
@@ -199,19 +206,25 @@ void ApplicationController::processLoRaToBleQueue()
     Message loraMsg;
     if (xQueueReceive(loraToBleQueue, &loraMsg, 0) == pdTRUE)
     {
-        Serial.print("AppController: LoRa → BLE, type=");
-        Serial.println((int)loraMsg.type);
+        ESP_LOGI(TAG_APP, "LoRa → BLE, type=%d", (int)loraMsg.type);
 
-        if (bleManager->isConnected())
+        // Use state machine state instead of direct isConnected() check to avoid race conditions
+        bool isConnected = (state == AppState::CONNECTED_ACTIVE || state == AppState::CONNECTED_IDLE);
+
+        // Debug: log the state when message arrives
+        ESP_LOGI(TAG_APP, "Current state=%d, isConnected=%d, bleManager->isConnected()=%d",
+                 (int)state, isConnected, bleManager->isConnected());
+
+        if (isConnected)
         {
             // Check if Android is ready (wait for GATT discovery)
-            unsigned long timeSinceConnection = millis() - connectionEstablishedMillis;
+            unsigned long timeSinceConnection = (esp_timer_get_time() / 1000ULL) - connectionEstablishedMillis;
             if (timeSinceConnection >= BLEConstants::CONNECTION_SETUP_DELAY_MS)
             {
                 // Send directly via BLE
                 if (bleManager->sendMessage(loraMsg))
                 {
-                    Serial.println("AppController: Message forwarded to BLE");
+                    ESP_LOGI(TAG_APP, "Message forwarded to BLE");
 #ifdef LED_PIN
                     ledManager.blink(LEDConstants::RX_BLINKS);
 #endif
@@ -220,23 +233,21 @@ void ApplicationController::processLoRaToBleQueue()
                 {
                     // Send failed, buffer it
                     messageBuffer->add(loraMsg);
-                    Serial.println("AppController: BLE send failed, buffered message");
+                    ESP_LOGI(TAG_APP, "BLE send failed, buffered message");
                 }
             }
             else
             {
                 // Android not ready yet, buffer message
                 messageBuffer->add(loraMsg);
-                Serial.println("AppController: Android not ready, buffered message");
+                ESP_LOGI(TAG_APP, "Android not ready, buffered message");
             }
         }
         else
         {
             // BLE disconnected, buffer message
             messageBuffer->add(loraMsg);
-            Serial.print("AppController: BLE disconnected, buffered (total: ");
-            Serial.print(messageBuffer->getCount());
-            Serial.println(")");
+            ESP_LOGI(TAG_APP, "BLE disconnected, buffered (total: %d)", messageBuffer->getCount());
         }
 
         // Update activity
@@ -252,15 +263,13 @@ void ApplicationController::forwardBufferedMessages()
     }
 
     // Wait for Android BLE stack to be ready
-    unsigned long timeSinceConnection = millis() - connectionEstablishedMillis;
+    unsigned long timeSinceConnection = (esp_timer_get_time() / 1000ULL) - connectionEstablishedMillis;
     if (timeSinceConnection < BLEConstants::CONNECTION_SETUP_DELAY_MS)
     {
         return; // Too soon, Android still setting up
     }
 
-    Serial.print("AppController: Forwarding ");
-    Serial.print(messageBuffer->getCount());
-    Serial.println(" buffered messages");
+    ESP_LOGI(TAG_APP, "Forwarding %d buffered messages", messageBuffer->getCount());
 
     // Drain buffer
     Message bufferedMsg;
@@ -270,16 +279,16 @@ void ApplicationController::forwardBufferedMessages()
         {
             // Message sent successfully
             messageBuffer->popFront();
-            Serial.println("AppController: Buffered message sent");
+            ESP_LOGI(TAG_APP, "Buffered message sent");
 #ifdef LED_PIN
             ledManager.blink(LEDConstants::RX_BLINKS);
 #endif
             // Spacing between messages to avoid overwhelming BLE stack
-            delay(BLEConstants::MESSAGE_SPACING_MS);
+            vTaskDelay(BLEConstants::MESSAGE_SPACING_MS / portTICK_PERIOD_MS);
         }
         else
         {
-            Serial.println("AppController: Failed to send buffered message");
+            ESP_LOGI(TAG_APP, "Failed to send buffered message");
             break; // Stop trying, keep message in buffer
         }
     }
@@ -287,7 +296,7 @@ void ApplicationController::forwardBufferedMessages()
 
 void ApplicationController::notifyActivity()
 {
-    lastActivityMillis = millis();
+    lastActivityMillis = esp_timer_get_time() / 1000ULL;
 
     // Update state based on activity
     if (state == AppState::CONNECTED_IDLE)
@@ -325,10 +334,7 @@ void ApplicationController::transitionTo(AppState newState)
     state = newState;
 
     // Log state transition
-    Serial.print("AppController: State transition: ");
-    Serial.print((int)previousState);
-    Serial.print(" → ");
-    Serial.println((int)newState);
+    ESP_LOGI(TAG_APP, "State transition: %d → %d", (int)previousState, (int)newState);
 
     // State entry actions
     switch (newState)
@@ -341,7 +347,7 @@ void ApplicationController::transitionTo(AppState newState)
     case AppState::CONNECTED_ACTIVE:
         // Stop advertising when connected
         bleManager->stopAdvertising();
-        lastActivityMillis = millis();
+        lastActivityMillis = esp_timer_get_time() / 1000ULL;
         break;
 
     case AppState::CONNECTED_IDLE:

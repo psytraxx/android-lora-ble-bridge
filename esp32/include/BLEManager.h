@@ -1,7 +1,7 @@
 #ifndef BLE_MANAGER_H
 #define BLE_MANAGER_H
 
-#include <Arduino.h>
+#include "esp_log.h"
 #include <NimBLEDevice.h>
 #include <freertos/queue.h>
 #include "Protocol.h"
@@ -132,7 +132,7 @@ private:
     NimBLEAdvertising *pAdvertising{nullptr};
 
     QueueHandle_t bleToLoraQueue;
-    String deviceNameStr; // Store device name for debugging/logs
+    std::string deviceNameStr; // Store device name for debugging/logs
 
     MyServerCallbacks *serverCallbacks{nullptr};
     MyCharacteristicCallbacks *rxCallbacks{nullptr};
