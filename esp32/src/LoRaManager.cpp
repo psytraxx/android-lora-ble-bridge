@@ -1,8 +1,11 @@
 #include "LoRaManager.h"
-#include <SPI.h>
+#include "esp_log.h"
+#include "EspHal.h"
 
 // Static instance for ISR access
 LoRaManager *LoRaManager::instance = nullptr;
+
+static const char *TAG_LORA = "LoRaManager";
 
 LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0)
     : pinSCK(sck),
@@ -19,24 +22,20 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0)
     // Set singleton instance for ISR access
     instance = this;
 
+    EspHal *hal = new EspHal(pinSCK, pinMISO, pinMOSI);
+
     // Create RadioLib module instance
-    radio = new SX1278(new Module(pinSS, pinDIO0, pinRST, RADIOLIB_NC));
+    radio = new SX1278(new Module(hal, pinSS, pinDIO0, pinRST));
 }
 
 bool LoRaManager::begin(const LoRaConfig &config, int retryCount)
 {
-    Serial.println("LoRaManager: Initializing radio");
-
-    // Initialize SPI bus
-    SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
-
+    ESP_LOGI(TAG_LORA, "Initializing radio");
     // Attempt initialization with retries
     for (int attempt = 1; attempt <= retryCount; attempt++)
     {
-        Serial.print("LoRaManager: Setup attempt ");
-        Serial.print(attempt);
-        Serial.print("/");
-        Serial.println(retryCount);
+
+        ESP_LOGI(TAG_LORA, "Setup attempt %d/%d", attempt, retryCount);
 
         int state = radio->begin(
             config.frequency,
@@ -49,34 +48,25 @@ bool LoRaManager::begin(const LoRaConfig &config, int retryCount)
         if (state == RADIOLIB_ERR_NONE)
         {
             initialized = true;
-            Serial.println("LoRaManager: Setup successful");
-            Serial.print("  Frequency: ");
-            Serial.print(config.frequency);
-            Serial.println(" MHz");
-            Serial.print("  Bandwidth: ");
-            Serial.print(config.bandwidth);
-            Serial.println(" kHz");
-            Serial.print("  Spreading Factor: ");
-            Serial.println(config.spreadingFactor);
-            Serial.print("  Coding Rate: 4/");
-            Serial.println(config.codingRate);
-            Serial.print("  TX Power: ");
-            Serial.print(config.txPower);
-            Serial.println(" dBm");
+            ESP_LOGI(TAG_LORA, "Setup successful");
+            ESP_LOGI(TAG_LORA, "  Frequency: %.2f MHz", config.frequency);
+            ESP_LOGI(TAG_LORA, "  Bandwidth: %.2f kHz", config.bandwidth);
+            ESP_LOGI(TAG_LORA, "  Spreading Factor: %d", config.spreadingFactor);
+            ESP_LOGI(TAG_LORA, "  Coding Rate: 4/%d", config.codingRate);
+            ESP_LOGI(TAG_LORA, "  TX Power: %d dBm", config.txPower);
             return true;
         }
 
-        Serial.print("LoRaManager: Setup failed, code ");
-        Serial.println(state);
+        ESP_LOGW(TAG_LORA, "Setup failed, code %d", state);
 
         if (attempt < retryCount)
         {
-            Serial.println("Retrying in 1 second...");
-            delay(1000);
+            ESP_LOGW(TAG_LORA, "Retrying in 1 second...");
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
         }
     }
 
-    Serial.println("LoRaManager: Setup failed permanently");
+    ESP_LOGE(TAG_LORA, "Setup failed permanently");
     return false;
 }
 
@@ -84,7 +74,7 @@ bool LoRaManager::startReceive()
 {
     if (!initialized)
     {
-        Serial.println("LoRaManager: Cannot start receive - not initialized");
+        ESP_LOGE(TAG_LORA, "Cannot start receive - not initialized");
         return false;
     }
 
@@ -94,12 +84,11 @@ bool LoRaManager::startReceive()
     int state = radio->startReceive();
     if (state == RADIOLIB_ERR_NONE)
     {
-        Serial.println("LoRaManager: Continuous receive mode started");
+        ESP_LOGI(TAG_LORA, "Continuous receive mode started");
         return true;
     }
 
-    Serial.print("LoRaManager: Failed to start receive mode, code ");
-    Serial.println(state);
+    ESP_LOGE(TAG_LORA, "Failed to start receive mode, code %d", state);
     return false;
 }
 
@@ -107,13 +96,11 @@ bool LoRaManager::transmit(const uint8_t *data, size_t len)
 {
     if (!initialized)
     {
-        Serial.println("LoRaManager: Cannot transmit - not initialized");
+        ESP_LOGE(TAG_LORA, "Cannot transmit - not initialized");
         return false;
     }
 
-    Serial.print("LoRaManager: Transmitting ");
-    Serial.print(len);
-    Serial.println(" bytes");
+    ESP_LOGI(TAG_LORA, "Transmitting %d bytes", len);
 
     // Clear interrupt handler to allow DIO0 to signal TX completion
     radio->clearPacketReceivedAction();
@@ -125,12 +112,11 @@ bool LoRaManager::transmit(const uint8_t *data, size_t len)
 
     if (success)
     {
-        Serial.println("LoRaManager: Transmission successful");
+        ESP_LOGI(TAG_LORA, "Transmission successful");
     }
     else
     {
-        Serial.print("LoRaManager: Transmission failed, code ");
-        Serial.println(state);
+        ESP_LOGE(TAG_LORA, "Transmission failed, code %d", state);
     }
 
     // Restore interrupt handler and return to RX mode
@@ -168,13 +154,8 @@ void LoRaManager::process()
         packet.rssi = radio->getRSSI();
         packet.snr = radio->getSNR();
 
-        Serial.print("LoRaManager: Packet received (");
-        Serial.print(packet.len);
-        Serial.print(" bytes, RSSI: ");
-        Serial.print(packet.rssi);
-        Serial.print(" dBm, SNR: ");
-        Serial.print(packet.snr);
-        Serial.println(" dB)");
+        ESP_LOGI(TAG_LORA, "Packet received (%d bytes, RSSI: %d dBm, SNR: %.2f dB)",
+                 packet.len, packet.rssi, packet.snr);
 
         // Invoke callback if set
         if (receiveCallback)
@@ -184,12 +165,11 @@ void LoRaManager::process()
     }
     else if (state == RADIOLIB_ERR_CRC_MISMATCH)
     {
-        Serial.println("LoRaManager: CRC error");
+        ESP_LOGW(TAG_LORA, "CRC error");
     }
     else
     {
-        Serial.print("LoRaManager: Read failed, code ");
-        Serial.println(state);
+        ESP_LOGE(TAG_LORA, "Read failed, code %d", state);
     }
 
     // Restart receive mode
@@ -210,10 +190,7 @@ float LoRaManager::getSNR() const
     return radio->getSNR();
 }
 
-#if defined(ESP8266) || defined(ESP32)
-ICACHE_RAM_ATTR
-#endif
-void LoRaManager::onReceiveISR()
+void IRAM_ATTR LoRaManager::onReceiveISR()
 {
     if (instance)
     {
@@ -231,5 +208,5 @@ void LoRaManager::handleReceiveInterrupt()
 void LoRaManager::waitForRadioSettle(int delayMs)
 {
     // Wait for SX1278 hardware to stabilize after mode change
-    delay(delayMs);
+    vTaskDelay(delayMs / portTICK_PERIOD_MS);
 }

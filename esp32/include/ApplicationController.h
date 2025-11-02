@@ -1,7 +1,6 @@
 #ifndef APPLICATION_CONTROLLER_H
 #define APPLICATION_CONTROLLER_H
 
-#include <Arduino.h>
 #include "BLEManager.h"
 #include "LoRaManager.h"
 #include "MessageBuffer.h"
@@ -45,12 +44,12 @@ enum class AppState : uint8_t
 /// Events that trigger state transitions
 enum class AppEvent : uint8_t
 {
-    BLE_CONNECTED,        /// Android connected to BLE
-    BLE_DISCONNECTED,     /// Android disconnected from BLE
-    ACTIVITY_DETECTED,    /// BLE write or LoRa packet received
-    TIMEOUT_ADVERTISING,  /// Advertising duration expired (30s)
-    TIMEOUT_INACTIVITY,   /// Inactivity timeout expired (60s)
-    WAKEUP_FROM_SLEEP     /// GPIO wakeup (button or LoRa interrupt)
+    BLE_CONNECTED,       /// Android connected to BLE
+    BLE_DISCONNECTED,    /// Android disconnected from BLE
+    ACTIVITY_DETECTED,   /// BLE write or LoRa packet received
+    TIMEOUT_ADVERTISING, /// Advertising duration expired (30s)
+    TIMEOUT_INACTIVITY,  /// Inactivity timeout expired (60s)
+    WAKEUP_FROM_SLEEP    /// GPIO wakeup (button or LoRa interrupt)
 };
 
 /**

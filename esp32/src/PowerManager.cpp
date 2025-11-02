@@ -3,24 +3,26 @@
 #include "esp_pm.h"
 #include <esp_sleep.h>
 #include <driver/gpio.h>
-#include <Arduino.h>
+#include <esp_log.h>
+
+static const char *TAG_POWER = "PowerManager";
 
 void PowerManager::configurePowerManagement()
 {
-    Serial.println("PowerManager: Configuring power management");
+    ESP_LOGI(TAG_POWER, "Configuring power management");
 
 // Check if power management is available (requires CONFIG_PM_ENABLE in ESP-IDF)
 // Arduino framework for ESP32-S3 does not enable CONFIG_PM_ENABLE by default
 #ifdef POWER_MANAGEMENT_ENABLED
     // Select appropriate power management config type based on chip
 #if defined(CONFIG_IDF_TARGET_ESP32)
-    static esp_pm_config_esp32_t pm_config = {};
+    static esp_pm_config_t pm_config = {};
 #elif defined(CONFIG_IDF_TARGET_ESP32S2)
-    static esp_pm_config_esp32s2_t pm_config = {};
+    static esp_pm_config_t pm_config = {};
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
-    static esp_pm_config_esp32s3_t pm_config = {};
+    static esp_pm_config_t pm_config = {};
 #elif defined(CONFIG_IDF_TARGET_ESP32C3)
-    static esp_pm_config_esp32c3_t pm_config = {};
+    static esp_pm_config_t pm_config = {};
 #else
 #error "Unsupported ESP32 variant"
 #endif
@@ -32,23 +34,15 @@ void PowerManager::configurePowerManagement()
     int rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
     {
-        Serial.print("PowerManager: Failed to configure power management (err=");
-        Serial.print(rv);
-        Serial.println(")");
+        ESP_LOGE(TAG_POWER, "Failed to configure power management (err=%d)", rv);
         return;
     }
 
-    Serial.print("PowerManager: Power management configured (CPU: ");
-    Serial.print(CPU_FREQ_MHZ);
-    Serial.print(" MHz max, ");
-    Serial.print(PowerConstants::CPU_MIN_FREQ_MHZ);
-    Serial.println(" MHz min)");
+    ESP_LOGI(TAG_POWER, "Power management configured (CPU: %d MHz max, %d MHz min)", CPU_FREQ_MHZ, PowerConstants::CPU_MIN_FREQ_MHZ);
 #else
     setCpuFrequencyMhz(CPU_FREQ_MHZ);
-    Serial.println("PowerManager: Dynamic frequency scaling not available (CONFIG_PM_ENABLE not set)");
-    Serial.print("PowerManager: CPU running at fixed ");
-    Serial.print(CPU_FREQ_MHZ);
-    Serial.println(" MHz");
+    ESP_LOGW(TAG_POWER, "Dynamic frequency scaling not available (CONFIG_PM_ENABLE not set)");
+    ESP_LOGI(TAG_POWER, "CPU running at fixed %d MHz", CPU_FREQ_MHZ);
 #endif
 }
 
@@ -66,11 +60,7 @@ void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
     // Enable GPIO wakeup - must be called after gpio_wakeup_enable
     esp_sleep_enable_gpio_wakeup();
 
-    Serial.print("PowerManager: GPIO wakeup configured - Button (GPIO");
-    Serial.print(wakeButton);
-    Serial.print(" on LOW), LoRa DIO0 (GPIO");
-    Serial.print(loraDio0);
-    Serial.println(" on HIGH)");
+    ESP_LOGI(TAG_POWER, "GPIO wakeup configured - Button (GPIO %d on LOW), LoRa DIO0 (GPIO %d on HIGH)", wakeButton, loraDio0);
 }
 
 void PowerManager::refreshWakeupSources()
@@ -81,8 +71,7 @@ void PowerManager::refreshWakeupSources()
 
 int PowerManager::enterLightSleep()
 {
-    Serial.println("PowerManager: Entering light sleep...");
-    Serial.flush();
+    ESP_LOGI(TAG_POWER, "Entering light sleep...");
 
     // Enter light sleep (blocking call)
     esp_light_sleep_start();
@@ -91,22 +80,20 @@ int PowerManager::enterLightSleep()
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
     // Log wakeup reason
-    Serial.print("PowerManager: Woke from light sleep - reason: ");
+    ESP_LOGI(TAG_POWER, "Woke from light sleep - reason: ");
     switch (wakeup_reason)
     {
     case ESP_SLEEP_WAKEUP_GPIO:
-        Serial.println("GPIO");
+        ESP_LOGI(TAG_POWER, "GPIO");
         break;
     case ESP_SLEEP_WAKEUP_EXT0:
-        Serial.println("EXT0 (wake button)");
+        ESP_LOGI(TAG_POWER, "EXT0 (wake button)");
         break;
     case ESP_SLEEP_WAKEUP_TIMER:
-        Serial.println("Timer");
+        ESP_LOGI(TAG_POWER, "Timer");
         break;
     default:
-        Serial.print("Unknown (");
-        Serial.print(wakeup_reason);
-        Serial.println(")");
+        ESP_LOGI(TAG_POWER, "Unknown (%d)", wakeup_reason);
         break;
     }
 
