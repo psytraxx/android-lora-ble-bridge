@@ -85,6 +85,14 @@ public:
      * Call this immediately before enterLightSleep() if needed.
      */
     static void refreshWakeupSources();
+
+    /**
+     * @brief Log the wakeup cause after sleep
+     *
+     * Provides human-readable logging of the sleep wakeup reason.
+     *
+     */
+    static int logWakeupCause();
 };
 
 #endif // POWER_MANAGER_H

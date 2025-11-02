@@ -127,6 +127,12 @@ int PowerManager::enterLightSleep()
     }
 
     // Get wakeup cause
+    return logWakeupCause();
+}
+
+int PowerManager::logWakeupCause()
+{
+
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
     // Log wakeup reason with detailed info
