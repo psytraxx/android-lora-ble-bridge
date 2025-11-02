@@ -213,7 +213,27 @@ public:
       return;
     }
 
-    gpio_install_isr_service((int)ESP_INTR_FLAG_IRAM);
+    // Install ISR service only if not already installed
+    static bool isrServiceInstalled = false;
+    if (!isrServiceInstalled)
+    {
+      esp_err_t err = gpio_install_isr_service((int)ESP_INTR_FLAG_IRAM);
+      if (err == ESP_OK)
+      {
+        isrServiceInstalled = true;
+      }
+      else if (err != ESP_ERR_INVALID_STATE)
+      {
+        // ESP_ERR_INVALID_STATE means already installed, which is OK
+        // Any other error is a real problem
+        return;
+      }
+      else
+      {
+        isrServiceInstalled = true; // Already installed
+      }
+    }
+
     gpio_set_intr_type((gpio_num_t)interruptNum, (gpio_int_type_t)(mode & 0x7));
 
     // this uses function typecasting, which is not defined when the functions have different signatures

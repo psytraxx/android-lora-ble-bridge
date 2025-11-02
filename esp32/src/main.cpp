@@ -76,14 +76,15 @@ void setup()
     esp_bt_mem_release(ESP_BT_MODE_CLASSIC_BT);
     ESP_LOGI(TAG_MAIN, "Bluetooth Classic memory released (using NimBLE for BLE only)");
 
-    // Initialize watchdog timer once with sufficient timeout for longest operation
+    // Reconfigure watchdog timer (already initialized by ESP-IDF) with sufficient timeout
     esp_task_wdt_config_t wdtConfig = {
         .timeout_ms = WatchdogConstants::TIMEOUT_SECONDS * 1000,
         .idle_core_mask = 0,
         .trigger_panic = true};
+    esp_task_wdt_deinit(); // Deinitialize existing watchdog first
     esp_task_wdt_init(&wdtConfig);
     esp_task_wdt_add(xTaskGetCurrentTaskHandle());
-    ESP_LOGI(TAG_MAIN, "Watchdog timer initialized with %d s timeout", WatchdogConstants::TIMEOUT_SECONDS);
+    ESP_LOGI(TAG_MAIN, "Watchdog timer reconfigured with %d s timeout", WatchdogConstants::TIMEOUT_SECONDS);
 
     ESP_LOGI(TAG_MAIN, "ESP32 LoRa-BLE Bridge starting");
 
