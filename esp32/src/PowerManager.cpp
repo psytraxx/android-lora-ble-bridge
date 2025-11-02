@@ -9,6 +9,9 @@ void PowerManager::configurePowerManagement()
 {
     Serial.println("PowerManager: Configuring power management");
 
+// Check if power management is available (requires CONFIG_PM_ENABLE in ESP-IDF)
+// Arduino framework for ESP32-S3 does not enable CONFIG_PM_ENABLE by default
+#ifdef POWER_MANAGEMENT_ENABLED
     // Select appropriate power management config type based on chip
 #if defined(CONFIG_IDF_TARGET_ESP32)
     static esp_pm_config_esp32_t pm_config = {};
@@ -40,11 +43,19 @@ void PowerManager::configurePowerManagement()
     Serial.print(" MHz max, ");
     Serial.print(PowerConstants::CPU_MIN_FREQ_MHZ);
     Serial.println(" MHz min)");
+#else
+    setCpuFrequencyMhz(CPU_FREQ_MHZ);
+    Serial.println("PowerManager: Dynamic frequency scaling not available (CONFIG_PM_ENABLE not set)");
+    Serial.print("PowerManager: CPU running at fixed ");
+    Serial.print(CPU_FREQ_MHZ);
+    Serial.println(" MHz");
+#endif
 }
 
 void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
 {
     // Configure boot button wake (GPIO wakeup for LOW trigger)
+    // TODO: not working as expected on ESP32-S3 - needs further investigation
     gpio_wakeup_enable((gpio_num_t)wakeButton, GPIO_INTR_LOW_LEVEL);
 
     // Configure LoRa DIO0 wake (GPIO wakeup for HIGH trigger)
