@@ -5,6 +5,7 @@
 #include <NimBLEDevice.h>
 #include <freertos/queue.h>
 #include "Protocol.h"
+#include "FirmwareConfig.h"
 
 /**
  * @file BLEManager.h
@@ -15,13 +16,6 @@
  * helper classes used to adapt NimBLE events into the project's
  * messaging queue and activity callbacks.
  */
-
-// Service and Characteristic UUIDs used by this project. These are
-// application-level UUIDs and can be changed if interoperability with
-// other clients is required.
-#define SERVICE_UUID "00001234-0000-1000-8000-00805f9b34fb"
-#define TX_CHARACTERISTIC_UUID "00005678-0000-1000-8000-00805f9b34fb"
-#define RX_CHARACTERISTIC_UUID "00005679-0000-1000-8000-00805f9b34fb"
 
 class BLEManager;
 
@@ -106,12 +100,6 @@ public:
     /// Disconnect any currently connected BLE client
     void disconnect();
 
-    /// Update activity timestamp; typically called on a BLE event
-    void updateActivity();
-
-    /// Set a callback invoked when BLE activity occurs (used by power manager)
-    void setActivityCallback(void (*callback)()) { activityCallback = callback; }
-
     /// Check whether a client is currently connected
     bool isConnected() const;
 
@@ -148,8 +136,6 @@ private:
 
     MyServerCallbacks *serverCallbacks{nullptr};
     MyCharacteristicCallbacks *rxCallbacks{nullptr};
-
-    void (*activityCallback)() = nullptr; // Optional activity callback
 
     uint16_t currentConnHandle{kInvalidConnHandle};
 };

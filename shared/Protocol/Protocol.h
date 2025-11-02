@@ -1,7 +1,11 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
-#include <Arduino.h>
+// Use standard C++ headers for portability (works with Arduino, ESP-IDF, Android NDK, etc.)
+#include <cstdint>   // uint8_t, int32_t
+#include <cstring>   // strlen, memcpy, memset
+#include <cstddef>   // size_t
+#include <cctype>    // toupper
 
 /// Maximum text length in characters for optimal long-range LoRa transmission.
 /// With 6-bit packing: 50 chars = 38 bytes (was 50 bytes)

@@ -47,8 +47,7 @@ BLEManager::BLEManager(QueueHandle_t queue)
       bleToLoraQueue(queue),
       deviceNameStr(""),
       serverCallbacks(nullptr),
-      rxCallbacks(nullptr),
-      activityCallback(nullptr)
+      rxCallbacks(nullptr)
 {
 }
 
@@ -68,18 +67,18 @@ bool BLEManager::setup(const char *deviceName)
     pServer->setCallbacks(serverCallbacks);
 
     // Create the BLE Service
-    NimBLEService *pService = pServer->createService(SERVICE_UUID);
+    NimBLEService *pService = pServer->createService(BLEConstants::SERVICE_UUID);
 
     // Create the TX Characteristic (for sending data to phone)
     pTxCharacteristic = pService->createCharacteristic(
-        TX_CHARACTERISTIC_UUID,
+        BLEConstants::TX_CHARACTERISTIC_UUID,
         NIMBLE_PROPERTY::READ |
             NIMBLE_PROPERTY::WRITE |
             NIMBLE_PROPERTY::NOTIFY);
 
     // Create the RX Characteristic (for receiving data from phone)
     pRxCharacteristic = pService->createCharacteristic(
-        RX_CHARACTERISTIC_UUID,
+        BLEConstants::RX_CHARACTERISTIC_UUID,
         NIMBLE_PROPERTY::READ |
             NIMBLE_PROPERTY::WRITE |
             NIMBLE_PROPERTY::WRITE_NR | // Write without response for faster writes
@@ -92,24 +91,17 @@ bool BLEManager::setup(const char *deviceName)
 
     // Get advertising instance and configure for better discoverability
     pAdvertising = NimBLEDevice::getAdvertising();
-    pAdvertising->addServiceUUID(SERVICE_UUID);
+    pAdvertising->addServiceUUID(BLEConstants::SERVICE_UUID);
     pAdvertising->enableScanResponse(true);
 
-    // Set advertising parameters tuned for battery life.
-    // Larger interval values reduce radio duty cycle and save power.
-    // Use 1-2s intervals for polite battery usage while remaining discoverable.
-    // Note: Values are in 0.625ms units per BLE spec
-    const int BLE_ADV_MIN_INTERVAL = 1600; // 1600 * 0.625ms = 1000ms (1 second)
-    const int BLE_ADV_MAX_INTERVAL = 3200; // 3200 * 0.625ms = 2000ms (2 seconds)
-    pAdvertising->setMinInterval(BLE_ADV_MIN_INTERVAL);
-    pAdvertising->setMaxInterval(BLE_ADV_MAX_INTERVAL);
+    // Set advertising parameters tuned for battery life
+    pAdvertising->setMinInterval(BLEConstants::ADV_MIN_INTERVAL);
+    pAdvertising->setMaxInterval(BLEConstants::ADV_MAX_INTERVAL);
 
     // Add device name to advertising data for easier identification
     pAdvertising->setName(deviceName);
 
-    // Lower TX power to save energy; adjust as needed for your range requirements.
-    // ESP_PWR_LVL_P3 = +3dBm provides good balance of range (~10m) vs power consumption
-    // Options: P9(+9dBm max range), P6(+6dBm), P3(+3dBm balanced), P0(0dBm), N3(-3dBm min power)
+    // Lower TX power to save energy
     NimBLEDevice::setPower(ESP_PWR_LVL_P3);
 
     Serial.println("BLE service created");
@@ -150,26 +142,8 @@ bool BLEManager::sendMessage(const Message &msg)
 
 void BLEManager::process()
 {
-    // Stateless connection detection: compare current server connection count
-    static bool prevConnected = false;
-    bool curConnected = isConnected();
-
-    if (!curConnected && prevConnected)
-    {
-        // Transition: was connected, now disconnected
-        const int BLE_DISCONNECT_SETTLE_MS = 300; // 300ms for NimBLE stack to clean up connection
-        delay(BLE_DISCONNECT_SETTLE_MS);
-        startAdvertising();
-        Serial.println("BLE disconnected - restarting advertising");
-    }
-
-    if (curConnected && !prevConnected)
-    {
-        // Transition: newly connected
-        Serial.println("BLE connected");
-    }
-
-    prevConnected = curConnected;
+    // Minimal processing - let NimBLE handle internal tasks if needed
+    // Connection state management moved to ApplicationController
 }
 
 bool BLEManager::isConnected() const
@@ -199,14 +173,6 @@ void BLEManager::stopAdvertising()
     }
 }
 
-void BLEManager::updateActivity()
-{
-    // Notify PowerController of activity (e.g., LoRa packet received)
-    if (activityCallback)
-    {
-        activityCallback();
-    }
-}
 
 void BLEManager::disconnect()
 {
@@ -240,12 +206,6 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
     Serial.print("Parsing BLE message, length: ");
     Serial.println(length);
 
-    // Update activity callback if set
-    if (activityCallback)
-    {
-        activityCallback();
-    }
-
     Message msg;
     if (msg.deserialize(data, length))
     {
@@ -270,12 +230,6 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
 void BLEManager::onConnected(uint16_t connHandle)
 {
     currentConnHandle = connHandle;
-
-    // Stateless: just notify activity
-    if (activityCallback)
-    {
-        activityCallback();
-    }
 }
 
 void BLEManager::onDisconnected(uint16_t connHandle)

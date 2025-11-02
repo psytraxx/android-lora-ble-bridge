@@ -31,10 +31,11 @@ This document outlines the primary user scenarios and system behaviors based on 
 * **Scenario:** The user presses the boot button (or a LoRa message arrives) to wake the device, which starts advertising. The user then opens the Android app and connects during the 30-second advertising window.
 * **Behavior:**
   1. A BLE connection is established.
-  2. The device *immediately* uploads the entire buffer of stored LoRa messages to the app.
-  3. After the sync is complete, the device enters the "Always Active" connected mode.
-  4. **A 60-second inactivity timer starts.** The device will remain active and connected for at least 60 seconds.
-  5. Any BLE or LoRa activity resets the timer back to 60 seconds.
+  2. The device waits 1000ms for Android BLE stack setup (MTU negotiation, service discovery, notification enablement).
+  3. After the stabilization period, the device uploads the entire buffer of stored LoRa messages to the app.
+  4. After the sync is complete, the device enters the "Always Active" connected mode.
+  5. **A 60-second inactivity timer starts.** The device will remain active and connected for at least 60 seconds.
+  6. Any BLE or LoRa activity resets the timer back to 60 seconds.
 
 ## **5\. Relaying App Message to LoRa (While Connected)**
 
@@ -105,7 +106,7 @@ Success criteria:
 - While disconnected the device alternates: Advertise 30s -> Light Sleep (indefinite, wake on button/LoRa). During sleep, a LoRa GPIO interrupt or boot button press must wake the MCU. **After waking (from button OR LoRa), the device restarts advertising for 30 seconds.** LoRa payloads are buffered during this time.
 - On BLE connect the device uploads all buffered LoRa messages to the app (as soon as BLE is ready) and remains always-active with a 60-second inactivity timer.
 - **While connected:** Any BLE message (TX/RX) or LoRa activity resets the 60-second inactivity timer. After 60 seconds of complete inactivity, the device disconnects BLE and returns to the sleep cycle.
-- **Activity tracking:** BLE activity is tracked via callbacks in BLEManager (onMessageReceived, onConnected). LoRa activity is tracked via updateActivity() calls in main.cpp after packet processing.
+- **Activity tracking:** BLE activity is tracked via callbacks in BLEManager (onMessageReceived, onConnected). LoRa activity is tracked via notifyActivity() calls in ApplicationController after packet processing.
 
 ### Edge cases to watch
 
@@ -119,24 +120,53 @@ Success criteria:
 
 - `src/main.cpp`
   - Initializes BLE, LoRa, power management and wake GPIOs.
-  - Registers `onLoRaReceive` ISR which queues LoRa packets.
-  - Contains `handleLoRaToBleForwarding()` and `processLoRaPacket()` which implement buffering and forwarding logic (buffer stored in global `MessageBuffer messageBuffer`).
+  - Registers `onLoRaPacketReceived()` callback which queues LoRa packets to loraToBleQueue.
+  - Thin main loop that delegates to ApplicationController.
 
+- `src/ApplicationController.cpp` and `include/ApplicationController.h`
+  - Central state machine coordinating all power management, advertising, and sleep behaviors.
+  - Implements 4 states: DISCONNECTED_ADVERTISING, CONNECTED_ACTIVE, CONNECTED_IDLE, SLEEPING.
+  - Handles message buffering and forwarding between BLE and LoRa.
+  - Enforces advertising duration (30s) and inactivity timeout (60s) policies.
+  - Coordinates with PowerManager for sleep transitions.
 
-  - Implements esp_pm locks for temporarily disabling light sleep and boosting CPU during LoRa TX. Does not orchestrate advertise/sleep cycles.
+- `src/PowerManager.cpp` and `include/PowerManager.h`
+  - Stateless hardware-level power management functions.
+  - Configures CPU frequency scaling and GPIO wakeup sources.
+  - Provides `enterLightSleep()` for blocking sleep entry.
+  - No application logic - purely hardware control.
 
 - `include/MessageBuffer.h`
-  - Circular buffer for up to 10 messages. Ready for use by the power flow.
+  - Circular buffer for up to 10 messages (stores messages when BLE disconnected).
+  - Used by ApplicationController for offline message storage.
 
 - `src/BLEManager.cpp` and `include/BLEManager.h`
-  - BLE GATT server, advertising control, connection callbacks, `sendMessage()` and `onMessageReceived()`.
-  - Exposes `updateActivity()` and `isConnected()` which are useful for inactivity handling.
+  - BLE GATT server, advertising control, connection callbacks.
+  - Provides `sendMessage()`, `onMessageReceived()`, `isConnected()`.
+  - Thin wrapper around NimBLE with minimal application logic.
 
-## Next implementation steps (short)
+- `include/FirmwareConfig.h`
+  - Centralized configuration constants for all timing policies.
+  - Key constants: ADVERTISE_DURATION_MS (30s), INACTIVITY_TIMEOUT_MS (60s), CONNECTION_SETUP_DELAY_MS (1000ms).
 
-1. Add a small `PowerController` (or extend main loop) to implement the disconnected advertising/light-sleep cycle (30s advertise, then sleep until button press or LoRa activity) using `esp_sleep_enable_ext0_wakeup` for boot button (GPIO0) and `gpio_wakeup_enable` for LoRa DIO0.
-2. Modify BLE connection handling to immediately upload the `messageBuffer` contents on connect (remove the current 2s hold unless a short stabilization delay is required). Ensure partial failures keep remaining messages in buffer.
-3. Add a 60s inactivity timer that resets on BLE/LoRa activity; when expired, force disconnect and revert to the disconnected cycle.
-4. Add small test instructions to validate: (a) LoRa RX during sleep causes wake and buffering, (b) BLE connect triggers immediate buffer sync, (c) inactivity disconnect works.
+## Implementation Status
 
-If you want I can now implement step 1 and 3 (PowerController + inactivity timer) in code and run a quick build to ensure no compile errors. After that I'll implement immediate buffered upload behavior.
+✅ **Completed** - All core power-saving features are implemented:
+
+1. ✅ Disconnected advertising/light-sleep cycle (30s advertise, then sleep until GPIO wakeup)
+2. ✅ Buffered message upload on connect (with 1000ms stabilization delay for Android)
+3. ✅ 60s inactivity timer with automatic disconnect
+4. ✅ Activity tracking that resets inactivity timer on BLE/LoRa events
+5. ✅ GPIO wakeup configuration for boot button (GPIO0) and LoRa DIO0
+6. ✅ State machine architecture (ApplicationController + stateless PowerManager)
+
+## Testing Checklist
+
+Manual validation tests:
+
+- [ ] **LoRa wake from sleep**: Send LoRa message while device is sleeping, verify device wakes and starts advertising
+- [ ] **Buffered message delivery**: While disconnected, receive LoRa messages, then connect and verify all buffered messages are uploaded
+- [ ] **Inactivity disconnect**: Connect via BLE, wait 60s with no activity, verify device disconnects automatically
+- [ ] **Activity timer reset**: While connected, send BLE or LoRa message every 30s, verify connection stays alive beyond 60s
+- [ ] **Advertising timeout**: Power on device without connecting, verify it advertises for 30s then enters sleep
+- [ ] **Boot button wake**: Press boot button while sleeping, verify device wakes and starts advertising
