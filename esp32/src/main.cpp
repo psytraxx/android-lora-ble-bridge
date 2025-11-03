@@ -151,8 +151,7 @@ void setup()
         .spreadingFactor = LORA_SPREADING_FACTOR,
         .codingRate = LORA_CODING_RATE,
         .txPower = LORA_TX_POWER,
-        .syncWord = LoRaConstants::SYNC_WORD,
-        .useCrc = false};
+        .syncWord = LoRaConstants::SYNC_WORD};
 
     // Initialize LoRa radio with retry logic
     if (!loraManager->begin(loraConfig))

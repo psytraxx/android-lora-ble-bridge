@@ -55,8 +55,6 @@ bool LoRaManager::begin(const LoRaConfig &config)
             config.syncWord,
             config.txPower);
 
-        radio->setCRC(config.useCrc);
-
         if (state == RADIOLIB_ERR_NONE)
         {
             this->state = STATE_IDLE;
