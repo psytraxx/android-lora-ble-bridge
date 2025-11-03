@@ -284,7 +284,7 @@ void ApplicationController::forwardBufferedMessages()
             ledManager.blink(LEDConstants::RX_BLINKS);
 #endif
             // Spacing between messages to avoid overwhelming BLE stack
-            vTaskDelay(BLEConstants::MESSAGE_SPACING_MS / portTICK_PERIOD_MS);
+            vTaskDelay(pdMS_TO_TICKS(BLEConstants::MESSAGE_SPACING_MS));
         }
         else
         {

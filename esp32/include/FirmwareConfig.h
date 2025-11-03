@@ -90,7 +90,7 @@ namespace BLEConstants
     constexpr int INIT_RETRY_COUNT = 3;
 
     /// Delay between BLE initialization retries (milliseconds)
-    constexpr int INIT_RETRY_DELAY_MS = 2000;
+    constexpr int INIT_RETRY_DELAY_MS = 1000;
 
     /// Time to wait after disconnect before restarting advertising
     /// Allows NimBLE stack to clean up connection state

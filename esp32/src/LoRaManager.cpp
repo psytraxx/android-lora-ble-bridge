@@ -1,4 +1,5 @@
 #include "LoRaManager.h"
+#include "FirmwareConfig.h"
 #include "esp_log.h"
 #if CONFIG_IDF_TARGET_ESP32
 #include "Esp32Hal.h"
@@ -73,7 +74,7 @@ bool LoRaManager::begin(const LoRaConfig &config, int retryCount)
         if (attempt < retryCount)
         {
             ESP_LOGW(TAG_LORA, "Retrying in 1 second...");
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));
         }
     }
 

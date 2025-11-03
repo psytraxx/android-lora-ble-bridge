@@ -98,7 +98,7 @@ void setup()
         ESP_LOGE(TAG_MAIN, "Failed to create message queues. Halting execution.");
         while (1)
         {
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            vTaskDelay(pdMS_TO_TICKS(BLEConstants::INIT_RETRY_DELAY_MS));
         }
     }
 
@@ -125,7 +125,7 @@ void setup()
             if (bleRetries > 1)
             {
                 ESP_LOGI(TAG_MAIN, "Retrying in 2 seconds...");
-                vTaskDelay(2000 / portTICK_PERIOD_MS);
+                vTaskDelay(pdMS_TO_TICKS(BLEConstants::INIT_RETRY_DELAY_MS));
             }
             bleRetries--;
         }
@@ -136,7 +136,7 @@ void setup()
         ESP_LOGE(TAG_MAIN, "BLE setup failed permanently. Halting execution.");
         while (1)
         {
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            vTaskDelay(pdMS_TO_TICKS(BLEConstants::INIT_RETRY_DELAY_MS));
         }
     }
 
@@ -161,7 +161,7 @@ void setup()
         ESP_LOGE(TAG_MAIN, "LoRa setup failed permanently. Halting execution.");
         while (1)
         {
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));
         }
     }
 
@@ -175,7 +175,7 @@ void setup()
         ESP_LOGE(TAG_MAIN, "Failed to start receive mode. Halting execution.");
         while (1)
         {
-            vTaskDelay(1000 / portTICK_PERIOD_MS);
+            vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));
         }
     }
 
