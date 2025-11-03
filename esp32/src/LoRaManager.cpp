@@ -20,11 +20,7 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0)
       pinRST(rst),
       pinDIO0(dio0),
       radio(nullptr),
-      initialized(false),
-      packetReceived(false),
-      packetTransmitted(false),
-      transmitting(false),
-      transmissionState(RADIOLIB_ERR_NONE),
+      state(STATE_UNINITIALIZED),
       receiveCallback(nullptr),
       transmitCallback(nullptr)
 {
@@ -62,7 +58,7 @@ bool LoRaManager::begin(const LoRaConfig &config, int retryCount)
 
         if (state == RADIOLIB_ERR_NONE)
         {
-            initialized = true;
+            this->state = STATE_IDLE;
             ESP_LOGI(TAG_LORA, "Setup successful");
             ESP_LOGI(TAG_LORA, "  Frequency: %.2f MHz", config.frequency);
             ESP_LOGI(TAG_LORA, "  Bandwidth: %.2f kHz", config.bandwidth);
@@ -87,35 +83,27 @@ bool LoRaManager::begin(const LoRaConfig &config, int retryCount)
 
 bool LoRaManager::startReceive()
 {
-    if (!initialized)
+    if (state == STATE_UNINITIALIZED)
     {
         ESP_LOGE(TAG_LORA, "Cannot start receive - not initialized");
         return false;
     }
 
-    // Set up interrupt-driven receive
-    radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
-
-    int state = radio->startReceive();
-    if (state == RADIOLIB_ERR_NONE)
-    {
-        ESP_LOGI(TAG_LORA, "Continuous receive mode started");
-        return true;
-    }
-
-    ESP_LOGE(TAG_LORA, "Failed to start receive mode, code %d", state);
-    return false;
+    restoreReceiveMode();
+    state = STATE_IDLE;
+    ESP_LOGI(TAG_LORA, "Continuous receive mode started");
+    return true;
 }
 
 bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 {
-    if (!initialized)
+    if (state == STATE_UNINITIALIZED)
     {
         ESP_LOGE(TAG_LORA, "Cannot transmit - not initialized");
         return false;
     }
 
-    if (transmitting)
+    if (state == STATE_TRANSMITTING)
     {
         ESP_LOGW(TAG_LORA, "Transmission already in progress");
         return false;
@@ -123,26 +111,19 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 
     ESP_LOGI(TAG_LORA, "Starting transmission of %d bytes", len);
 
-    // Clear receive interrupt handler before transmitting
+    // Switch to transmit mode with interrupt
     radio->clearPacketReceivedAction();
-
-    // Set transmit interrupt handler
     radio->setPacketSentAction(LoRaManager::onTransmitISR);
 
     // Start non-blocking transmission
-    transmitting = true;
-    transmissionState = radio->startTransmit(const_cast<uint8_t *>(data), len);
+    state = STATE_TRANSMITTING;
+    int txState = radio->startTransmit(const_cast<uint8_t *>(data), len);
 
-    if (transmissionState != RADIOLIB_ERR_NONE)
+    if (txState != RADIOLIB_ERR_NONE)
     {
-        ESP_LOGE(TAG_LORA, "Failed to start transmission, code %d", transmissionState);
-        transmitting = false;
-
-        // Restore receive mode
-        radio->clearPacketSentAction();
-        radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
-        radio->startReceive();
-
+        ESP_LOGE(TAG_LORA, "Failed to start transmission, code %d", txState);
+        restoreReceiveMode();
+        state = STATE_IDLE;
         return false;
     }
 
@@ -163,55 +144,32 @@ void LoRaManager::setTransmitCallback(LoRaTransmitCallback callback)
 void LoRaManager::process()
 {
     // Check for completed transmission
-    if (packetTransmitted)
+    if (state == STATE_PACKET_SENT)
     {
-        // Clear flag
-        packetTransmitted = false;
-        transmitting = false;
+        ESP_LOGI(TAG_LORA, "Transmission completed");
 
-        bool success = (transmissionState == RADIOLIB_ERR_NONE);
+        // Return to receive mode
+        restoreReceiveMode();
+        state = STATE_IDLE;
 
-        if (success)
-        {
-            ESP_LOGI(TAG_LORA, "Transmission completed successfully");
-        }
-        else
-        {
-            ESP_LOGE(TAG_LORA, "Transmission failed, code %d", transmissionState);
-        }
-
-        // Clean up after transmission is finished
-        // This ensures transmitter is disabled
-        radio->finishTransmit();
-
-        // Restore receive interrupt handler and return to RX mode
-        radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
-        radio->startReceive();
-
-        // Wait for radio to settle in RX mode
-        waitForRadioSettle();
-
-        // Invoke transmit callback if set
+        // Invoke transmit callback
         if (transmitCallback)
         {
-            transmitCallback(success);
+            transmitCallback(true);
         }
     }
 
     // Check for received packets
-    if (!packetReceived)
+    if (state != STATE_PACKET_RECEIVED)
     {
         return;
     }
 
-    // Clear flag
-    packetReceived = false;
-
     // Read packet data
     LoRaPacket packet;
-    int state = radio->readData(packet.buffer, sizeof(packet.buffer));
+    int rxState = radio->readData(packet.buffer, sizeof(packet.buffer));
 
-    if (state == RADIOLIB_ERR_NONE)
+    if (rxState == RADIOLIB_ERR_NONE)
     {
         packet.len = radio->getPacketLength();
         packet.rssi = radio->getRSSI();
@@ -220,35 +178,35 @@ void LoRaManager::process()
         ESP_LOGI(TAG_LORA, "Packet received (%d bytes, RSSI: %d dBm, SNR: %.2f dB)",
                  packet.len, packet.rssi, packet.snr);
 
-        // Invoke callback if set
         if (receiveCallback)
         {
             receiveCallback(packet);
         }
     }
-    else if (state == RADIOLIB_ERR_CRC_MISMATCH)
+    else if (rxState == RADIOLIB_ERR_CRC_MISMATCH)
     {
         ESP_LOGW(TAG_LORA, "CRC error");
     }
     else
     {
-        ESP_LOGE(TAG_LORA, "Read failed, code %d", state);
+        ESP_LOGE(TAG_LORA, "Read failed, code %d", rxState);
     }
 
     // Restart receive mode
     radio->startReceive();
+    state = STATE_IDLE;
 }
 
 int LoRaManager::getRSSI() const
 {
-    if (!initialized)
+    if (state == STATE_UNINITIALIZED)
         return 0;
     return radio->getRSSI();
 }
 
 float LoRaManager::getSNR() const
 {
-    if (!initialized)
+    if (state == STATE_UNINITIALIZED)
         return 0.0f;
     return radio->getSNR();
 }
@@ -271,20 +229,21 @@ void IRAM_ATTR LoRaManager::onTransmitISR()
 
 void LoRaManager::handleReceiveInterrupt()
 {
-    // Set flag only - do NOT read data in ISR
+    // Set state - do NOT read data in ISR
     // Data reading happens in process() called from main loop
-    packetReceived = true;
+    state = STATE_PACKET_RECEIVED;
 }
 
 void LoRaManager::handleTransmitInterrupt()
 {
-    // Set flag only - do NOT perform cleanup in ISR
+    // Set state - do NOT perform cleanup in ISR
     // Cleanup happens in process() called from main loop
-    packetTransmitted = true;
+    state = STATE_PACKET_SENT;
 }
 
-void LoRaManager::waitForRadioSettle(int delayMs)
+void LoRaManager::restoreReceiveMode()
 {
-    // Wait for SX1278 hardware to stabilize after mode change
-    vTaskDelay(delayMs / portTICK_PERIOD_MS);
+    radio->clearPacketSentAction();
+    radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
+    radio->startReceive();
 }

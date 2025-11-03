@@ -15,6 +15,16 @@
  * Designed to reduce coupling and improve testability of the main application.
  */
 
+/// State machine states for LoRa manager
+enum LoRaState : uint8_t
+{
+    STATE_UNINITIALIZED,   // Radio not yet initialized
+    STATE_IDLE,            // Initialized and ready (in RX mode)
+    STATE_TRANSMITTING,    // Transmission in progress
+    STATE_PACKET_RECEIVED, // Packet ready to read in process()
+    STATE_PACKET_SENT      // Transmission completed, ready to process in process()
+};
+
 /// Configuration for LoRa radio parameters
 struct LoRaConfig
 {
@@ -97,7 +107,7 @@ public:
      * @brief Check if transmission is in progress
      * @return true if transmitting, false otherwise
      */
-    bool isTransmitting() const { return transmitting; }
+    bool isTransmitting() const { return state == STATE_TRANSMITTING; }
 
     /**
      * @brief Set callback for received packets
@@ -144,7 +154,7 @@ public:
      * @brief Check if LoRa radio is initialized
      * @return true if initialized, false otherwise
      */
-    bool isInitialized() const { return initialized; }
+    bool isInitialized() const { return state != STATE_UNINITIALIZED; }
 
     /**
      * @brief Static ISR handler for LoRa DIO0 receive interrupt
@@ -170,12 +180,8 @@ private:
     // RadioLib radio instance
     SX1278 *radio;
 
-    // State flags
-    bool initialized;
-    volatile bool packetReceived;
-    volatile bool packetTransmitted;
-    volatile bool transmitting;
-    int transmissionState; // Store the result of startTransmit
+    // State machine
+    volatile LoRaState state;
 
     // Callbacks
     LoRaReceiveCallback receiveCallback;
@@ -195,10 +201,9 @@ private:
     void handleTransmitInterrupt();
 
     /**
-     * @brief Wait for radio to settle after mode change
-     * @param delayMs Delay in milliseconds (default: 50ms)
+     * @brief Restore receive mode with interrupt handler
      */
-    void waitForRadioSettle(int delayMs = 50);
+    void restoreReceiveMode();
 };
 
 #endif // LORA_MANAGER_H
