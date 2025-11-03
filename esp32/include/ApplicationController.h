@@ -34,9 +34,6 @@ enum class AppState : uint8_t
     /// BLE connected, actively processing messages (recent activity)
     CONNECTED_ACTIVE,
 
-    /// BLE connected but idle (no recent activity, approaching timeout)
-    CONNECTED_IDLE,
-
     /// In light sleep mode, waiting for GPIO wakeup (button or LoRa)
     SLEEPING
 };
@@ -164,11 +161,6 @@ private:
      * @brief Handle CONNECTED_ACTIVE state
      */
     void handleConnectedActive();
-
-    /**
-     * @brief Handle CONNECTED_IDLE state
-     */
-    void handleConnectedIdle();
 
     /**
      * @brief Handle SLEEPING state

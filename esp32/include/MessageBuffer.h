@@ -48,25 +48,6 @@ public:
     }
 
     /**
-     * @brief Retrieve the next (oldest) message from the buffer.
-     *
-     * @param[out] msg Destination reference where the message will be copied.
-     * @return true if a message was returned, false if buffer was empty.
-     */
-    bool get(Message &msg)
-    {
-        if (count == 0)
-        {
-            return false;
-        }
-
-        msg = buffer[head];
-        head = (head + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
-        count--;
-        return true;
-    }
-
-    /**
      * @brief Peek at the next (oldest) message without removing it.
      *
      * @param[out] msg Destination reference where the message will be copied.
@@ -118,16 +99,6 @@ public:
     bool isEmpty() const
     {
         return count == 0;
-    }
-
-    /**
-     * @brief Remove all messages from the buffer.
-     */
-    void clear()
-    {
-        head = 0;
-        tail = 0;
-        count = 0;
     }
 
 private:

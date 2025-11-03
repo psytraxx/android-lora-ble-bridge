@@ -98,10 +98,6 @@ void ApplicationController::processStateMachine()
         handleConnectedActive();
         break;
 
-    case AppState::CONNECTED_IDLE:
-        handleConnectedIdle();
-        break;
-
     case AppState::SLEEPING:
         handleSleeping();
         break;
@@ -140,13 +136,6 @@ void ApplicationController::handleConnectedActive()
         bleManager->disconnect();
         // State will transition to DISCONNECTED_ADVERTISING on next update
     }
-}
-
-void ApplicationController::handleConnectedIdle()
-{
-    // Currently same as CONNECTED_ACTIVE
-    // Could implement different behavior if needed (e.g., reduced processing)
-    handleConnectedActive();
 }
 
 void ApplicationController::handleSleeping()
@@ -209,7 +198,7 @@ void ApplicationController::processLoRaToBleQueue()
         ESP_LOGI(TAG, "LoRa → BLE, type=%d", (int)loraMsg.type);
 
         // Use state machine state instead of direct isConnected() check to avoid race conditions
-        bool isConnected = (state == AppState::CONNECTED_ACTIVE || state == AppState::CONNECTED_IDLE);
+        bool isConnected = (state == AppState::CONNECTED_ACTIVE);
 
         // Debug: log the state when message arrives
         ESP_LOGI(TAG, "Current state=%d, isConnected=%d, bleManager->isConnected()=%d",
@@ -297,12 +286,6 @@ void ApplicationController::forwardBufferedMessages()
 void ApplicationController::notifyActivity()
 {
     lastActivityMillis = esp_timer_get_time() / 1000ULL;
-
-    // Update state based on activity
-    if (state == AppState::CONNECTED_IDLE)
-    {
-        transitionTo(AppState::CONNECTED_ACTIVE);
-    }
 }
 
 bool ApplicationController::hasActivity() const
@@ -348,10 +331,6 @@ void ApplicationController::transitionTo(AppState newState)
         // Stop advertising when connected
         bleManager->stopAdvertising();
         lastActivityMillis = esp_timer_get_time() / 1000ULL;
-        break;
-
-    case AppState::CONNECTED_IDLE:
-        // No specific action
         break;
 
     case AppState::SLEEPING:
