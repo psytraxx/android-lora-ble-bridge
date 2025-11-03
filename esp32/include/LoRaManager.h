@@ -79,10 +79,9 @@ public:
     /**
      * @brief Initialize LoRa radio with configuration
      * @param config LoRa parameters (frequency, SF, BW, etc.)
-     * @param retryCount Number of retry attempts on failure (default: 3)
      * @return true on success, false on failure
      */
-    bool begin(const LoRaConfig &config, int retryCount = 3);
+    bool begin(const LoRaConfig &config);
 
     /**
      * @brief Start continuous receive mode

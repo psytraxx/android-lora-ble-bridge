@@ -38,14 +38,14 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0)
     radio = new SX1278(new Module(hal, pinSS, pinDIO0, pinRST));
 }
 
-bool LoRaManager::begin(const LoRaConfig &config, int retryCount)
+bool LoRaManager::begin(const LoRaConfig &config)
 {
     ESP_LOGI(TAG_LORA, "Initializing radio");
     // Attempt initialization with retries
-    for (int attempt = 1; attempt <= retryCount; attempt++)
+    for (int attempt = 1; attempt <= LoRaConstants::INIT_RETRY_COUNT; attempt++)
     {
 
-        ESP_LOGI(TAG_LORA, "Setup attempt %d/%d", attempt, retryCount);
+        ESP_LOGI(TAG_LORA, "Setup attempt %d/%d", attempt, LoRaConstants::INIT_RETRY_COUNT);
 
         int state = radio->begin(
             config.frequency,
@@ -71,7 +71,7 @@ bool LoRaManager::begin(const LoRaConfig &config, int retryCount)
 
         ESP_LOGW(TAG_LORA, "Setup failed, code %d", state);
 
-        if (attempt < retryCount)
+        if (attempt < LoRaConstants::INIT_RETRY_COUNT)
         {
             ESP_LOGW(TAG_LORA, "Retrying in 1 second...");
             vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));

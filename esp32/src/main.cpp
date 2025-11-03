@@ -106,13 +106,12 @@ void setup()
     bleManager = new BLEManager(bleToLoraQueue);
 
     // Initialize BLE with retry logic
-    const int BLE_RETRY_COUNT = 3;
-    int bleRetries = BLE_RETRY_COUNT;
+    int bleRetries = BLEConstants::INIT_RETRY_COUNT;
     bool bleSuccess = false;
 
     while (bleRetries > 0 && !bleSuccess)
     {
-        ESP_LOGI(TAG_MAIN, "BLE setup attempt %d/%d", BLE_RETRY_COUNT - bleRetries + 1, BLE_RETRY_COUNT);
+        ESP_LOGI(TAG_MAIN, "BLE setup attempt %d/%d", BLEConstants::INIT_RETRY_COUNT - bleRetries + 1, BLEConstants::INIT_RETRY_COUNT);
 
         if (bleManager->setup(DEVICE_NAME))
         {
@@ -156,7 +155,7 @@ void setup()
         .useCrc = false};
 
     // Initialize LoRa radio with retry logic
-    if (!loraManager->begin(loraConfig, 3))
+    if (!loraManager->begin(loraConfig))
     {
         ESP_LOGE(TAG_MAIN, "LoRa setup failed permanently. Halting execution.");
         while (1)
