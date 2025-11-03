@@ -31,6 +31,14 @@ Used to acknowledge receipt of text messages.
 
 **Total Size**: 2 bytes
 
+### Wake-Up Message (Type: 0x03)
+Used to wake LoRa devices from deep sleep. **LoRa-only** - never sent via BLE.
+
+- **Type**: 1 byte (0x03)
+
+**Total Size**: 1 byte
+**Note**: This message type is only transmitted over LoRa between ESP32 devices. Android devices understand this message type for protocol consistency but never send or receive it via BLE.
+
 ## Technical Specifications
 
 ### Text Length Limit
@@ -128,6 +136,18 @@ Hex bytes:
 └─ Type: ACK (0x02)
 
 Total: 2 bytes
+```
+
+### Example 5: Wake-Up Message
+```
+Wake-up signal for deep sleep devices
+
+Hex bytes:
+03
+└─ Type: WAKE_UP (0x03)
+
+Total: 1 byte
+Note: LoRa-only, never sent via BLE
 ```
 
 ## Message Flow
@@ -236,6 +256,11 @@ Use [LoRa Calculator](https://www.loratools.nl/#/airtime) to verify for your spe
 - ✅ Same byte order (little-endian)
 - ✅ 6-bit packing implemented consistently
 
+### Message Type Usage
+- **TEXT (0x01)**: Both LoRa and BLE
+- **ACK (0x02)**: Both LoRa and BLE
+- **WAKE_UP (0x03)**: LoRa-only (ESP32-to-ESP32)
+
 ### Version History
 - **v1.0** (Oct 2025): Initial protocol with UTF-8 encoding, combined text+GPS (DataMessage)
 - **v2.0** (Oct 2025): 
@@ -254,6 +279,11 @@ Use [LoRa Calculator](https://www.loratools.nl/#/airtime) to verify for your spe
   - Android: Click message to open Google Maps
   - 16% bandwidth reduction for messages with GPS
   - Better user experience: GPS shown inline with text
+- **v3.1** (Nov 2025):
+  - Added WakeUp message type (0x03) for deep sleep management
+  - LoRa-only message (never transmitted via BLE)
+  - Used to wake ESP32 devices from deep sleep
+  - Minimal 1-byte payload for efficiency
 
 ### Breaking Changes in v3.0
 - ⚠️ **Not backward compatible** with v2.0 or v1.0
