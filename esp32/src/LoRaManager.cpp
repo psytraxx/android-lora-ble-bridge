@@ -22,7 +22,11 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0)
       radio(nullptr),
       initialized(false),
       packetReceived(false),
-      receiveCallback(nullptr)
+      packetTransmitted(false),
+      transmitting(false),
+      transmissionState(RADIOLIB_ERR_NONE),
+      receiveCallback(nullptr),
+      transmitCallback(nullptr)
 {
     // Set singleton instance for ISR access
     instance = this;
@@ -53,6 +57,8 @@ bool LoRaManager::begin(const LoRaConfig &config, int retryCount)
             config.codingRate,
             config.syncWord,
             config.txPower);
+
+        radio->setCRC(config.useCrc);
 
         if (state == RADIOLIB_ERR_NONE)
         {
@@ -101,7 +107,7 @@ bool LoRaManager::startReceive()
     return false;
 }
 
-bool LoRaManager::transmit(const uint8_t *data, size_t len)
+bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 {
     if (!initialized)
     {
@@ -109,33 +115,39 @@ bool LoRaManager::transmit(const uint8_t *data, size_t len)
         return false;
     }
 
-    ESP_LOGI(TAG_LORA, "Transmitting %d bytes", len);
+    if (transmitting)
+    {
+        ESP_LOGW(TAG_LORA, "Transmission already in progress");
+        return false;
+    }
 
-    // Clear interrupt handler to allow DIO0 to signal TX completion
+    ESP_LOGI(TAG_LORA, "Starting transmission of %d bytes", len);
+
+    // Clear receive interrupt handler before transmitting
     radio->clearPacketReceivedAction();
 
-    // Transmit the data
-    int state = radio->transmit(const_cast<uint8_t *>(data), len);
+    // Set transmit interrupt handler
+    radio->setPacketSentAction(LoRaManager::onTransmitISR);
 
-    bool success = (state == RADIOLIB_ERR_NONE);
+    // Start non-blocking transmission
+    transmitting = true;
+    transmissionState = radio->startTransmit(const_cast<uint8_t *>(data), len);
 
-    if (success)
+    if (transmissionState != RADIOLIB_ERR_NONE)
     {
-        ESP_LOGI(TAG_LORA, "Transmission successful");
+        ESP_LOGE(TAG_LORA, "Failed to start transmission, code %d", transmissionState);
+        transmitting = false;
+
+        // Restore receive mode
+        radio->clearPacketSentAction();
+        radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
+        radio->startReceive();
+
+        return false;
     }
-    else
-    {
-        ESP_LOGE(TAG_LORA, "Transmission failed, code %d", state);
-    }
 
-    // Restore interrupt handler and return to RX mode
-    radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
-    radio->startReceive();
-
-    // Wait for radio to settle in RX mode
-    waitForRadioSettle();
-
-    return success;
+    ESP_LOGI(TAG_LORA, "Transmission started (non-blocking)");
+    return true;
 }
 
 void LoRaManager::setReceiveCallback(LoRaReceiveCallback callback)
@@ -143,8 +155,50 @@ void LoRaManager::setReceiveCallback(LoRaReceiveCallback callback)
     receiveCallback = callback;
 }
 
+void LoRaManager::setTransmitCallback(LoRaTransmitCallback callback)
+{
+    transmitCallback = callback;
+}
+
 void LoRaManager::process()
 {
+    // Check for completed transmission
+    if (packetTransmitted)
+    {
+        // Clear flag
+        packetTransmitted = false;
+        transmitting = false;
+
+        bool success = (transmissionState == RADIOLIB_ERR_NONE);
+
+        if (success)
+        {
+            ESP_LOGI(TAG_LORA, "Transmission completed successfully");
+        }
+        else
+        {
+            ESP_LOGE(TAG_LORA, "Transmission failed, code %d", transmissionState);
+        }
+
+        // Clean up after transmission is finished
+        // This ensures transmitter is disabled
+        radio->finishTransmit();
+
+        // Restore receive interrupt handler and return to RX mode
+        radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
+        radio->startReceive();
+
+        // Wait for radio to settle in RX mode
+        waitForRadioSettle();
+
+        // Invoke transmit callback if set
+        if (transmitCallback)
+        {
+            transmitCallback(success);
+        }
+    }
+
+    // Check for received packets
     if (!packetReceived)
     {
         return;
@@ -207,11 +261,26 @@ void IRAM_ATTR LoRaManager::onReceiveISR()
     }
 }
 
+void IRAM_ATTR LoRaManager::onTransmitISR()
+{
+    if (instance)
+    {
+        instance->handleTransmitInterrupt();
+    }
+}
+
 void LoRaManager::handleReceiveInterrupt()
 {
     // Set flag only - do NOT read data in ISR
     // Data reading happens in process() called from main loop
     packetReceived = true;
+}
+
+void LoRaManager::handleTransmitInterrupt()
+{
+    // Set flag only - do NOT perform cleanup in ISR
+    // Cleanup happens in process() called from main loop
+    packetTransmitted = true;
 }
 
 void LoRaManager::waitForRadioSettle(int delayMs)

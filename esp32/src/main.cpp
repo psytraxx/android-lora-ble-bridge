@@ -45,6 +45,7 @@ ApplicationController appController;
 
 // Forward declaration
 void onLoRaPacketReceived(const LoRaPacket &packet);
+void onLoRaTransmitComplete(bool success);
 
 static const char *TAG_MAIN = "Main";
 
@@ -151,7 +152,8 @@ void setup()
         .spreadingFactor = LORA_SPREADING_FACTOR,
         .codingRate = LORA_CODING_RATE,
         .txPower = LORA_TX_POWER,
-        .syncWord = LoRaConstants::SYNC_WORD};
+        .syncWord = LoRaConstants::SYNC_WORD,
+        .useCrc = false};
 
     // Initialize LoRa radio with retry logic
     if (!loraManager->begin(loraConfig, 3))
@@ -163,8 +165,9 @@ void setup()
         }
     }
 
-    // Set callback for received LoRa packets
+    // Set callbacks for LoRa events
     loraManager->setReceiveCallback(onLoRaPacketReceived);
+    loraManager->setTransmitCallback(onLoRaTransmitComplete);
 
     // Start continuous receive mode
     if (!loraManager->startReceive())
@@ -250,8 +253,8 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
             // Reset watchdog before long LoRa transmission
             esp_task_wdt_reset();
 
-            // Transmit ACK via LoRaManager (handles mode switching)
-            loraManager->transmit(ackBuf, ackLen);
+            // Start non-blocking transmission via LoRaManager
+            loraManager->startTransmit(ackBuf, ackLen);
         }
 
         // Queue or buffer message for BLE delivery
@@ -275,6 +278,21 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
 #endif
         break;
     }
+    }
+}
+
+/**
+ * @brief Callback for LoRa transmission completion (called from LoRaManager)
+ */
+void onLoRaTransmitComplete(bool success)
+{
+    if (success)
+    {
+        ESP_LOGI(TAG_MAIN, "LoRa transmission completed successfully");
+    }
+    else
+    {
+        ESP_LOGW(TAG_MAIN, "LoRa transmission failed");
     }
 }
 

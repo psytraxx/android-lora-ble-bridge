@@ -183,8 +183,8 @@ void ApplicationController::processBleToLoraQueue()
             // Reset watchdog before long LoRa transmission
             esp_task_wdt_reset();
 
-            // Transmit via LoRaManager
-            if (loraManager->transmit(buf, len))
+            // Start non-blocking transmission via LoRaManager
+            if (loraManager->startTransmit(buf, len))
             {
 #ifdef LED_PIN
                 ledManager.blink(LEDConstants::TX_BLINKS);

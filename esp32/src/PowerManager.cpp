@@ -29,7 +29,7 @@ void PowerManager::configurePowerManagement()
 
     pm_config.max_freq_mhz = CPU_FREQ_MHZ;
     pm_config.min_freq_mhz = PowerConstants::CPU_MIN_FREQ_MHZ;
-    pm_config.light_sleep_enable = false; // Manual sleep only
+    pm_config.light_sleep_enable = true;
 
     int rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)

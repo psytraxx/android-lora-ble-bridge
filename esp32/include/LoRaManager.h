@@ -24,6 +24,7 @@ struct LoRaConfig
     uint8_t codingRate;      // CR (5-8 for 4/5 to 4/8)
     int8_t txPower;          // dBm (e.g., 20)
     uint8_t syncWord;        // Sync word (default: 0x12)
+    bool useCrc;             // Enable CRC checking
 };
 
 /// LoRa packet with metadata (RSSI, SNR)
@@ -38,14 +39,17 @@ struct LoRaPacket
 /// Callback type for received packets
 using LoRaReceiveCallback = std::function<void(const LoRaPacket &packet)>;
 
+/// Callback type for transmission completion
+using LoRaTransmitCallback = std::function<void(bool success)>;
+
 /**
  * @brief High-level manager for LoRa radio operations
  *
  * Responsibilities:
  *  - Initialize and configure LoRa radio with specified parameters
- *  - Transmit messages via LoRa with proper mode switching
+ *  - Transmit messages via LoRa with interrupt-driven approach
  *  - Receive packets using interrupt-driven approach
- *  - Provide event callbacks for received packets
+ *  - Provide event callbacks for received packets and transmission completion
  *  - Abstract RadioLib implementation details from application
  */
 class LoRaManager
@@ -77,16 +81,23 @@ public:
     bool startReceive();
 
     /**
-     * @brief Transmit data via LoRa
+     * @brief Start non-blocking interrupt-driven transmission
      *
-     * This method handles mode switching (RX -> TX -> RX) and
-     * ensures the radio returns to receive mode after transmission.
+     * This method initiates transmission and returns immediately.
+     * The transmit callback will be invoked when transmission completes.
+     * Automatically switches from RX -> TX, and back to RX after completion.
      *
      * @param data Pointer to data buffer
      * @param len Length of data to transmit
-     * @return true if transmission successful, false otherwise
+     * @return true if transmission started successfully, false otherwise
      */
-    bool transmit(const uint8_t *data, size_t len);
+    bool startTransmit(const uint8_t *data, size_t len);
+
+    /**
+     * @brief Check if transmission is in progress
+     * @return true if transmitting, false otherwise
+     */
+    bool isTransmitting() const { return transmitting; }
 
     /**
      * @brief Set callback for received packets
@@ -99,9 +110,20 @@ public:
     void setReceiveCallback(LoRaReceiveCallback callback);
 
     /**
+     * @brief Set callback for transmission completion
+     *
+     * The callback will be invoked from the main loop (not ISR)
+     * when transmission completes (success or failure).
+     *
+     * @param callback Function to call with transmission result
+     */
+    void setTransmitCallback(LoRaTransmitCallback callback);
+
+    /**
      * @brief Process LoRa events (call from main loop)
      *
-     * Checks for received packets and invokes the callback if set.
+     * Checks for received packets and transmission completion,
+     * invoking callbacks as needed.
      * This should be called regularly from the main loop.
      */
     void process();
@@ -125,10 +147,16 @@ public:
     bool isInitialized() const { return initialized; }
 
     /**
-     * @brief Static ISR handler for LoRa DIO0 interrupt
+     * @brief Static ISR handler for LoRa DIO0 receive interrupt
      * Must be public to be registered as ISR callback
      */
     static void IRAM_ATTR onReceiveISR();
+
+    /**
+     * @brief Static ISR handler for LoRa DIO0 transmit interrupt
+     * Must be public to be registered as ISR callback
+     */
+    static void IRAM_ATTR onTransmitISR();
 
 private:
     // GPIO pin configuration
@@ -145,17 +173,26 @@ private:
     // State flags
     bool initialized;
     volatile bool packetReceived;
+    volatile bool packetTransmitted;
+    volatile bool transmitting;
+    int transmissionState; // Store the result of startTransmit
 
-    // Callback for received packets
+    // Callbacks
     LoRaReceiveCallback receiveCallback;
+    LoRaTransmitCallback transmitCallback;
 
     // Singleton instance for ISR access
     static LoRaManager *instance;
 
     /**
-     * @brief Internal ISR handler (called by static onReceiveISR)
+     * @brief Internal ISR handler for received packets
      */
     void handleReceiveInterrupt();
+
+    /**
+     * @brief Internal ISR handler for transmitted packets
+     */
+    void handleTransmitInterrupt();
 
     /**
      * @brief Wait for radio to settle after mode change
