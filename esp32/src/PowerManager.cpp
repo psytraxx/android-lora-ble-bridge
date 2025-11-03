@@ -13,32 +13,20 @@ void PowerManager::configurePowerManagement()
 {
     ESP_LOGI(TAG, "Configuring power management");
 
-// Check if power management is available (requires CONFIG_PM_ENABLE in ESP-IDF)
-// Arduino framework for ESP32-S3 does not enable CONFIG_PM_ENABLE by default
-#if defined(CONFIG_IDF_TARGET_ESP32)
-    static esp_pm_config_t pm_config = {};
-#elif defined(CONFIG_IDF_TARGET_ESP32S2)
-    static esp_pm_config_t pm_config = {};
-#elif defined(CONFIG_IDF_TARGET_ESP32S3)
-    static esp_pm_config_t pm_config = {};
-#elif defined(CONFIG_IDF_TARGET_ESP32C3)
-    static esp_pm_config_t pm_config = {};
-#else
-#error "Unsupported ESP32 variant"
-#endif
+    esp_pm_config_t pm_config = {
+        .max_freq_mhz = CPU_FREQ_MHZ,
+        .min_freq_mhz = PowerConstants::CPU_MIN_FREQ_MHZ,
+        .light_sleep_enable = true};
 
-    pm_config.max_freq_mhz = CPU_FREQ_MHZ;
-    pm_config.min_freq_mhz = PowerConstants::CPU_MIN_FREQ_MHZ;
-    pm_config.light_sleep_enable = true;
-
-    int rv = esp_pm_configure(&pm_config);
+    esp_err_t rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
     {
         ESP_LOGE(TAG, "Failed to configure power management (err=%d)", rv);
         return;
     }
 
-    ESP_LOGI(TAG, "Power management configured (CPU: %d MHz max, %d MHz min)", CPU_FREQ_MHZ, PowerConstants::CPU_MIN_FREQ_MHZ);
+    ESP_LOGI(TAG, "Power management configured (CPU: %d MHz max, %d MHz min)",
+             CPU_FREQ_MHZ, PowerConstants::CPU_MIN_FREQ_MHZ);
 }
 
 // see https://github.com/geeksville/Meshtastic-esp32/blob/0f167faa63f53af19dee7959927966db69591436/src/sleep.cpp#L395
@@ -47,56 +35,30 @@ void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
     ESP_LOGI(TAG, "Configuring wakeup sources");
 
     // Configure button wake (LOW trigger - button pressed = LOW)
-#if defined(CONFIG_IDF_TARGET_ESP32)
-    // Enable internal pull-up for button
     gpio_pullup_en((gpio_num_t)wakeButton);
     gpio_wakeup_enable((gpio_num_t)wakeButton, GPIO_INTR_LOW_LEVEL);
-#elif defined(CONFIG_IDF_TARGET_ESP32S3)
-    // ESP32-S3: Use GPIO wakeup
-    gpio_pullup_en((gpio_num_t)wakeButton);
-    gpio_wakeup_enable((gpio_num_t)wakeButton, GPIO_INTR_LOW_LEVEL);
-#endif
 
     // Configure LoRa DIO0 wake (HIGH trigger - LoRa interrupt = HIGH)
-    // The key is to use the appropriate wakeup method based on chip capabilities
+    gpio_pulldown_en((gpio_num_t)loraDio0);
+
 #if defined(CONFIG_IDF_TARGET_ESP32) && SOC_PM_SUPPORT_EXT_WAKEUP
-    // ESP32 original: Can use EXT0 wakeup for RTC-capable GPIOs
+    // ESP32: Try EXT0 wakeup for RTC GPIOs (lower power), fallback to GPIO wakeup
     if (rtc_gpio_is_valid_gpio((gpio_num_t)loraDio0))
     {
-        // This GPIO supports RTC, use EXT0 for lower power consumption
-        gpio_pulldown_en((gpio_num_t)loraDio0); // Pull down so HIGH is detected
-
-        // Enable EXT0 wakeup on HIGH level (LoRa interrupt active high)
         esp_sleep_enable_ext0_wakeup((gpio_num_t)loraDio0, 1); // 1 = HIGH level
-
-        ESP_LOGI(TAG, "LoRa DIO0 (GPIO %d) configured with EXT0 wakeup (RTC)", loraDio0);
+        ESP_LOGI(TAG, "LoRa DIO0 (GPIO %d) using EXT0 wakeup", loraDio0);
     }
     else
-    {
-        // Not an RTC GPIO, use standard GPIO wakeup
-        gpio_pulldown_en((gpio_num_t)loraDio0);
-        gpio_wakeup_enable((gpio_num_t)loraDio0, GPIO_INTR_HIGH_LEVEL);
-
-        ESP_LOGI(TAG, "LoRa DIO0 (GPIO %d) configured with GPIO wakeup", loraDio0);
-    }
-#elif defined(CONFIG_IDF_TARGET_ESP32S3)
-    // ESP32-S3: Use GPIO wakeup (no EXT0 support)
-    gpio_pulldown_en((gpio_num_t)loraDio0);
-    gpio_wakeup_enable((gpio_num_t)loraDio0, GPIO_INTR_HIGH_LEVEL);
-
-    ESP_LOGI(TAG_POWER, "LoRa DIO0 (GPIO %d) configured with GPIO wakeup", loraDio0);
-#else
-    // Fallback for other variants
-    gpio_pulldown_en((gpio_num_t)loraDio0);
-    gpio_wakeup_enable((gpio_num_t)loraDio0, GPIO_INTR_HIGH_LEVEL);
-
-    ESP_LOGI(TAG_POWER, "LoRa DIO0 (GPIO %d) configured with GPIO wakeup", loraDio0);
 #endif
+    {
+        // ESP32-S3/C3 or non-RTC GPIO: Use standard GPIO wakeup
+        gpio_wakeup_enable((gpio_num_t)loraDio0, GPIO_INTR_HIGH_LEVEL);
+        ESP_LOGI(TAG, "LoRa DIO0 (GPIO %d) using GPIO wakeup", loraDio0);
+    }
 
-    // Enable GPIO wakeup system (must be called after gpio_wakeup_enable)
-    esp_sleep_enable_gpio_wakeup();
+    refreshWakeupSources();
 
-    ESP_LOGI(TAG, "GPIO wakeup configured - Button (GPIO %d on LOW), LoRa DIO0 (GPIO %d on HIGH)",
+    ESP_LOGI(TAG, "Wakeup configured - Button (GPIO %d LOW), LoRa DIO0 (GPIO %d HIGH)",
              wakeButton, loraDio0);
 }
 
