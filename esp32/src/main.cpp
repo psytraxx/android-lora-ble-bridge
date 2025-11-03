@@ -45,14 +45,15 @@ ApplicationController appController;
 void onLoRaPacketReceived(const LoRaPacket &packet);
 void onLoRaTransmitComplete(bool success);
 
-static const char *TAG_MAIN = "Main";
-
 /**
  * @brief Setup routine for ESP32 LoRa-BLE Bridge
  */
 void setup()
 {
-    ESP_LOGI(TAG_MAIN, "Disabling WiFi and Bluetooth Classic for power savings");
+
+    Serial.begin(115200);
+
+    Serial.println("Disabling WiFi and Bluetooth Classic for power savings");
 
     // Configure power management (CPU frequency scaling and light sleep)
     PowerManager::configurePowerManagement();
@@ -63,24 +64,24 @@ void setup()
     if (err == ESP_OK || err == ESP_ERR_WIFI_NOT_INIT)
     {
         esp_wifi_deinit();
-        ESP_LOGI(TAG_MAIN, "WiFi disabled successfully");
+        Serial.println("WiFi disabled successfully");
     }
     else
     {
-        ESP_LOGE(TAG_MAIN, "WiFi stop failed: %d (may not be initialized)", err);
+        Serial.printf("WiFi stop failed: %d (may not be initialized)\n", err);
     }
 
     // Disable Bluetooth Classic (we only use BLE via NimBLE)
     // Note: NimBLE uses the BLE controller, so we only release Classic BT memory
     esp_bt_mem_release(ESP_BT_MODE_CLASSIC_BT);
-    ESP_LOGI(TAG_MAIN, "Bluetooth Classic memory released (using NimBLE for BLE only)");
+    Serial.println("Bluetooth Classic memory released (using NimBLE for BLE only)");
 
     // Reconfigure watchdog timer with sufficient timeout (Arduino ESP32 v2.0+)
     esp_task_wdt_init(WatchdogConstants::TIMEOUT_SECONDS, true); // timeout in seconds, panic on timeout
     esp_task_wdt_add(NULL);                                      // Add current task (NULL = current task)
-    ESP_LOGI(TAG_MAIN, "Watchdog timer reconfigured with %d s timeout", WatchdogConstants::TIMEOUT_SECONDS);
+    Serial.printf("Watchdog timer reconfigured with %d s timeout\n", WatchdogConstants::TIMEOUT_SECONDS);
 
-    ESP_LOGI(TAG_MAIN, "ESP32 LoRa-BLE Bridge starting");
+    Serial.println("ESP32 LoRa-BLE Bridge starting");
 
     // Create message queues
     bleToLoraQueue = xQueueCreate(QueueConstants::BLE_TO_LORA_SIZE, sizeof(Message));
@@ -88,7 +89,7 @@ void setup()
 
     if (bleToLoraQueue == nullptr || loraToBleQueue == nullptr)
     {
-        ESP_LOGE(TAG_MAIN, "Failed to create message queues. Halting execution.");
+        Serial.println("Failed to create message queues. Halting execution.");
         while (1)
         {
             delay(BLEConstants::INIT_RETRY_DELAY_MS);
@@ -104,19 +105,19 @@ void setup()
 
     while (bleRetries > 0 && !bleSuccess)
     {
-        ESP_LOGI(TAG_MAIN, "BLE setup attempt %d/%d", BLEConstants::INIT_RETRY_COUNT - bleRetries + 1, BLEConstants::INIT_RETRY_COUNT);
+        Serial.printf("BLE setup attempt %d/%d\n", BLEConstants::INIT_RETRY_COUNT - bleRetries + 1, BLEConstants::INIT_RETRY_COUNT);
 
         if (bleManager->setup(DEVICE_NAME))
         {
             bleSuccess = true;
-            ESP_LOGI(TAG_MAIN, "BLE setup successful");
+            Serial.println("BLE setup successful");
         }
         else
         {
-            ESP_LOGE(TAG_MAIN, "BLE setup failed");
+            Serial.println("BLE setup failed");
             if (bleRetries > 1)
             {
-                ESP_LOGI(TAG_MAIN, "Retrying in 2 seconds...");
+                Serial.println("Retrying in 2 seconds...");
                 delay(BLEConstants::INIT_RETRY_DELAY_MS);
             }
             bleRetries--;
@@ -125,7 +126,7 @@ void setup()
 
     if (!bleSuccess)
     {
-        ESP_LOGE(TAG_MAIN, "BLE setup failed permanently. Halting execution.");
+        Serial.println("BLE setup failed permanently. Halting execution.");
         while (1)
         {
             delay(BLEConstants::INIT_RETRY_DELAY_MS);
@@ -149,7 +150,7 @@ void setup()
     // Initialize LoRa radio with retry logic
     if (!loraManager->begin(loraConfig))
     {
-        ESP_LOGE(TAG_MAIN, "LoRa setup failed permanently. Halting execution.");
+        Serial.println("LoRa setup failed permanently. Halting execution.");
         while (1)
         {
             delay(LoRaConstants::INIT_RETRY_DELAY_MS);
@@ -163,7 +164,7 @@ void setup()
     // Start continuous receive mode
     if (!loraManager->startReceive())
     {
-        ESP_LOGE(TAG_MAIN, "Failed to start receive mode. Halting execution.");
+        Serial.println("Failed to start receive mode. Halting execution.");
         while (1)
         {
             delay(LoRaConstants::INIT_RETRY_DELAY_MS);
@@ -181,7 +182,7 @@ void setup()
     ledManager.setup();
 #endif
 
-    ESP_LOGI(TAG_MAIN, "All systems initialized");
+    Serial.println("All systems initialized");
 }
 
 /**
@@ -193,7 +194,7 @@ void queueOrBufferMessage(const Message &msg, const char *msgTypeName)
 {
     if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
     {
-        ESP_LOGW(TAG_MAIN, "LoRa to BLE queue full, dropping %s", msgTypeName);
+        Serial.printf("LoRa to BLE queue full, dropping %s\n", msgTypeName);
     }
 }
 
@@ -202,7 +203,7 @@ void queueOrBufferMessage(const Message &msg, const char *msgTypeName)
  */
 void onLoRaPacketReceived(const LoRaPacket &packet)
 {
-    ESP_LOGI(TAG_MAIN, "onLoRaPacketReceived: packet received");
+    Serial.println("onLoRaPacketReceived: packet received");
 
     // Notify application controller of activity
     appController.notifyActivity();
@@ -211,22 +212,22 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
     Message msg;
     if (!msg.deserialize(packet.buffer, packet.len))
     {
-        ESP_LOGE(TAG_MAIN, "Failed to deserialize LoRa message");
+        Serial.println("Failed to deserialize LoRa message");
         return;
     }
 
-    ESP_LOGI(TAG_MAIN, "Deserialized: type=%d", (int)msg.type);
+    Serial.printf("Deserialized: type=%d\n", (int)msg.type);
 
     // Handle message types
     switch (msg.type)
     {
     case MessageType::Text:
     {
-        ESP_LOGI(TAG_MAIN, "Text - seq: %d, text: \"%s\"", msg.textData.seq, msg.textData.text);
+        Serial.printf("Text - seq: %d, text: \"%s\"\n", msg.textData.seq, msg.textData.text);
 
         if (msg.textData.hasGps)
         {
-            ESP_LOGI(TAG_MAIN, ", GPS: %f°, %f°", msg.textData.lat / 1000000.0, msg.textData.lon / 1000000.0);
+            Serial.printf(", GPS: %f°, %f°\n", msg.textData.lat / 1000000.0, msg.textData.lon / 1000000.0);
         }
 
         // Send ACK
@@ -236,7 +237,7 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
 
         if (ackLen > 0)
         {
-            ESP_LOGI(TAG_MAIN, "Sending ACK for seq: %d", msg.textData.seq);
+            Serial.printf("Sending ACK for seq: %d\n", msg.textData.seq);
 
             // Wait before sending ACK to ensure sender has switched to RX mode
             delay(LoRaConstants::ACK_DELAY_MS);
@@ -259,7 +260,7 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
 
     case MessageType::Ack:
     {
-        ESP_LOGI(TAG_MAIN, "ACK - seq: %d", msg.ackData.seq);
+        Serial.printf("ACK - seq: %d\n", msg.ackData.seq);
 
         // Queue or buffer ACK for BLE delivery
         queueOrBufferMessage(msg, "ACK");
@@ -279,11 +280,11 @@ void onLoRaTransmitComplete(bool success)
 {
     if (success)
     {
-        ESP_LOGI(TAG_MAIN, "LoRa transmission completed successfully");
+        Serial.println("LoRa transmission completed successfully");
     }
     else
     {
-        ESP_LOGW(TAG_MAIN, "LoRa transmission failed");
+        Serial.println("LoRa transmission failed");
     }
 }
 

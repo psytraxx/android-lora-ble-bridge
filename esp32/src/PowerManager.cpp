@@ -7,11 +7,9 @@
 #include <driver/rtc_io.h>
 #include <Arduino.h>
 
-static const char *TAG_PWR = "PWR";
-
 void PowerManager::configurePowerManagement()
 {
-    ESP_LOGI(TAG_PWR, "Configuring power management");
+    Serial.println("Configuring power management");
 
 #if defined(CONFIG_IDF_TARGET_ESP32)
     esp_pm_config_esp32_t pm_config = {};
@@ -24,21 +22,22 @@ void PowerManager::configurePowerManagement()
     pm_config.max_freq_mhz = CPU_FREQ_MHZ;
     pm_config.min_freq_mhz = PowerConstants::CPU_MIN_FREQ_MHZ;
     pm_config.light_sleep_enable = false;
+
     esp_err_t rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
     {
-        ESP_LOGE(TAG_PWR, "Failed to configure power management (err=%d)", rv);
+        Serial.printf("Failed to configure power management (err=%d)\n", rv);
         return;
     }
 
-    ESP_LOGI(TAG_PWR, "Power management configured (CPU: %d MHz max, %d MHz min)",
-             CPU_FREQ_MHZ, PowerConstants::CPU_MIN_FREQ_MHZ);
+    Serial.printf("Power management configured (CPU: %d MHz max, %d MHz min)\n",
+                  CPU_FREQ_MHZ, PowerConstants::CPU_MIN_FREQ_MHZ);
 }
 
 // see https://github.com/geeksville/Meshtastic-esp32/blob/0f167faa63f53af19dee7959927966db69591436/src/sleep.cpp#L395
 void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
 {
-    ESP_LOGI(TAG_PWR, "Configuring wakeup sources");
+    Serial.println("Configuring wakeup sources");
 
     // Configure button wake (LOW trigger - button pressed = LOW)
     gpio_pullup_en((gpio_num_t)wakeButton);
@@ -52,20 +51,20 @@ void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
     if (rtc_gpio_is_valid_gpio((gpio_num_t)loraDio0))
     {
         esp_sleep_enable_ext0_wakeup((gpio_num_t)loraDio0, 1); // 1 = HIGH level
-        ESP_LOGI(TAG_PWR, "LoRa DIO0 (GPIO %d) using EXT0 wakeup", loraDio0);
+        Serial.printf("LoRa DIO0 (GPIO %d) using EXT0 wakeup\n", loraDio0);
     }
     else
 #endif
     {
         // ESP32-S3/C3 or non-RTC GPIO: Use standard GPIO wakeup
         gpio_wakeup_enable((gpio_num_t)loraDio0, GPIO_INTR_HIGH_LEVEL);
-        ESP_LOGI(TAG_PWR, "LoRa DIO0 (GPIO %d) using GPIO wakeup", loraDio0);
+        Serial.printf("LoRa DIO0 (GPIO %d) using GPIO wakeup\n", loraDio0);
     }
 
     refreshWakeupSources();
 
-    ESP_LOGI(TAG_PWR, "Wakeup configured - Button (GPIO %d LOW), LoRa DIO0 (GPIO %d HIGH)",
-             wakeButton, loraDio0);
+    Serial.printf("Wakeup configured - Button (GPIO %d LOW), LoRa DIO0 (GPIO %d HIGH)\n",
+                  wakeButton, loraDio0);
 }
 
 void PowerManager::refreshWakeupSources()
@@ -76,7 +75,7 @@ void PowerManager::refreshWakeupSources()
 
 int PowerManager::enterLightSleep()
 {
-    ESP_LOGI(TAG_PWR, "Entering light sleep...");
+    Serial.println("Entering light sleep...");
 
     // Ensure RTC peripherals stay on during light sleep (needed for GPIO wakeup)
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
@@ -88,7 +87,7 @@ int PowerManager::enterLightSleep()
 
     if (res != ESP_OK)
     {
-        ESP_LOGE(TAG_PWR, "Light sleep failed with error: %d", res);
+        Serial.printf("Light sleep failed with error: %d\n", res);
         return ESP_SLEEP_WAKEUP_UNDEFINED;
     }
 
@@ -105,16 +104,16 @@ int PowerManager::logWakeupCause()
     switch (wakeup_reason)
     {
     case ESP_SLEEP_WAKEUP_GPIO:
-        ESP_LOGI(TAG_PWR, "Woke from light sleep - GPIO interrupt");
+        Serial.println("Woke from light sleep - GPIO interrupt");
         break;
     case ESP_SLEEP_WAKEUP_EXT0:
-        ESP_LOGI(TAG_PWR, "Woke from light sleep - EXT0 (LoRa RTC GPIO)");
+        Serial.println("Woke from light sleep - EXT0 (LoRa RTC GPIO)");
         break;
     case ESP_SLEEP_WAKEUP_TIMER:
-        ESP_LOGI(TAG_PWR, "Woke from light sleep - Timer");
+        Serial.println("Woke from light sleep - Timer");
         break;
     default:
-        ESP_LOGI(TAG_PWR, "Woke from light sleep - Unknown reason (%d)", wakeup_reason);
+        Serial.printf("Woke from light sleep - Unknown reason (%d)\n", wakeup_reason);
         break;
     }
 
