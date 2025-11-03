@@ -32,8 +32,6 @@ static void IRAM_ATTR isr_esp_to_radiolib(void *radiolib_func)
 class EspS3Hal : public RadioLibHal
 {
 public:
-    inline static const char *LOG_TAG = "radiolib_hal_s3";
-
     // Pass RadioLib info about what values to use for
     // input/output/low/high/rising_edge/falling_edge Note: This indirectly sets
     // the default output to push/pull (as opposed to GPIO_MODE_INPUT_OUTPUT)
@@ -195,7 +193,6 @@ public:
             return;
         }
 
-        ESP_LOGI(LOG_TAG, "Initializing bus SPI%d...", this->host + 1);
         spi_bus_config_t buscfg = {};
         buscfg.mosi_io_num = this->spiMOSI;
         buscfg.miso_io_num = this->spiMISO;

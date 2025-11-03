@@ -32,38 +32,19 @@ public:
      */
     void add(const Message &msg)
     {
-        if (count < MAX_MESSAGES)
+        if (count < BufferConstants::MAX_BUFFERED_MESSAGES)
         {
             buffer[tail] = msg;
-            tail = (tail + 1) % MAX_MESSAGES;
+            tail = (tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
             count++;
         }
         else
         {
             // Buffer full - overwrite oldest message
             buffer[tail] = msg;
-            tail = (tail + 1) % MAX_MESSAGES;
-            head = (head + 1) % MAX_MESSAGES;
+            tail = (tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
+            head = (head + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
         }
-    }
-
-    /**
-     * @brief Retrieve the next (oldest) message from the buffer.
-     *
-     * @param[out] msg Destination reference where the message will be copied.
-     * @return true if a message was returned, false if buffer was empty.
-     */
-    bool get(Message &msg)
-    {
-        if (count == 0)
-        {
-            return false;
-        }
-
-        msg = buffer[head];
-        head = (head + 1) % MAX_MESSAGES;
-        count--;
-        return true;
     }
 
     /**
@@ -98,7 +79,7 @@ public:
             return false;
         }
 
-        head = (head + 1) % MAX_MESSAGES;
+        head = (head + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
         count--;
         return true;
     }
@@ -120,22 +101,11 @@ public:
         return count == 0;
     }
 
-    /**
-     * @brief Remove all messages from the buffer.
-     */
-    void clear()
-    {
-        head = 0;
-        tail = 0;
-        count = 0;
-    }
-
 private:
     // Buffer capacity: 10 messages provides reasonable headroom for burst traffic
     // Each Message is ~160 bytes, so 10 messages = ~1.6 KB RAM
     // Drop-oldest policy when full prevents unbounded memory growth
-    static const int MAX_MESSAGES = 10;
-    Message buffer[MAX_MESSAGES];
+    Message buffer[BufferConstants::MAX_BUFFERED_MESSAGES];
     int head;  // Index of next message to read
     int tail;  // Index of next write position
     int count; // Number of messages stored

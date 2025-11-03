@@ -87,9 +87,9 @@ public:
     explicit BLEManager(QueueHandle_t bleToLoraQueue);
 
     /// Initialize BLE stack and create service/characteristics.
-    /// @param deviceName The BLE device name to advertise (defaults to DEVICE_NAME)
+    /// @param deviceName The BLE device name to advertise (defined in platformio.ini)
     /// @return true on success, false on failure
-    bool setup(const char *deviceName = DEVICE_NAME);
+    bool setup(const char *deviceName);
 
     /// Start advertising the GATT service
     void startAdvertising();

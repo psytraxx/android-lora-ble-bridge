@@ -63,6 +63,10 @@ namespace LoRaConstants
 // BLE Configuration
 //==============================================================================
 
+// Note: DEVICE_NAME is defined in platformio.ini as a build flag:
+//   -DDEVICE_NAME='"ESP32-LoRa"'     (for esp32dev)
+//   -DDEVICE_NAME='"ESP32S3-LoRa"'   (for lilygo-t-display-s3)
+
 namespace BLEConstants
 {
     /// BLE service UUID (application-specific)
@@ -90,7 +94,7 @@ namespace BLEConstants
     constexpr int INIT_RETRY_COUNT = 3;
 
     /// Delay between BLE initialization retries (milliseconds)
-    constexpr int INIT_RETRY_DELAY_MS = 2000;
+    constexpr int INIT_RETRY_DELAY_MS = 1000;
 
     /// Time to wait after disconnect before restarting advertising
     /// Allows NimBLE stack to clean up connection state
