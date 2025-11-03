@@ -17,6 +17,8 @@
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
 #include <DisplayManager.h>
+#include <driver/rtc_io.h>
+#include <esp_sleep.h>
 
 // --- Pin Definitions ---
 /**
@@ -135,37 +137,31 @@ void onLoRaReceive(void)
 }
 
 /**
- * @brief Configure wake-up sources for light sleep
+ * @brief Enter deep sleep mode with DIO0 wake-up
+ * Device will wake up when LoRa DIO0 pin goes HIGH (incoming message)
  */
-void configureLightSleepWakeup()
+void goToDeepSleep()
 {
-    // Configure button wake-up (active LOW - pressed when connected to GND)
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON, 0); // Wake on button press
+    Serial.println("Entering deep sleep...");
+    Serial.println("Will wake on LoRa DIO0 (GPIO 3) going HIGH");
 
-    // Also enable LoRa DIO0 as an ext1 wake source so incoming packets wake from light sleep
-    esp_sleep_enable_ext1_wakeup(1ULL << LORA_DIO0, ESP_EXT1_WAKEUP_ANY_HIGH);
-
-    Serial.println("Configured light sleep wake-up sources:");
-    Serial.println("  - Wake Button (GPIO 14) - active LOW");
-    Serial.println("  - LoRa DIO0 (GPIO 3) - any HIGH");
-}
-
-/**
- * @brief Enter light sleep mode (triggered by long button press)
- */
-void enterLightSleep()
-{
-    // Configure wake-up sources (button and LoRa DIO0)
-    configureLightSleepWakeup();
-
-    // Ensure the display is fully powered off so nothing is visible
-    // while sleeping.
+    // Ensure the display is fully powered off
     display.clearScreen();
     display.powerOff();
 
-    // Flush serial and enter light sleep immediately
+    // Configure the external wake-up source on DIO0
+    // Wake up when the pin goes high (1 = HIGH level)
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)LORA_DIO0, 1);
+
+    // Initialize the pin as an RTC pin before going to sleep
+    rtc_gpio_init((gpio_num_t)LORA_DIO0);
+    rtc_gpio_set_direction((gpio_num_t)LORA_DIO0, RTC_GPIO_MODE_INPUT_ONLY);
+
+    // Flush serial before sleeping
     Serial.flush();
-    esp_light_sleep_start();
+
+    // Enter deep sleep - device will reset on wake
+    esp_deep_sleep_start();
 }
 
 /**
@@ -720,8 +716,8 @@ void loop()
     unsigned long timeSinceActivity = millis() - lastActivityTime;
     if (timeSinceActivity > SLEEP_TIMEOUT)
     {
-        Serial.println("Inactivity timeout - entering light sleep mode");
-        enterLightSleep();
+        Serial.println("Inactivity timeout - entering deep sleep mode");
+        goToDeepSleep();
         // Device will reset on wake
     }
 
