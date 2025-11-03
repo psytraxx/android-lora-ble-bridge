@@ -216,7 +216,9 @@ void IRAM_ATTR LoRaManager::onReceiveISR()
 {
     if (instance)
     {
-        instance->handleReceiveInterrupt();
+        // Set state - do NOT read data in ISR
+        // Data reading happens in process() called from main loop
+        instance->state = STATE_PACKET_RECEIVED;
     }
 }
 
@@ -224,22 +226,10 @@ void IRAM_ATTR LoRaManager::onTransmitISR()
 {
     if (instance)
     {
-        instance->handleTransmitInterrupt();
+        // Set state - do NOT perform cleanup in ISR
+        // Cleanup happens in process() called from main loop
+        instance->state = STATE_PACKET_SENT;
     }
-}
-
-void LoRaManager::handleReceiveInterrupt()
-{
-    // Set state - do NOT read data in ISR
-    // Data reading happens in process() called from main loop
-    state = STATE_PACKET_RECEIVED;
-}
-
-void LoRaManager::handleTransmitInterrupt()
-{
-    // Set state - do NOT perform cleanup in ISR
-    // Cleanup happens in process() called from main loop
-    state = STATE_PACKET_SENT;
 }
 
 void LoRaManager::restoreReceiveMode()

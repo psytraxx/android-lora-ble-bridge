@@ -190,16 +190,6 @@ private:
     static LoRaManager *instance;
 
     /**
-     * @brief Internal ISR handler for received packets
-     */
-    void handleReceiveInterrupt();
-
-    /**
-     * @brief Internal ISR handler for transmitted packets
-     */
-    void handleTransmitInterrupt();
-
-    /**
      * @brief Restore receive mode with interrupt handler
      */
     void restoreReceiveMode();
