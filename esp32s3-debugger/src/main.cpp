@@ -433,6 +433,9 @@ void setup()
     // Set up event-driven LoRa reception
     radio.setPacketReceivedAction(onLoRaReceive);
 
+    // Set DIO0 action for receiving packets
+    radio.setDio0Action(onLoRaReceive);
+
     // Start continuous receive mode
     int state = radio.startReceive();
     if (state != RADIOLIB_ERR_NONE)
