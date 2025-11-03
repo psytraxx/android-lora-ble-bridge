@@ -145,7 +145,7 @@ void LoRaManager::process()
     // Check for completed transmission
     if (state == STATE_PACKET_SENT)
     {
-        ESP_LOGI(TAG, "Transmission completed");
+        ESP_LOGI(TAG, "Transmission completed, restoring RX mode");
 
         // Return to receive mode
         restoreReceiveMode();
@@ -163,6 +163,8 @@ void LoRaManager::process()
     {
         return;
     }
+
+    ESP_LOGI(TAG, "Processing received packet (state was STATE_PACKET_RECEIVED)");
 
     // Read packet data
     LoRaPacket packet;
@@ -192,7 +194,12 @@ void LoRaManager::process()
     }
 
     // Restart receive mode
-    radio->startReceive();
+    int restartState = radio->startReceive();
+    if (restartState != RADIOLIB_ERR_NONE)
+    {
+        ESP_LOGE(TAG, "Failed to restart receive after packet read, code %d", restartState);
+    }
+
     state = STATE_IDLE;
 }
 
@@ -217,6 +224,8 @@ void IRAM_ATTR LoRaManager::onReceiveISR()
         // Set state - do NOT read data in ISR
         // Data reading happens in process() called from main loop
         instance->state = STATE_PACKET_RECEIVED;
+
+        // Note: Cannot use ESP_LOG in ISR, but we can track this in process()
     }
 }
 
@@ -232,7 +241,20 @@ void IRAM_ATTR LoRaManager::onTransmitISR()
 
 void LoRaManager::restoreReceiveMode()
 {
+    // Clear transmit interrupt handler
     radio->clearPacketSentAction();
+
+    // Re-register receive interrupt handler
     radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
-    radio->startReceive();
+
+    // Restart receive mode (blocking call to ensure it completes)
+    int rxState = radio->startReceive();
+    if (rxState != RADIOLIB_ERR_NONE)
+    {
+        ESP_LOGE(TAG, "Failed to restart receive mode, code %d", rxState);
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Receive mode restored");
+    }
 }
