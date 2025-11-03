@@ -137,25 +137,38 @@ void onLoRaReceive(void)
 }
 
 /**
- * @brief Enter deep sleep mode with DIO0 wake-up
- * Device will wake up when LoRa DIO0 pin goes HIGH (incoming message)
+ * @brief Enter deep sleep mode with DIO0 and button wake-up
+ * Device will wake up when:
+ * - LoRa DIO0 pin goes HIGH (incoming message), or
+ * - Wake button is pressed (goes LOW)
  */
 void goToDeepSleep()
 {
     Serial.println("Entering deep sleep...");
-    Serial.println("Will wake on LoRa DIO0 (GPIO 3) going HIGH");
+    Serial.println("Will wake on:");
+    Serial.println("  - LoRa DIO0 (GPIO 3) going HIGH");
+    Serial.println("  - Wake Button (GPIO 14) going LOW");
 
     // Ensure the display is fully powered off
     display.clearScreen();
     display.powerOff();
 
-    // Configure the external wake-up source on DIO0
-    // Wake up when the pin goes high (1 = HIGH level)
+    // Configure wake-up source: DIO0 going HIGH (use ext0)
     esp_sleep_enable_ext0_wakeup((gpio_num_t)LORA_DIO0, 1);
 
-    // Initialize the pin as an RTC pin before going to sleep
+    // Configure wake-up source: Button going LOW (use ext1)
+    // ext1 allows multiple pins with logic level (ANY_LOW or ALL_HIGH)
+    esp_sleep_enable_ext1_wakeup((1ULL << WAKE_BUTTON), ESP_EXT1_WAKEUP_ANY_LOW);
+
+    // Initialize DIO0 as an RTC pin before going to sleep
     rtc_gpio_init((gpio_num_t)LORA_DIO0);
     rtc_gpio_set_direction((gpio_num_t)LORA_DIO0, RTC_GPIO_MODE_INPUT_ONLY);
+
+    // Initialize WAKE_BUTTON as an RTC pin with pullup
+    rtc_gpio_init((gpio_num_t)WAKE_BUTTON);
+    rtc_gpio_set_direction((gpio_num_t)WAKE_BUTTON, RTC_GPIO_MODE_INPUT_ONLY);
+    rtc_gpio_pullup_en((gpio_num_t)WAKE_BUTTON);
+    rtc_gpio_pulldown_dis((gpio_num_t)WAKE_BUTTON);
 
     // Flush serial before sleeping
     Serial.flush();
@@ -177,10 +190,10 @@ void printWakeupReason()
     switch (wakeup_reason)
     {
     case ESP_SLEEP_WAKEUP_EXT0:
-        display.printLine("Woke: Button (Light Sleep)");
+        display.printLine("Woke: LoRa DIO0 (Deep Sleep)");
         break;
     case ESP_SLEEP_WAKEUP_EXT1:
-        display.printLine("Woke: LoRa Message (Light Sleep)");
+        display.printLine("Woke: Button (Deep Sleep)");
         break;
     case ESP_SLEEP_WAKEUP_TIMER:
         display.printLine("Woke: Timer");
@@ -428,9 +441,6 @@ void setup()
 
     // Set up event-driven LoRa reception
     radio.setPacketReceivedAction(onLoRaReceive);
-
-    // Set DIO0 action for receiving packets
-    radio.setDio0Action(onLoRaReceive);
 
     // Start continuous receive mode
     int state = radio.startReceive();
