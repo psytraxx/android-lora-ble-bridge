@@ -195,12 +195,6 @@ private:
      * @param newState Target state
      */
     void transitionTo(AppState newState);
-
-    /**
-     * @brief Check if BLE connection state changed
-     * @return true if connection state changed
-     */
-    bool connectionStateChanged();
 };
 
 #endif // APPLICATION_CONTROLLER_H

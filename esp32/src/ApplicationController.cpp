@@ -360,10 +360,3 @@ void ApplicationController::transitionTo(AppState newState)
         break;
     }
 }
-
-bool ApplicationController::connectionStateChanged()
-{
-    bool currentlyConnected = bleManager->isConnected();
-    bool changed = (currentlyConnected != wasConnected);
-    return changed;
-}
