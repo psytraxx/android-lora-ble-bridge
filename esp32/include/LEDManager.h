@@ -48,11 +48,11 @@ public:
         for (int i = 0; i < times; i++)
         {
             setOn();
-            vTaskDelay(pdMS_TO_TICKS(duration));
+            delay(duration);
             setOff();
             if (i < times - 1)
             {
-                vTaskDelay(pdMS_TO_TICKS(delayBetween));
+                delay(delayBetween);
             }
         }
     }
