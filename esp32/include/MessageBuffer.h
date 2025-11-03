@@ -32,18 +32,18 @@ public:
      */
     void add(const Message &msg)
     {
-        if (count < MAX_MESSAGES)
+        if (count < BufferConstants::MAX_BUFFERED_MESSAGES)
         {
             buffer[tail] = msg;
-            tail = (tail + 1) % MAX_MESSAGES;
+            tail = (tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
             count++;
         }
         else
         {
             // Buffer full - overwrite oldest message
             buffer[tail] = msg;
-            tail = (tail + 1) % MAX_MESSAGES;
-            head = (head + 1) % MAX_MESSAGES;
+            tail = (tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
+            head = (head + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
         }
     }
 
@@ -61,7 +61,7 @@ public:
         }
 
         msg = buffer[head];
-        head = (head + 1) % MAX_MESSAGES;
+        head = (head + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
         count--;
         return true;
     }
@@ -98,7 +98,7 @@ public:
             return false;
         }
 
-        head = (head + 1) % MAX_MESSAGES;
+        head = (head + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
         count--;
         return true;
     }
@@ -134,8 +134,7 @@ private:
     // Buffer capacity: 10 messages provides reasonable headroom for burst traffic
     // Each Message is ~160 bytes, so 10 messages = ~1.6 KB RAM
     // Drop-oldest policy when full prevents unbounded memory growth
-    static const int MAX_MESSAGES = 10;
-    Message buffer[MAX_MESSAGES];
+    Message buffer[BufferConstants::MAX_BUFFERED_MESSAGES];
     int head;  // Index of next message to read
     int tail;  // Index of next write position
     int count; // Number of messages stored
