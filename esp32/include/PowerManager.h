@@ -1,6 +1,8 @@
 #ifndef POWER_MANAGER_H
 #define POWER_MANAGER_H
 
+#include <functional>
+
 /**
  * @file PowerManager.h
  * @brief Stateless power management helper for ESP32
@@ -75,6 +77,20 @@ public:
      * Useful for debugging and understanding boot behavior.
      */
     static void printWakeupReason();
+
+    /**
+     * @brief Process external wakeup event and invoke callback when appropriate
+     *
+     * This function checks the wakeup reason and calls the provided callback
+     * only when the device should announce its presence:
+     *  - Button press wake: Send WakeUp message (user initiated)
+     *  - Cold boot: Send WakeUp message (announce presence)
+     *  - LoRa interrupt wake: Do NOT send WakeUp (prevents infinite loop)
+     *
+     * @param wakeupCallback Function to call when device should send WakeUp message.
+     *                       Pass nullptr to only log wakeup reason without callback.
+     */
+    static void onExternalWakeup(std::function<void()> wakeupCallback);
 };
 
 #endif // POWER_MANAGER_H

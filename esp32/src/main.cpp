@@ -23,7 +23,6 @@
 #include <freertos/task.h>
 #include <esp_wifi.h>
 #include <esp_bt.h>
-#include <esp_sleep.h>
 #include "esp_log.h"
 
 // RTC memory - persists across deep sleep
@@ -201,30 +200,9 @@ void setup()
 
     ESP_LOGI(TAG, "All systems initialized");
 
-    // Send wake-up message based on wake reason
-    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
-
-    switch (wakeup_reason)
-    {
-    case ESP_SLEEP_WAKEUP_EXT0:
-        // Woke up from LoRa interrupt (DIO0 HIGH) - another device sent us a message
-        // DON'T send WakeUp to avoid infinite loop (their message woke us, don't echo back)
-        ESP_LOGI(TAG, "Woke from LoRa signal - NOT sending WakeUp (prevents loop)");
-        break;
-
-    case ESP_SLEEP_WAKEUP_EXT1:
-        // Woke up from button press - user initiated wake
-        // SEND WakeUp to announce our presence to other devices
-        ESP_LOGI(TAG, "Woke from button press - sending WakeUp message");
-        sendWakeUpMessage();
-        break;
-
-    default:
-        // Cold boot or other wake reason - send WakeUp to announce presence
-        ESP_LOGI(TAG, "Cold boot - sending WakeUp message");
-        sendWakeUpMessage();
-        break;
-    }
+    // Process external wakeup event and send WakeUp message if appropriate
+    // PowerManager determines when to call sendWakeUpMessage() based on wake reason
+    PowerManager::onExternalWakeup(sendWakeUpMessage);
 }
 
 /**
