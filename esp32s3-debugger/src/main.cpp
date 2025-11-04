@@ -149,9 +149,12 @@ void goToDeepSleep()
     Serial.println("  - LoRa DIO0 (GPIO 3) going HIGH");
     Serial.println("  - Wake Button (GPIO 14) going LOW");
 
-    // Ensure the display is fully powered off
+    // Power off display and peripherals to save power
     display.clearScreen();
     display.powerOff();
+
+    // Power off peripherals during sleep
+    digitalWrite(POWER_ON, LOW);
 
     // Configure wake-up source: DIO0 going HIGH (use ext0)
     esp_sleep_enable_ext0_wakeup((gpio_num_t)LORA_DIO0, 1);
@@ -350,19 +353,24 @@ void setup()
 
     bootCount++; // Increment boot counter (persists in RTC memory)
 
+    // Power on peripherals first thing after wake-up
     pinMode(POWER_ON, OUTPUT);
     digitalWrite(POWER_ON, HIGH);
+
+    // Wait for power to stabilize before initializing peripherals
+    // Critical for battery operation where voltage may take time to settle
+    delay(200);
 
     // Configure buttons as input with pull-up
     pinMode(WAKE_BUTTON, INPUT_PULLUP);
 
     // Initialize the display for visual feedback
     display.setup();
+    // Ensure display is powered on immediately after setup, before any writes
+    display.powerOn();
     display.printLine("TFT Initialized.");
 
     printWakeupReason();
-    // Ensure display is powered on after boot/wake
-    display.powerOn();
 
 // Set CPU frequency for power savings (configurable via build flag)
 #ifndef CPU_FREQ_MHZ
@@ -645,6 +653,17 @@ void loop()
                     // Ensure display is powered on before updating
                     display.powerOn();
                     addMessageToDisplay(ackDisplay, packet.rssi, packet.snr);
+                    break;
+                }
+
+                case MessageType::WakeUp:
+                {
+                    Serial.println("Received WakeUp message");
+                    // WakeUp messages are used to wake the device from sleep
+                    // The device is already awake if we received this, so just log it
+                    summary = "WakeUp signal";
+                    display.powerOn();
+                    addMessageToDisplay("WakeUp signal received", packet.rssi, packet.snr);
                     break;
                 }
                 }

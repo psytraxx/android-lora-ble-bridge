@@ -37,12 +37,19 @@ public:
      */
     void setup()
     {
+        // Ensure reset line is high and display is ready
+        digitalWrite(resetPinNum, HIGH);
+        delay(120); // Give display time to stabilize after power-on
+
         gfx->begin();
         gfx->setRotation(1); // Adjust rotation as needed (0-3)
         gfx->fillScreen(BLACK);
         gfx->setTextColor(WHITE, BLACK); // Set text color (foreground, background)
         setFontGeneral();                // Set default font for general text
         gfx->setCursor(0, 0);
+
+        // Mark display as powered on
+        displayPowered = true;
     }
 
     /**
@@ -205,8 +212,9 @@ public:
         if (displayPowered)
             return;
         // Release reset and give the panel time to initialize
+        // Using longer delay for battery operation stability
         digitalWrite(resetPinNum, HIGH);
-        delay(50);
+        delay(120); // Increased from 50ms for better battery operation
         // Re-init the gfx driver to ensure internal state is correct
         gfx->begin();
         gfx->setRotation(1);
