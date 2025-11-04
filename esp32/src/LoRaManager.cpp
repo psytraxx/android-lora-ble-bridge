@@ -1,12 +1,7 @@
 #include "LoRaManager.h"
 #include "FirmwareConfig.h"
 #include "esp_log.h"
-#if CONFIG_IDF_TARGET_ESP32
-#include "Esp32Hal.h"
-#endif
-#if CONFIG_IDF_TARGET_ESP32S3
 #include "Esp32S3Hal.h"
-#endif
 
 // Static instance for ISR access
 LoRaManager *LoRaManager::instance = nullptr;
@@ -33,11 +28,7 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
     // Set singleton instance for ISR access
     instance = this;
 
-#if CONFIG_IDF_TARGET_ESP32
-    EspHal *hal = new EspHal(pinSCK, pinMISO, pinMOSI);
-#elif CONFIG_IDF_TARGET_ESP32S3
     EspS3Hal *hal = new EspS3Hal(pinSCK, pinMISO, pinMOSI);
-#endif
 
     // Create RadioLib module instance (stored as base class pointer for polymorphism)
 #if defined(RADIO_SX1278)
