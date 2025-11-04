@@ -175,8 +175,14 @@ private:
     int pinRST;
     int pinDIO0;
 
-    // RadioLib radio instance
+    // RadioLib radio instance (type depends on RADIO_ definition)
+#if defined(RADIO_SX1278)
     SX1278 *radio;
+#elif defined(RADIO_SX1262)
+    SX1262 *radio;
+#else
+#error "No supported RADIO defined! Please define RADIO_SX1278 or RADIO_SX1262"
+#endif
 
     // State machine
     volatile LoRaState state;
