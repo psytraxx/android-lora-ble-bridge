@@ -34,29 +34,45 @@ void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
 {
     ESP_LOGI(TAG, "Configuring wakeup sources for deep sleep");
 
+    // Initialize DIO0 as an RTC pin FIRST (before enabling wakeup)
+    if (rtc_gpio_is_valid_gpio((gpio_num_t)loraDio0))
+    {
+        rtc_gpio_init((gpio_num_t)loraDio0);
+        rtc_gpio_set_direction((gpio_num_t)loraDio0, RTC_GPIO_MODE_INPUT_ONLY);
+
+#if defined(CONFIG_IDF_TARGET_ESP32)
+        // ESP32 requires explicit pull-down for HIGH level wakeup
+        rtc_gpio_pulldown_en((gpio_num_t)loraDio0);
+        rtc_gpio_pullup_dis((gpio_num_t)loraDio0);
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+        // ESP32-S3 usually works without explicit pull config
+        rtc_gpio_pulldown_en((gpio_num_t)loraDio0);
+        rtc_gpio_pullup_dis((gpio_num_t)loraDio0);
+#endif
+    }
+    else
+    {
+        ESP_LOGE(TAG, "GPIO %d is not RTC-capable! Cannot use for deep sleep wakeup.", loraDio0);
+    }
+
+    // Initialize button pin as RTC GPIO
+    if (rtc_gpio_is_valid_gpio((gpio_num_t)wakeButton))
+    {
+        rtc_gpio_init((gpio_num_t)wakeButton);
+        rtc_gpio_set_direction((gpio_num_t)wakeButton, RTC_GPIO_MODE_INPUT_ONLY);
+        rtc_gpio_pullup_en((gpio_num_t)wakeButton); // Button needs pull-up for LOW trigger
+        rtc_gpio_pulldown_dis((gpio_num_t)wakeButton);
+    }
+
     // Configure wake-up source: DIO0 going HIGH (use ext0)
     esp_sleep_enable_ext0_wakeup((gpio_num_t)loraDio0, 1);
 
     // Configure wake-up source: Button going LOW (use ext1)
-    // ext1 allows multiple pins with logic level (ALL_LOW or ANY_HIGH)
-
 #if defined(CONFIG_IDF_TARGET_ESP32)
     esp_sleep_enable_ext1_wakeup((1ULL << wakeButton), ESP_EXT1_WAKEUP_ALL_LOW);
 #elif defined(CONFIG_IDF_TARGET_ESP32S3)
     esp_sleep_enable_ext1_wakeup((1ULL << wakeButton), ESP_EXT1_WAKEUP_ANY_LOW);
-#else
-#error "Unsupported ESP32 variant"
 #endif
-
-    // Initialize DIO0 as an RTC pin
-    rtc_gpio_init((gpio_num_t)loraDio0);
-    rtc_gpio_set_direction((gpio_num_t)loraDio0, RTC_GPIO_MODE_INPUT_ONLY);
-
-    // Initialize WAKE_BUTTON as an RTC pin with pullup
-    rtc_gpio_init((gpio_num_t)wakeButton);
-    rtc_gpio_set_direction((gpio_num_t)wakeButton, RTC_GPIO_MODE_INPUT_ONLY);
-    rtc_gpio_pullup_en((gpio_num_t)wakeButton);
-    rtc_gpio_pulldown_dis((gpio_num_t)wakeButton);
 
     ESP_LOGI(TAG, "Wakeup configured - Button (GPIO %d LOW), LoRa DIO0 (GPIO %d HIGH)",
              wakeButton, loraDio0);
@@ -64,14 +80,15 @@ void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
 
 void PowerManager::enterDeepSleep()
 {
+
+    ESP_LOGI(TAG, "DIO0 state before sleep: %d", gpio_get_level((gpio_num_t)LORA_DIO0));
+
     ESP_LOGI(TAG, "Entering deep sleep...");
     ESP_LOGI(TAG, "Will wake on:");
     ESP_LOGI(TAG, "  - LoRa DIO0 going HIGH");
     ESP_LOGI(TAG, "  - Wake Button going LOW");
 
-    // Flush all pending UART output before sleeping
-    uart_wait_tx_done((uart_port_t)CONFIG_ESP_CONSOLE_UART_NUM, portMAX_DELAY);
-
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
     // Enter deep sleep - device will reset on wake
     esp_deep_sleep_start();
 }
