@@ -2,113 +2,114 @@
 #define MESSAGE_BUFFER_H
 
 #include "Protocol.h"
+#include "FirmwareConfig.h"
+#include <nvs_flash.h>
+#include <nvs.h>
+#include "esp_log.h"
 
 /**
  * @file MessageBuffer.h
- * @brief Simple fixed-size circular buffer for Message objects.
+ * @brief NVS-backed circular buffer for Message objects that persists across deep sleep
  *
- * The MessageBuffer is used to hold outbound LoRa messages while a BLE
- * connection is not available. It has a small fixed capacity and uses
- * a drop-oldest policy when full to avoid unbounded memory growth on the
- * embedded device.
+ * The MessageBuffer stores outbound LoRa messages in NVS (Non-Volatile Storage)
+ * while BLE is disconnected. Messages survive deep sleep and device resets.
+ * Uses a drop-oldest policy when full to avoid unbounded storage growth.
  */
 
 class MessageBuffer
 {
 public:
-    /**
-     * @brief Create an empty MessageBuffer.
-     */
-    MessageBuffer() : head(0), tail(0), count(0) {}
+    static constexpr size_t MAX_MESSAGES = BufferConstants::MAX_BUFFERED_MESSAGES;
+    static constexpr size_t MAX_MESSAGE_SIZE = BufferConstants::MAX_PROTOCOL_MESSAGE;
+    static constexpr const char *NVS_NAMESPACE = "msg_buffer";
+    static constexpr const char *NVS_KEY_COUNT = "count";
+    static constexpr const char *NVS_KEY_HEAD = "head";
+    static constexpr const char *NVS_KEY_TAIL = "tail";
+
+    MessageBuffer();
+    ~MessageBuffer();
 
     /**
-     * @brief Add a message to the buffer.
-     *
-     * If the buffer is full the oldest message is overwritten (drop-oldest).
-     * This makes the buffer suitable for best-effort telemetry where the most
-     * recent messages are preferred.
-     *
-     * @param msg Message to add (copied into internal storage)
+     * @brief Initialize NVS and load persisted messages
+     * Must be called once during setup() before using the buffer
+     * @return true if initialization successful
      */
-    void add(const Message &msg)
-    {
-        if (count < BufferConstants::MAX_BUFFERED_MESSAGES)
-        {
-            buffer[tail] = msg;
-            tail = (tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
-            count++;
-        }
-        else
-        {
-            // Buffer full - overwrite oldest message
-            buffer[tail] = msg;
-            tail = (tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
-            head = (head + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
-        }
-    }
+    bool begin();
 
     /**
-     * @brief Peek at the next (oldest) message without removing it.
-     *
-     * @param[out] msg Destination reference where the message will be copied.
-     * @return true if a message was returned, false if buffer was empty.
+     * @brief Add a message to the buffer (persists to NVS)
+     * 
+     * If buffer is full, oldest message is overwritten (drop-oldest policy).
+     * Message is serialized and stored in NVS flash.
+     * 
+     * @param msg Message to add
+     * @return true if message was added successfully
      */
-    bool peek(Message &msg) const
-    {
-        if (count == 0)
-        {
-            return false;
-        }
-
-        msg = buffer[head];
-        return true;
-    }
+    bool add(const Message &msg);
 
     /**
-     * @brief Remove the front (oldest) message from the buffer.
-     *
-     * Use this after peek() to implement peek-then-pop pattern for
-     * reliable message processing.
-     *
-     * @return true if a message was removed, false if buffer was empty.
+     * @brief Peek at the next (oldest) message without removing it
+     * 
+     * Reads message from NVS and deserializes it.
+     * 
+     * @param msg Output parameter for the message
+     * @return true if a message was retrieved, false if buffer is empty
      */
-    bool popFront()
-    {
-        if (count == 0)
-        {
-            return false;
-        }
-
-        head = (head + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
-        count--;
-        return true;
-    }
+    bool peek(Message &msg);
 
     /**
-     * @brief Number of messages currently stored.
-     * @return int Count of messages (0..MAX_MESSAGES)
+     * @brief Remove the front (oldest) message from the buffer
+     * 
+     * Deletes message from NVS and updates buffer state.
+     * Use after peek() for reliable message processing.
+     * 
+     * @return true if a message was removed, false if buffer is empty
      */
-    int getCount() const
-    {
-        return count;
-    }
+    bool popFront();
 
     /**
-     * @brief True if the buffer contains no messages.
+     * @brief Get number of messages in buffer
      */
-    bool isEmpty() const
-    {
-        return count == 0;
-    }
+    int getCount() const { return m_count; }
+
+    /**
+     * @brief Check if buffer is empty
+     */
+    bool isEmpty() const { return m_count == 0; }
+
+    /**
+     * @brief Check if buffer is full
+     */
+    bool isFull() const { return m_count >= (int)MAX_MESSAGES; }
+
+    /**
+     * @brief Clear all messages from buffer and NVS
+     */
+    void clear();
 
 private:
-    // Buffer capacity: 10 messages provides reasonable headroom for burst traffic
-    // Each Message is ~160 bytes, so 10 messages = ~1.6 KB RAM
-    // Drop-oldest policy when full prevents unbounded memory growth
-    Message buffer[BufferConstants::MAX_BUFFERED_MESSAGES];
-    int head;  // Index of next message to read
-    int tail;  // Index of next write position
-    int count; // Number of messages stored
+    nvs_handle_t m_nvsHandle;
+    int m_head;  // Index where next message will be written
+    int m_tail;  // Index of next message to read
+    int m_count; // Number of messages in buffer
+    bool m_initialized;
+
+    static const char *TAG;
+
+    /**
+     * @brief Load buffer state from NVS (head, tail, count)
+     */
+    void loadState();
+
+    /**
+     * @brief Save buffer state to NVS (head, tail, count)
+     */
+    void saveState();
+
+    /**
+     * @brief Generate NVS key for message at index
+     */
+    void getMessageKey(size_t index, char *keyBuf, size_t keyBufSize);
 };
 
 #endif // MESSAGE_BUFFER_H
