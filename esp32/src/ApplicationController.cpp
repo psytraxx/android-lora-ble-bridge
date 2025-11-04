@@ -97,10 +97,6 @@ void ApplicationController::processStateMachine()
     case AppState::CONNECTED_ACTIVE:
         handleConnectedActive();
         break;
-
-    case AppState::SLEEPING:
-        handleSleeping();
-        break;
     }
 }
 
@@ -118,8 +114,13 @@ void ApplicationController::handleDisconnectedAdvertising()
     unsigned long advertisingDuration = (esp_timer_get_time() / 1000ULL) - advertiseStartMillis;
     if (advertisingDuration >= PowerConstants::ADVERTISE_DURATION_MS)
     {
-        ESP_LOGI(TAG, "Advertising timeout (%d ms) - transitioning to sleep", PowerConstants::ADVERTISE_DURATION_MS);
-        transitionTo(AppState::SLEEPING);
+        ESP_LOGI(TAG, "Advertising timeout (%d ms) - entering deep sleep", PowerConstants::ADVERTISE_DURATION_MS);
+
+        // Stop advertising before sleep
+        bleManager->stopAdvertising();
+
+        // Enter deep sleep (does not return - device will reset on wake)
+        PowerManager::enterDeepSleep();
     }
 }
 
@@ -138,22 +139,33 @@ void ApplicationController::handleConnectedActive()
     }
 }
 
-void ApplicationController::handleSleeping()
+void ApplicationController::transitionTo(AppState newState)
 {
-    ESP_LOGI(TAG, "Entering light sleep");
+    if (state == newState)
+    {
+        return;
+    }
 
-    // Stop advertising before sleep
-    bleManager->stopAdvertising();
+    previousState = state;
+    state = newState;
 
-    // Refresh wakeup sources before sleep (required on some ESP32 variants)
-    PowerManager::refreshWakeupSources();
+    // Log state transition
+    ESP_LOGI(TAG, "State transition: %d → %d", (int)previousState, (int)newState);
 
-    // Enter light sleep (blocking call until wakeup)
-    PowerManager::enterLightSleep();
+    // State entry actions
+    switch (newState)
+    {
+    case AppState::DISCONNECTED_ADVERTISING:
+        // Reset advertising timer so it will restart fresh
+        advertiseStartMillis = 0;
+        break;
 
-    // Woke up - transition back to advertising
-    ESP_LOGI(TAG, "Woke from sleep, restarting advertising");
-    transitionTo(AppState::DISCONNECTED_ADVERTISING);
+    case AppState::CONNECTED_ACTIVE:
+        // Stop advertising when connected
+        bleManager->stopAdvertising();
+        lastActivityMillis = esp_timer_get_time() / 1000ULL;
+        break;
+    }
 }
 
 void ApplicationController::processBleToLoraQueue()
@@ -303,39 +315,5 @@ int ApplicationController::getLoopDelay() const
     else
     {
         return LoopConstants::IDLE_DELAY_MS;
-    }
-}
-
-void ApplicationController::transitionTo(AppState newState)
-{
-    if (state == newState)
-    {
-        return;
-    }
-
-    previousState = state;
-    state = newState;
-
-    // Log state transition
-    ESP_LOGI(TAG, "State transition: %d → %d", (int)previousState, (int)newState);
-
-    // State entry actions
-    switch (newState)
-    {
-    case AppState::DISCONNECTED_ADVERTISING:
-        // Reset advertising timer so it will restart fresh
-        advertiseStartMillis = 0;
-        break;
-
-    case AppState::CONNECTED_ACTIVE:
-        // Stop advertising when connected
-        bleManager->stopAdvertising();
-        lastActivityMillis = esp_timer_get_time() / 1000ULL;
-        break;
-
-    case AppState::SLEEPING:
-        // Sleep will be coordinated by main loop
-        bleManager->stopAdvertising();
-        break;
     }
 }

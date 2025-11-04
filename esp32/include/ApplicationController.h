@@ -17,12 +17,17 @@
  *  - Activity tracking and inactivity timeout enforcement
  *  - Advertising duration policies
  *  - Android BLE stack setup delays
+ *  - Deep sleep triggering (device resets on wake)
  *
  * Design Goals:
  *  - Single source of truth for application state
  *  - Clear state machine with explicit transitions
  *  - Decoupled from hardware details (power, GPIO)
  *  - Testable business logic
+ *
+ * Note: Deep sleep causes device reset, so there is no SLEEPING state.
+ * When sleep conditions are met, the device enters deep sleep directly
+ * and execution restarts from setup() on wake.
  */
 
 /// Application state machine states
@@ -32,10 +37,7 @@ enum class AppState : uint8_t
     DISCONNECTED_ADVERTISING,
 
     /// BLE connected, actively processing messages (recent activity)
-    CONNECTED_ACTIVE,
-
-    /// In light sleep mode, waiting for GPIO wakeup (button or LoRa)
-    SLEEPING
+    CONNECTED_ACTIVE
 };
 
 /// Events that trigger state transitions
@@ -44,9 +46,8 @@ enum class AppEvent : uint8_t
     BLE_CONNECTED,       /// Android connected to BLE
     BLE_DISCONNECTED,    /// Android disconnected from BLE
     ACTIVITY_DETECTED,   /// BLE write or LoRa packet received
-    TIMEOUT_ADVERTISING, /// Advertising duration expired (30s)
-    TIMEOUT_INACTIVITY,  /// Inactivity timeout expired (60s)
-    WAKEUP_FROM_SLEEP    /// GPIO wakeup (button or LoRa interrupt)
+    TIMEOUT_ADVERTISING, /// Advertising duration expired (30s) - triggers deep sleep
+    TIMEOUT_INACTIVITY   /// Inactivity timeout expired (60s)
 };
 
 /**
@@ -55,10 +56,11 @@ enum class AppEvent : uint8_t
  * Responsibilities:
  *  - Manage application state transitions
  *  - Coordinate message buffering when BLE disconnected
- *  - Enforce advertising duration policy (30s before sleep)
+ *  - Enforce advertising duration policy (30s before deep sleep)
  *  - Enforce inactivity timeout policy (60s before disconnect)
  *  - Handle Android BLE stack setup delays (1000ms)
  *  - Control loop delay (10ms active / 500ms idle)
+ *  - Trigger deep sleep when appropriate (does not return)
  *
  * This class owns the application logic but delegates:
  *  - Hardware power control to PowerManager
@@ -161,11 +163,6 @@ private:
      * @brief Handle CONNECTED_ACTIVE state
      */
     void handleConnectedActive();
-
-    /**
-     * @brief Handle SLEEPING state
-     */
-    void handleSleeping();
 
     /**
      * @brief Process BLE → LoRa message queue

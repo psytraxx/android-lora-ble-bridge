@@ -8,7 +8,7 @@
 //! - LoRa radio for long-range communication (5-10 km typical)
 //! - Message queue for inter-task communication
 //! - Message buffering (up to 10 messages) when BLE disconnected
-//! - Light sleep for power optimization
+//! - Deep sleep for power optimization
 //! - Interrupt-driven LoRa reception (always listening)
 #include "BLEManager.h"
 #include "LoRaManager.h"
@@ -24,6 +24,9 @@
 #include <esp_wifi.h>
 #include <esp_bt.h>
 #include "esp_log.h"
+
+// RTC memory - persists across deep sleep
+RTC_DATA_ATTR int bootCount = 0;
 
 // Component instances
 LoRaManager *loraManager;
@@ -54,7 +57,13 @@ static const char *TAG = "Main";
  */
 void setup()
 {
+    bootCount++; // Increment boot counter (persists in RTC memory)
+
     ESP_LOGI(TAG, "Disabling WiFi and Bluetooth Classic for power savings");
+
+    // Print wakeup reason and boot count
+    ESP_LOGI(TAG, "Boot count: %d", bootCount);
+    PowerManager::printWakeupReason();
 
     // Configure power management (CPU frequency scaling and light sleep)
     PowerManager::configurePowerManagement();
@@ -274,6 +283,14 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
 #ifdef LED_PIN
         ledManager.blink();
 #endif
+        break;
+    }
+
+    case MessageType::WakeUp:
+    {
+        ESP_LOGI(TAG, "WakeUp message received");
+        // Wake-up messages don't need to be forwarded to BLE
+        // They are used to wake devices from deep sleep via LoRa
         break;
     }
     }
