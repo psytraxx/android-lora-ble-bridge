@@ -461,6 +461,35 @@ void setup()
 
     delay(2000);
 
+    // Send WakeUp message to announce presence to other devices
+    Serial.println("Sending WakeUp message...");
+    Message wakeUpMsg = Message::createWakeUp();
+    uint8_t wakeUpBuf[64];
+    int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
+
+    if (wakeUpLen > 0)
+    {
+        // Clear RX interrupt handler to allow DIO0 to signal TX completion
+        radio.clearPacketReceivedAction();
+
+        int state = radio.transmit(wakeUpBuf, wakeUpLen);
+
+        if (state == RADIOLIB_ERR_NONE)
+        {
+            Serial.println("WakeUp message sent successfully");
+            display.printLine("Announced presence");
+        }
+        else
+        {
+            Serial.print("Failed to send WakeUp message, code ");
+            Serial.println(state);
+        }
+
+        // Restore RX interrupt handler and return to RX mode
+        radio.setPacketReceivedAction(onLoRaReceive);
+        radio.startReceive();
+    }
+
     // Restore any messages persisted across light sleep
     restorePersistentMessages();
 
@@ -500,6 +529,10 @@ void loop()
             // Button released - treat as short press
             buttonPressed = false;
             lastButtonPressTime = millis();
+
+            // Clear button indicator
+            int indicatorY = display.height() - BUTTON_INDICATOR_Y_OFFSET;
+            display.fillRect(0, indicatorY, display.width(), 16, BLACK);
 
             // Short press - send test message when awake
             Serial.println("Button short press - sending test message");
