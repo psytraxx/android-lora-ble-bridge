@@ -10,26 +10,13 @@ class DisplayManager
 public:
     DisplayManager(int dataPin0, int dataPin1, int dataPin2, int dataPin3, int dataPin4, int dataPin5, int dataPin6, int dataPin7,
                    int writePin, int readPin, int dataCommandPin, int chipSelectPin, int resetPin, int backlightPin)
-        : blPin(backlightPin), currentBrightness(255)
+        : blPin(backlightPin)
     {
-        // Configure PWM for backlight control (ESP32 Arduino API)
-        // Use a dedicated LEDC channel. ledcAttach(backlightPin, ...) is not part of
-        // the ESP32 Arduino API; use ledcSetup + ledcAttachPin instead.
-        const int DEFAULT_BL_CH = 0; /* use channel 0 by default */
-        blChannel = DEFAULT_BL_CH;
-        ledcSetup(blChannel, 5000, 8); // channel, frequency (Hz), resolution (bits)
-        ledcAttachPin(backlightPin, blChannel);
-        ledcWrite(blChannel, 255); // Full brightness initially
 
         Arduino_DataBus *bus = new Arduino_ESP32PAR8Q(dataCommandPin, chipSelectPin, writePin, readPin,
                                                       dataPin0, dataPin1, dataPin2, dataPin3,
                                                       dataPin4, dataPin5, dataPin6, dataPin7);
         gfx = new Arduino_ST7789(bus, resetPin, backlightPin, true, 170, 320, 35, 0, 35, 0); // Adjust offsets as needed
-
-        // Save reset pin for power control
-        resetPinNum = resetPin;
-        pinMode(resetPinNum, OUTPUT);
-        digitalWrite(resetPinNum, HIGH); // release reset
     }
 
     /**
@@ -43,6 +30,9 @@ public:
         gfx->setTextColor(WHITE, BLACK); // Set text color (foreground, background)
         setFontGeneral();                // Set default font for general text
         gfx->setCursor(0, 0);
+
+        pinMode(blPin, OUTPUT);
+        digitalWrite(blPin, HIGH);
     }
 
     /**
@@ -160,76 +150,9 @@ public:
         return gfx->height();
     }
 
-    /**
-     * @brief Sets the backlight brightness (0-255).
-     * @param brightness The brightness level (0 = off, 255 = full brightness).
-     */
-    void setBrightness(uint8_t brightness)
-    {
-        currentBrightness = brightness;
-        ledcWrite(blChannel, brightness);
-    }
-
-    /**
-     * @brief Gets the current backlight brightness.
-     * @return Current brightness level (0-255).
-     */
-    uint8_t getBrightness()
-    {
-        return currentBrightness;
-    }
-
-    /**
-     * @brief Power off the display (use reset line and turn backlight off).
-     * This explicitly powers down the display controller so nothing is visible
-     * even if the backlight edges remain powered. The previous brightness
-     * is saved and restored on powerOn().
-     */
-    void powerOff()
-    {
-        if (!displayPowered)
-            return;
-        // Save current brightness so we can restore later
-        savedBrightness = currentBrightness;
-        setBrightness(0);
-        // Assert reset to power down panel/controller
-        digitalWrite(resetPinNum, LOW);
-        displayPowered = false;
-    }
-
-    /**
-     * @brief Power on the display (release reset and re-initialize display).
-     */
-    void powerOn()
-    {
-        if (displayPowered)
-            return;
-        // Release reset and give the panel time to initialize
-        digitalWrite(resetPinNum, HIGH);
-        delay(50);
-        // Re-init the gfx driver to ensure internal state is correct
-        gfx->begin();
-        gfx->setRotation(1);
-        gfx->fillScreen(BLACK);
-        setTextColor(WHITE, BLACK);
-        setFontGeneral();
-        // Restore brightness
-        setBrightness(savedBrightness > 0 ? savedBrightness : 255);
-        displayPowered = true;
-    }
-
 private:
-    Arduino_GFX *gfx;          // Pointer to Arduino_GFX object
-    int blPin;                 // Backlight pin
-    uint8_t currentBrightness; // Current brightness level
-    int blChannel;             // LEDC channel used for backlight PWM
-
-    // Reset pin used for hardware power control of the display
-    int resetPinNum;
-    // Track whether display controller is powered (reset released)
-    bool displayPowered = true;
-    // Saved brightness for restore after power on
-    uint8_t savedBrightness = 255;
+    Arduino_GFX *gfx; // Pointer to Arduino_GFX object
+    int blPin;        // Backlight pin
 
     /**
      * @brief Sets the text size.

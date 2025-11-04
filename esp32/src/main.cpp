@@ -8,7 +8,7 @@
 //! - LoRa radio for long-range communication (5-10 km typical)
 //! - Message queue for inter-task communication
 //! - Message buffering (up to 10 messages) when BLE disconnected
-//! - Light sleep for power optimization
+//! - Deep sleep for power optimization
 //! - Interrupt-driven LoRa reception (always listening)
 #include "BLEManager.h"
 #include "LoRaManager.h"
@@ -24,6 +24,9 @@
 #include <esp_wifi.h>
 #include <esp_bt.h>
 #include "esp_log.h"
+
+// RTC memory - persists across deep sleep
+RTC_DATA_ATTR int bootCount = 0;
 
 // Component instances
 LoRaManager *loraManager;
@@ -46,6 +49,7 @@ ApplicationController appController;
 // Forward declaration
 void onLoRaPacketReceived(const LoRaPacket &packet);
 void onLoRaTransmitComplete(bool success);
+void sendWakeUpMessage();
 
 static const char *TAG = "Main";
 
@@ -54,7 +58,13 @@ static const char *TAG = "Main";
  */
 void setup()
 {
+    bootCount++; // Increment boot counter (persists in RTC memory)
+
     ESP_LOGI(TAG, "Disabling WiFi and Bluetooth Classic for power savings");
+
+    // Print wakeup reason and boot count
+    ESP_LOGI(TAG, "Boot count: %d", bootCount);
+    PowerManager::printWakeupReason();
 
     // Configure power management (CPU frequency scaling and light sleep)
     PowerManager::configurePowerManagement();
@@ -142,7 +152,7 @@ void setup()
     bleManager->startAdvertising();
 
     // Initialize LoRa Manager
-    loraManager = new LoRaManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0);
+    loraManager = new LoRaManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_BUSY);
 
     // Configure LoRa parameters
     LoRaConfig loraConfig = {
@@ -189,6 +199,48 @@ void setup()
 #endif
 
     ESP_LOGI(TAG, "All systems initialized");
+
+    // Process external wakeup event and send WakeUp message if appropriate
+    // PowerManager determines when to call sendWakeUpMessage() based on wake reason
+    PowerManager::onExternalWakeup(sendWakeUpMessage);
+}
+
+/**
+ * @brief Send a wake-up message via LoRa to announce device presence
+ * Called after button wake or cold boot, but NOT after LoRa wake (prevents loops)
+ */
+void sendWakeUpMessage()
+{
+    Message wakeUpMsg = Message::createWakeUp();
+    uint8_t buffer[64]; // WakeUp message is only 1 byte, but use larger buffer for safety
+    int msgLen = wakeUpMsg.serialize(buffer, sizeof(buffer));
+
+    if (msgLen > 0)
+    {
+        ESP_LOGI(TAG, "Serialized WakeUp message (%d bytes)", msgLen);
+
+        // Send via LoRa if initialized
+        if (loraManager && loraManager->isInitialized())
+        {
+            // Small delay to ensure LoRa is ready after initialization
+            vTaskDelay(pdMS_TO_TICKS(50));
+
+            // Reset watchdog before transmission
+            esp_task_wdt_reset();
+
+            // Start non-blocking transmission
+            loraManager->startTransmit(buffer, msgLen);
+            ESP_LOGI(TAG, "WakeUp message sent via LoRa");
+        }
+        else
+        {
+            ESP_LOGW(TAG, "LoRa not initialized, cannot send WakeUp");
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Failed to serialize WakeUp message");
+    }
 }
 
 /**
@@ -274,6 +326,14 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
 #ifdef LED_PIN
         ledManager.blink();
 #endif
+        break;
+    }
+
+    case MessageType::WakeUp:
+    {
+        ESP_LOGI(TAG, "WakeUp message received");
+        // Wake-up messages don't need to be forwarded to BLE
+        // They are used to wake devices from deep sleep via LoRa
         break;
     }
     }

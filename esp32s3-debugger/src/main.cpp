@@ -17,6 +17,8 @@
 #include <esp_task_wdt.h>
 #include <freertos/task.h>
 #include <DisplayManager.h>
+#include <driver/rtc_io.h>
+#include <esp_sleep.h>
 
 // --- Pin Definitions ---
 /**
@@ -135,37 +137,43 @@ void onLoRaReceive(void)
 }
 
 /**
- * @brief Configure wake-up sources for light sleep
+ * @brief Enter deep sleep mode with DIO0 and button wake-up
+ * Device will wake up when:
+ * - LoRa DIO0 pin goes HIGH (incoming message), or
+ * - Wake button is pressed (goes LOW)
  */
-void configureLightSleepWakeup()
+void goToDeepSleep()
 {
-    // Configure button wake-up (active LOW - pressed when connected to GND)
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_BUTTON, 0); // Wake on button press
+    Serial.println("Entering deep sleep...");
+    Serial.println("Will wake on:");
+    Serial.println("  - LoRa DIO0 (GPIO 3) going HIGH");
+    Serial.println("  - Wake Button (GPIO 14) going LOW");
 
-    // Also enable LoRa DIO0 as an ext1 wake source so incoming packets wake from light sleep
-    esp_sleep_enable_ext1_wakeup(1ULL << LORA_DIO0, ESP_EXT1_WAKEUP_ANY_HIGH);
+    // Power off peripherals during sleep
+    digitalWrite(POWER_ON, LOW);
 
-    Serial.println("Configured light sleep wake-up sources:");
-    Serial.println("  - Wake Button (GPIO 14) - active LOW");
-    Serial.println("  - LoRa DIO0 (GPIO 3) - any HIGH");
-}
+    // Configure wake-up source: DIO0 going HIGH (use ext0)
+    esp_sleep_enable_ext0_wakeup((gpio_num_t)LORA_DIO0, 1);
 
-/**
- * @brief Enter light sleep mode (triggered by long button press)
- */
-void enterLightSleep()
-{
-    // Configure wake-up sources (button and LoRa DIO0)
-    configureLightSleepWakeup();
+    // Configure wake-up source: Button going LOW (use ext1)
+    // ext1 allows multiple pins with logic level (ANY_LOW or ALL_HIGH)
+    esp_sleep_enable_ext1_wakeup((1ULL << WAKE_BUTTON), ESP_EXT1_WAKEUP_ANY_LOW);
 
-    // Ensure the display is fully powered off so nothing is visible
-    // while sleeping.
-    display.clearScreen();
-    display.powerOff();
+    // Initialize DIO0 as an RTC pin before going to sleep
+    rtc_gpio_init((gpio_num_t)LORA_DIO0);
+    rtc_gpio_set_direction((gpio_num_t)LORA_DIO0, RTC_GPIO_MODE_INPUT_ONLY);
 
-    // Flush serial and enter light sleep immediately
+    // Initialize WAKE_BUTTON as an RTC pin with pullup
+    rtc_gpio_init((gpio_num_t)WAKE_BUTTON);
+    rtc_gpio_set_direction((gpio_num_t)WAKE_BUTTON, RTC_GPIO_MODE_INPUT_ONLY);
+    rtc_gpio_pullup_en((gpio_num_t)WAKE_BUTTON);
+    rtc_gpio_pulldown_dis((gpio_num_t)WAKE_BUTTON);
+
+    // Flush serial before sleeping
     Serial.flush();
-    esp_light_sleep_start();
+
+    // Enter deep sleep - device will reset on wake
+    esp_deep_sleep_start();
 }
 
 /**
@@ -181,10 +189,10 @@ void printWakeupReason()
     switch (wakeup_reason)
     {
     case ESP_SLEEP_WAKEUP_EXT0:
-        display.printLine("Woke: Button (Light Sleep)");
+        display.printLine("Woke: LoRa DIO0 (Deep Sleep)");
         break;
     case ESP_SLEEP_WAKEUP_EXT1:
-        display.printLine("Woke: LoRa Message (Light Sleep)");
+        display.printLine("Woke: Button (Deep Sleep)");
         break;
     case ESP_SLEEP_WAKEUP_TIMER:
         display.printLine("Woke: Timer");
@@ -341,8 +349,13 @@ void setup()
 
     bootCount++; // Increment boot counter (persists in RTC memory)
 
+    // Power on peripherals first thing after wake-up
     pinMode(POWER_ON, OUTPUT);
     digitalWrite(POWER_ON, HIGH);
+
+    // Wait for power to stabilize before initializing peripherals
+    // Critical for battery operation where voltage may take time to settle
+    delay(200);
 
     // Configure buttons as input with pull-up
     pinMode(WAKE_BUTTON, INPUT_PULLUP);
@@ -352,8 +365,6 @@ void setup()
     display.printLine("TFT Initialized.");
 
     printWakeupReason();
-    // Ensure display is powered on after boot/wake
-    display.powerOn();
 
 // Set CPU frequency for power savings (configurable via build flag)
 #ifndef CPU_FREQ_MHZ
@@ -472,9 +483,6 @@ void loop()
         buttonPressed = true;
         lastButtonPressTime = millis();
         Serial.println("Button pressed");
-
-        // Ensure display is powered on before writing indicator
-        display.powerOn();
 
         // Show indicator on display (above status line)
         int indicatorY = display.height() - BUTTON_INDICATOR_Y_OFFSET;
@@ -604,8 +612,6 @@ void loop()
 
                     summary = displayText;
 
-                    // Ensure display is powered on before updating
-                    display.powerOn();
                     addMessageToDisplay(displayText, packet.rssi, packet.snr);
 
                     // Schedule ACK to send after delay (non-blocking)
@@ -633,9 +639,17 @@ void loop()
                     String ackDisplay = "ACK #";
                     ackDisplay += String(msg.ackData.seq);
                     summary = ackDisplay;
-                    // Ensure display is powered on before updating
-                    display.powerOn();
                     addMessageToDisplay(ackDisplay, packet.rssi, packet.snr);
+                    break;
+                }
+
+                case MessageType::WakeUp:
+                {
+                    Serial.println("Received WakeUp message");
+                    // WakeUp messages are used to wake the device from sleep
+                    // The device is already awake if we received this, so just log it
+                    summary = "WakeUp signal";
+                    addMessageToDisplay("WakeUp signal received", packet.rssi, packet.snr);
                     break;
                 }
                 }
@@ -644,8 +658,6 @@ void loop()
             {
                 Serial.println("Failed to deserialize LoRa message");
                 summary = "ERROR: Decode failed";
-                // Ensure display is powered on before updating
-                display.powerOn();
                 addMessageToDisplay("ERROR: Decode failed", packet.rssi, packet.snr);
             }
 
@@ -717,8 +729,8 @@ void loop()
     unsigned long timeSinceActivity = millis() - lastActivityTime;
     if (timeSinceActivity > SLEEP_TIMEOUT)
     {
-        Serial.println("Inactivity timeout - entering light sleep mode");
-        enterLightSleep();
+        Serial.println("Inactivity timeout - entering deep sleep mode");
+        goToDeepSleep();
         // Device will reset on wake
     }
 
