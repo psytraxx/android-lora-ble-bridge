@@ -39,7 +39,14 @@ void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
 
     // Configure wake-up source: Button going LOW (use ext1)
     // ext1 allows multiple pins with logic level (ALL_LOW or ANY_HIGH)
+
+#if defined(CONFIG_IDF_TARGET_ESP32)
     esp_sleep_enable_ext1_wakeup((1ULL << wakeButton), ESP_EXT1_WAKEUP_ALL_LOW);
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
+    esp_sleep_enable_ext1_wakeup((1ULL << wakeButton), ESP_EXT1_WAKEUP_ANY_LOW);
+#else
+#error "Unsupported ESP32 variant"
+#endif
 
     // Initialize DIO0 as an RTC pin
     rtc_gpio_init((gpio_num_t)loraDio0);
