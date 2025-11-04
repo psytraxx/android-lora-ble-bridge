@@ -149,10 +149,6 @@ void goToDeepSleep()
     Serial.println("  - LoRa DIO0 (GPIO 3) going HIGH");
     Serial.println("  - Wake Button (GPIO 14) going LOW");
 
-    // Power off display and peripherals to save power
-    display.clearScreen();
-    display.powerOff();
-
     // Power off peripherals during sleep
     digitalWrite(POWER_ON, LOW);
 
@@ -366,8 +362,6 @@ void setup()
 
     // Initialize the display for visual feedback
     display.setup();
-    // Ensure display is powered on immediately after setup, before any writes
-    display.powerOn();
     display.printLine("TFT Initialized.");
 
     printWakeupReason();
@@ -489,9 +483,6 @@ void loop()
         buttonPressed = true;
         lastButtonPressTime = millis();
         Serial.println("Button pressed");
-
-        // Ensure display is powered on before writing indicator
-        display.powerOn();
 
         // Show indicator on display (above status line)
         int indicatorY = display.height() - BUTTON_INDICATOR_Y_OFFSET;
@@ -621,8 +612,6 @@ void loop()
 
                     summary = displayText;
 
-                    // Ensure display is powered on before updating
-                    display.powerOn();
                     addMessageToDisplay(displayText, packet.rssi, packet.snr);
 
                     // Schedule ACK to send after delay (non-blocking)
@@ -650,8 +639,6 @@ void loop()
                     String ackDisplay = "ACK #";
                     ackDisplay += String(msg.ackData.seq);
                     summary = ackDisplay;
-                    // Ensure display is powered on before updating
-                    display.powerOn();
                     addMessageToDisplay(ackDisplay, packet.rssi, packet.snr);
                     break;
                 }
@@ -662,7 +649,6 @@ void loop()
                     // WakeUp messages are used to wake the device from sleep
                     // The device is already awake if we received this, so just log it
                     summary = "WakeUp signal";
-                    display.powerOn();
                     addMessageToDisplay("WakeUp signal received", packet.rssi, packet.snr);
                     break;
                 }
@@ -672,8 +658,6 @@ void loop()
             {
                 Serial.println("Failed to deserialize LoRa message");
                 summary = "ERROR: Decode failed";
-                // Ensure display is powered on before updating
-                display.powerOn();
                 addMessageToDisplay("ERROR: Decode failed", packet.rssi, packet.snr);
             }
 

@@ -37,6 +37,11 @@ public:
      */
     void setup()
     {
+        // Re-initialize LEDC for backlight (critical after deep sleep)
+        ledcSetup(blChannel, 5000, 8);
+        ledcAttachPin(blPin, blChannel);
+        ledcWrite(blChannel, 255); // Full brightness
+
         // Ensure reset line is high and display is ready
         digitalWrite(resetPinNum, HIGH);
         delay(120); // Give display time to stabilize after power-on
@@ -186,46 +191,6 @@ public:
         return currentBrightness;
     }
 
-    /**
-     * @brief Power off the display (use reset line and turn backlight off).
-     * This explicitly powers down the display controller so nothing is visible
-     * even if the backlight edges remain powered. The previous brightness
-     * is saved and restored on powerOn().
-     */
-    void powerOff()
-    {
-        if (!displayPowered)
-            return;
-        // Save current brightness so we can restore later
-        savedBrightness = currentBrightness;
-        setBrightness(0);
-        // Assert reset to power down panel/controller
-        digitalWrite(resetPinNum, LOW);
-        displayPowered = false;
-    }
-
-    /**
-     * @brief Power on the display (release reset and re-initialize display).
-     */
-    void powerOn()
-    {
-        if (displayPowered)
-            return;
-        // Release reset and give the panel time to initialize
-        // Using longer delay for battery operation stability
-        digitalWrite(resetPinNum, HIGH);
-        delay(120); // Increased from 50ms for better battery operation
-        // Re-init the gfx driver to ensure internal state is correct
-        gfx->begin();
-        gfx->setRotation(1);
-        gfx->fillScreen(BLACK);
-        setTextColor(WHITE, BLACK);
-        setFontGeneral();
-        // Restore brightness
-        setBrightness(savedBrightness > 0 ? savedBrightness : 255);
-        displayPowered = true;
-    }
-
 private:
     Arduino_GFX *gfx;          // Pointer to Arduino_GFX object
     int blPin;                 // Backlight pin
@@ -236,8 +201,6 @@ private:
     int resetPinNum;
     // Track whether display controller is powered (reset released)
     bool displayPowered = true;
-    // Saved brightness for restore after power on
-    uint8_t savedBrightness = 255;
 
     /**
      * @brief Sets the text size.
