@@ -10,26 +10,13 @@ class DisplayManager
 public:
     DisplayManager(int dataPin0, int dataPin1, int dataPin2, int dataPin3, int dataPin4, int dataPin5, int dataPin6, int dataPin7,
                    int writePin, int readPin, int dataCommandPin, int chipSelectPin, int resetPin, int backlightPin)
-        : blPin(backlightPin), currentBrightness(255)
+        : blPin(backlightPin)
     {
-        // Configure PWM for backlight control (ESP32 Arduino API)
-        // Use a dedicated LEDC channel. ledcAttach(backlightPin, ...) is not part of
-        // the ESP32 Arduino API; use ledcSetup + ledcAttachPin instead.
-        const int DEFAULT_BL_CH = 0; /* use channel 0 by default */
-        blChannel = DEFAULT_BL_CH;
-        ledcSetup(blChannel, 5000, 8); // channel, frequency (Hz), resolution (bits)
-        ledcAttachPin(backlightPin, blChannel);
-        ledcWrite(blChannel, 255); // Full brightness initially
 
         Arduino_DataBus *bus = new Arduino_ESP32PAR8Q(dataCommandPin, chipSelectPin, writePin, readPin,
                                                       dataPin0, dataPin1, dataPin2, dataPin3,
                                                       dataPin4, dataPin5, dataPin6, dataPin7);
         gfx = new Arduino_ST7789(bus, resetPin, backlightPin, true, 170, 320, 35, 0, 35, 0); // Adjust offsets as needed
-
-        // Save reset pin for power control
-        resetPinNum = resetPin;
-        pinMode(resetPinNum, OUTPUT);
-        digitalWrite(resetPinNum, HIGH); // release reset
     }
 
     /**
@@ -37,15 +24,6 @@ public:
      */
     void setup()
     {
-        // Re-initialize LEDC for backlight (critical after deep sleep)
-        ledcSetup(blChannel, 5000, 8);
-        ledcAttachPin(blPin, blChannel);
-        ledcWrite(blChannel, 255); // Full brightness
-
-        // Ensure reset line is high and display is ready
-        digitalWrite(resetPinNum, HIGH);
-        delay(120); // Give display time to stabilize after power-on
-
         gfx->begin();
         gfx->setRotation(1); // Adjust rotation as needed (0-3)
         gfx->fillScreen(BLACK);
@@ -53,8 +31,8 @@ public:
         setFontGeneral();                // Set default font for general text
         gfx->setCursor(0, 0);
 
-        // Mark display as powered on
-        displayPowered = true;
+        pinMode(blPin, OUTPUT);
+        digitalWrite(blPin, HIGH);
     }
 
     /**
@@ -172,35 +150,9 @@ public:
         return gfx->height();
     }
 
-    /**
-     * @brief Sets the backlight brightness (0-255).
-     * @param brightness The brightness level (0 = off, 255 = full brightness).
-     */
-    void setBrightness(uint8_t brightness)
-    {
-        currentBrightness = brightness;
-        ledcWrite(blChannel, brightness);
-    }
-
-    /**
-     * @brief Gets the current backlight brightness.
-     * @return Current brightness level (0-255).
-     */
-    uint8_t getBrightness()
-    {
-        return currentBrightness;
-    }
-
 private:
-    Arduino_GFX *gfx;          // Pointer to Arduino_GFX object
-    int blPin;                 // Backlight pin
-    uint8_t currentBrightness; // Current brightness level
-    int blChannel;             // LEDC channel used for backlight PWM
-
-    // Reset pin used for hardware power control of the display
-    int resetPinNum;
-    // Track whether display controller is powered (reset released)
-    bool displayPowered = true;
+    Arduino_GFX *gfx; // Pointer to Arduino_GFX object
+    int blPin;        // Backlight pin
 
     /**
      * @brief Sets the text size.
