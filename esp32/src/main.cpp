@@ -198,6 +198,69 @@ void setup()
 #endif
 
     ESP_LOGI(TAG, "All systems initialized");
+
+    // Send wake-up message based on wake reason
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+    
+    switch (wakeup_reason)
+    {
+    case ESP_SLEEP_WAKEUP_EXT0:
+        // Woke up from LoRa interrupt (DIO0 HIGH) - another device sent us a message
+        // DON'T send WakeUp to avoid infinite loop (their message woke us, don't echo back)
+        ESP_LOGI(TAG, "Woke from LoRa signal - NOT sending WakeUp (prevents loop)");
+        break;
+        
+    case ESP_SLEEP_WAKEUP_EXT1:
+        // Woke up from button press - user initiated wake
+        // SEND WakeUp to announce our presence to other devices
+        ESP_LOGI(TAG, "Woke from button press - sending WakeUp message");
+        sendWakeUpMessage();
+        break;
+        
+    default:
+        // Cold boot or other wake reason - send WakeUp to announce presence
+        ESP_LOGI(TAG, "Cold boot - sending WakeUp message");
+        sendWakeUpMessage();
+        break;
+    }
+}
+
+/**
+ * @brief Send a wake-up message via LoRa to announce device presence
+ * Called after button wake or cold boot, but NOT after LoRa wake (prevents loops)
+ */
+void sendWakeUpMessage()
+{
+    Message wakeUpMsg = Message::createWakeUp();
+    uint8_t buffer[64]; // WakeUp message is only 1 byte, but use larger buffer for safety
+    int msgLen = wakeUpMsg.serialize(buffer, sizeof(buffer));
+    
+    if (msgLen > 0)
+    {
+        ESP_LOGI(TAG, "Serialized WakeUp message (%d bytes)", msgLen);
+        
+        // Send via LoRa if initialized
+        if (loraManager && loraManager->isInitialized())
+        {
+            // Small delay to ensure LoRa is ready after initialization
+            vTaskDelay(pdMS_TO_TICKS(50));
+            
+            // Reset watchdog before transmission
+            esp_task_wdt_reset();
+            
+            // Start non-blocking transmission
+            loraManager->startTransmit(buffer, msgLen);
+            ESP_LOGI(TAG, "WakeUp message sent via LoRa");
+        }
+        else
+        {
+            ESP_LOGW(TAG, "LoRa not initialized, cannot send WakeUp");
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Failed to serialize WakeUp message");
+    }
 }
 
 /**
