@@ -1,0 +1,15 @@
+# esp32/src/idf_component.yml
+# ESP-IDF component manifest for custom LoRa BLE bridge firmware
+
+dependencies:
+  idf: ">=5.5"
+
+description: |
+  ESP32 firmware component for LoRa BLE bridge.
+  Handles BLE server, LoRa radio, deep sleep, and custom protocol v3.0.
+
+targets:
+  - esp32
+  - esp32s3
+
+version: "1.0.0"

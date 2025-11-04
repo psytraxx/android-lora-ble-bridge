@@ -99,6 +99,18 @@ void setup()
 
     ESP_LOGI(TAG, "ESP32 LoRa-BLE Bridge starting");
 
+    // Initialize message buffer (NVS-backed, persists across deep sleep)
+    if (!messageBuffer.begin())
+    {
+        ESP_LOGE(TAG, "Failed to initialize message buffer. Halting execution.");
+        while (1)
+        {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
+
+    ESP_LOGI(TAG, "Message buffer initialized with %d persisted messages", messageBuffer.getCount());
+
     // Create message queues
     bleToLoraQueue = xQueueCreate(QueueConstants::BLE_TO_LORA_SIZE, sizeof(Message));
     loraToBleQueue = xQueueCreate(QueueConstants::LORA_TO_BLE_SIZE, sizeof(Message));
