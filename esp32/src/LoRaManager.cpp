@@ -13,13 +13,14 @@ LoRaManager *LoRaManager::instance = nullptr;
 
 static const char *TAG = "LORA";
 
-LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0)
+LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy)
     : pinSCK(sck),
       pinMISO(miso),
       pinMOSI(mosi),
       pinSS(ss),
       pinRST(rst),
       pinDIO0(dio0),
+      pinBusy(busy),
       radio(nullptr),
       state(STATE_UNINITIALIZED),
       rxInterruptCount(0),
@@ -42,7 +43,7 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0)
 #if defined(RADIO_SX1278)
     radio = new SX1278(new Module(hal, pinSS, pinDIO0, pinRST));
 #elif defined(RADIO_SX1262)
-    radio = new SX1262(new Module(hal, pinSS, pinDIO0, pinRST));
+    radio = new SX1262(new Module(hal, pinSS, pinDIO0, pinRST, pinBusy));
 #else
 #error "No supported RADIO defined! Please define RADIO_SX1278 or RADIO_SX1262 in platformio.ini"
 #endif

@@ -152,7 +152,7 @@ void setup()
     bleManager->startAdvertising();
 
     // Initialize LoRa Manager
-    loraManager = new LoRaManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0);
+    loraManager = new LoRaManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_BUSY);
 
     // Configure LoRa parameters
     LoRaConfig loraConfig = {

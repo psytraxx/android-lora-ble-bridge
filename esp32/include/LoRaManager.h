@@ -72,8 +72,9 @@ public:
      * @param ss SPI slave select pin
      * @param rst Reset pin
      * @param dio0 DIO0 interrupt pin
+     * @param busy Busy pin (for SX126x radios)
      */
-    LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0);
+    LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy);
 
     /**
      * @brief Initialize LoRa radio with configuration
@@ -174,6 +175,7 @@ private:
     int pinSS;
     int pinRST;
     int pinDIO0;
+    int pinBusy; // For SX126x radios
 
     // RadioLib radio instance (type depends on RADIO_ definition)
 #if defined(RADIO_SX1278)
