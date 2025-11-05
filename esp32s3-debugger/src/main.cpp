@@ -420,10 +420,6 @@ void setup()
     pinMode(POWER_ON, OUTPUT);
     digitalWrite(POWER_ON, HIGH);
 
-    // Wait for power to stabilize before initializing peripherals
-    // Critical for battery operation where voltage may take time to settle
-    delay(200);
-
     // Configure buttons as input with pull-up
     pinMode(WAKE_BUTTON, INPUT_PULLUP);
 
@@ -526,8 +522,6 @@ void setup()
     Serial.println("Short press wakes or sends test message when awake");
     Serial.println("===================================\n");
 
-    delay(2000);
-
     // Note: WakeUp messages removed - replaced by preamble system
     // Preamble (0xAA byte) is now sent automatically before each transmission
     Serial.println("Ready to receive (preamble system active)");
@@ -618,9 +612,10 @@ void loop()
 
             // Deserialize message
             Message msg;
-            String summary;
+
             if (msg.deserialize(packet.buffer, packet.len))
             {
+                String summary;
                 Serial.print("LoRa message deserialized: type=");
                 Serial.println((int)msg.type);
 
@@ -702,20 +697,17 @@ void loop()
                     break;
                 }
                 }
+                // Persist to RTC circular buffer
+                strncpy(rtcMessageStorage[rtc_head], summary.c_str(), PERSISTENT_MSG_BUF - 1);
+                rtcMessageStorage[rtc_head][PERSISTENT_MSG_BUF - 1] = '\0';
+                rtc_head = (rtc_head + 1) % PERSISTENT_SLOTS;
+                if (rtc_msg_count < PERSISTENT_SLOTS)
+                    rtc_msg_count++;
             }
             else
             {
-                Serial.println("Failed to deserialize LoRa message");
-                summary = "ERROR: Decode failed";
-                addMessageToDisplay("ERROR: Decode failed", packet.rssi, packet.snr);
+                Serial.println("Failed to deserialize LoRa message - unknown format");
             }
-
-            // Persist to RTC circular buffer
-            strncpy(rtcMessageStorage[rtc_head], summary.c_str(), PERSISTENT_MSG_BUF - 1);
-            rtcMessageStorage[rtc_head][PERSISTENT_MSG_BUF - 1] = '\0';
-            rtc_head = (rtc_head + 1) % PERSISTENT_SLOTS;
-            if (rtc_msg_count < PERSISTENT_SLOTS)
-                rtc_msg_count++;
         }
         else if (state == RADIOLIB_ERR_CRC_MISMATCH)
         {
@@ -759,7 +751,7 @@ void loop()
     }
 
     // Small delay to prevent watchdog issues and allow task switching
-    vTaskDelay(pdMS_TO_TICKS(10));
+    delay(10);
 
     // Reset watchdog to prevent timeout
     esp_task_wdt_reset();

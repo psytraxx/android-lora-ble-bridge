@@ -18,7 +18,11 @@ const uint8_t LORA_PREAMBLE_BYTE = 0xAA;
 
 /// Delay in milliseconds after sending preamble, before sending actual message
 /// Allows receivers to wake up and prepare to receive the actual data
-const unsigned int PREAMBLE_DELAY_MS = 100;
+/// Must be long enough for receiver to:
+/// 1. Wake from deep sleep (~100ms)
+/// 2. Initialize LoRa radio (~100-200ms)
+/// 3. Enter receive mode and settle (~50-100ms)
+const unsigned int PREAMBLE_DELAY_MS = 500; // Increased from 200ms for reliable wake-up
 
 /// Character set for 6-bit encoding (64 characters)
 /// Index maps to 6-bit value: 0-63

@@ -104,7 +104,7 @@ void setup()
         ESP_LOGE(TAG, "Failed to initialize message buffer. Halting execution.");
         while (1)
         {
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));
         }
     }
 
