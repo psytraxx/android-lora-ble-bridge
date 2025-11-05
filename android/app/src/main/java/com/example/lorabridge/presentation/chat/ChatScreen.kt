@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -158,26 +159,33 @@ fun ChatScreen(
                 Text(
                     text = uiState.connectionStatusText,
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier
-                        .weight(1f)
-                        .then(
-                            if (isConnected) {
-                                Modifier.clickable { viewModel.disconnect() }
-                            } else {
-                                Modifier
-                            }
-                        ),
+                    modifier = Modifier.weight(1f),
                     color = if (isConnected) {
                         MaterialTheme.colorScheme.primary
                     } else {
                         MaterialTheme.colorScheme.onSurface
                     }
                 )
+                
                 Text(
                     text = uiState.gpsText,
                     style = MaterialTheme.typography.bodySmall,
                     fontSize = 12.sp
                 )
+                
+                // Show disconnect button when connected
+                if (isConnected) {
+                    IconButton(
+                        onClick = { viewModel.disconnect() },
+                        modifier = Modifier.padding(start = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Disconnect",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
             }
 
             // Messages list
