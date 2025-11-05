@@ -312,10 +312,6 @@ class ChatViewModel @Inject constructor(
                     _toastMessage.tryEmit("✓ Message delivered (seq ${message.seq})")
                 }
             }
-
-            is Message.WakeUpMessage -> {
-                Log.d(TAG, "Wake up message received - we can ignore this for now")
-            }
         }
     }
 

@@ -25,7 +25,6 @@ object LoRaProtocol {
         return when (message) {
             is Message.TextMessage -> serializeTextMessage(message)
             is Message.AckMessage -> serializeAckMessage(message)
-            is Message.WakeUpMessage -> serializeWakeUpMessage()
         }
     }
 
@@ -40,7 +39,6 @@ object LoRaProtocol {
         return when (type) {
             MessageType.TEXT -> deserializeTextMessage(data)
             MessageType.ACK -> deserializeAckMessage(data)
-            MessageType.WAKE_UP -> deserializeWakeUpMessage(data)
         }
     }
 
@@ -100,10 +98,6 @@ object LoRaProtocol {
         return byteArrayOf(MessageType.ACK.value, msg.seq)
     }
 
-    private fun serializeWakeUpMessage(): ByteArray {
-        return byteArrayOf(MessageType.WAKE_UP.value)
-    }
-
     private fun deserializeTextMessage(data: ByteArray): Message.TextMessage {
         require(data.size >= 5) { "Data too short for TextMessage header" }
 
@@ -135,11 +129,6 @@ object LoRaProtocol {
     private fun deserializeAckMessage(data: ByteArray): Message.AckMessage {
         require(data.size >= 2) { "Data too short for AckMessage" }
         return Message.AckMessage(data[1])
-    }
-
-    private fun deserializeWakeUpMessage(data: ByteArray): Message.WakeUpMessage {
-        require(data.size >= 1) { "Data too short for WakeUpMessage" }
-        return Message.WakeUpMessage
     }
 
     /**

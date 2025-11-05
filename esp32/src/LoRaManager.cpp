@@ -2,6 +2,8 @@
 #include "FirmwareConfig.h"
 #include "esp_log.h"
 #include "Esp32S3Hal.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 // Static instance for ISR access
 LoRaManager *LoRaManager::instance = nullptr;
@@ -111,6 +113,24 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
     }
 
     ESP_LOGI(TAG, "Starting transmission of %d bytes", len);
+
+    // Send wake-up preamble first (blocking, quick transmission)
+    ESP_LOGI(TAG, "Sending wake-up preamble...");
+    uint8_t preamble = LORA_PREAMBLE_BYTE;
+    int preambleState = radio->transmit(&preamble, 1);
+
+    if (preambleState != RADIOLIB_ERR_NONE)
+    {
+        ESP_LOGW(TAG, "Preamble transmission failed, code %d - continuing anyway", preambleState);
+        // Continue anyway - receiver might still be awake
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Preamble sent successfully");
+    }
+
+    // Small delay to allow receivers to wake and prepare
+    vTaskDelay(pdMS_TO_TICKS(PREAMBLE_DELAY_MS));
 
     // Switch to transmit mode with interrupt
     radio->clearPacketReceivedAction();

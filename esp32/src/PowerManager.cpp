@@ -130,33 +130,23 @@ void PowerManager::printWakeupReason()
 
 void PowerManager::onExternalWakeup(std::function<void()> wakeupCallback)
 {
+    // NOTE: This function is deprecated with the preamble system.
+    // WakeUp messages are no longer sent - instead, a preamble byte (0xAA)
+    // is automatically transmitted before each message to wake receivers.
+    // Keeping this function for backward compatibility but it's now a no-op.
+
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
     switch (wakeup_reason)
     {
     case ESP_SLEEP_WAKEUP_EXT0:
-        // Woke up from LoRa interrupt (DIO0 HIGH) - another device sent us a message
-        // DON'T send WakeUp to avoid infinite loop (their message woke us, don't echo back)
-        ESP_LOGI(TAG, "Woke from LoRa signal - NOT sending WakeUp (prevents loop)");
+        ESP_LOGI(TAG, "Woke from LoRa signal (preamble received)");
         break;
-
     case ESP_SLEEP_WAKEUP_EXT1:
-        // Woke up from button press - user initiated wake
-        // SEND WakeUp to announce our presence to other devices
-        ESP_LOGI(TAG, "Woke from button press - sending WakeUp message");
-        if (wakeupCallback)
-        {
-            wakeupCallback();
-        }
+        ESP_LOGI(TAG, "Woke from button press");
         break;
-
     default:
-        // Cold boot or other wake reason - send WakeUp to announce presence
-        ESP_LOGI(TAG, "Cold boot - sending WakeUp message");
-        if (wakeupCallback)
-        {
-            wakeupCallback();
-        }
+        ESP_LOGI(TAG, "Cold boot or other wake reason");
         break;
     }
 }

@@ -33,14 +33,6 @@ sealed class Message {
         override val type = MessageType.ACK
     }
 
-    /**
-     * Wake-up message - LoRa-only, used to wake devices from deep sleep.
-     * Never sent via BLE.
-     */
-    data object WakeUpMessage : Message() {
-        override val type = MessageType.WAKE_UP
-    }
-
     companion object {
         const val MAX_TEXT_LENGTH = 50
     }
@@ -48,8 +40,8 @@ sealed class Message {
 
 enum class MessageType(val value: Byte) {
     TEXT(0x01),
-    ACK(0x02),
-    WAKE_UP(0x03);  // Wake-up message (LoRa-only, never sent via BLE)
+    ACK(0x02);
+    // Note: WAKE_UP (0x03) removed - replaced by preamble system
 
     companion object {
         fun fromByte(value: Byte): MessageType =

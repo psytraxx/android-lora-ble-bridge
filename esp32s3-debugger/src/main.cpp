@@ -137,6 +137,73 @@ void onLoRaReceive(void)
 }
 
 /**
+ * @brief Send a LoRa message with wake-up preamble
+ * Handles the full transmission sequence:
+ * 1. Clear RX interrupt
+ * 2. Send preamble byte (0xAA)
+ * 3. Wait for receivers to wake
+ * 4. Send actual message
+ * 5. Restore RX interrupt and mode
+ *
+ * @param data Message data buffer
+ * @param len Message length in bytes
+ * @return true if transmission successful, false otherwise
+ */
+bool sendLoRaMessageWithPreamble(const uint8_t *data, size_t len)
+{
+    // Clear RX interrupt handler to allow DIO0 to signal TX completion
+    radio.clearPacketReceivedAction();
+
+    // Extend watchdog timeout for transmission
+    esp_task_wdt_init(10, true);
+    esp_task_wdt_add(xTaskGetCurrentTaskHandle());
+
+    // Send wake-up preamble first (blocking, quick transmission)
+    Serial.println("Sending wake-up preamble...");
+    uint8_t preamble = LORA_PREAMBLE_BYTE;
+    int preambleState = radio.transmit(&preamble, 1);
+
+    if (preambleState != RADIOLIB_ERR_NONE)
+    {
+        Serial.print("Preamble transmission failed, code ");
+        Serial.print(preambleState);
+        Serial.println(" - continuing anyway");
+        // Continue anyway - receiver might still be awake
+    }
+    else
+    {
+        Serial.println("Preamble sent successfully");
+    }
+
+    // Small delay to allow receivers to wake and prepare
+    delay(PREAMBLE_DELAY_MS);
+
+    // Send actual message
+    int state = radio.transmit(data, len);
+
+    // Restore normal watchdog timeout
+    esp_task_wdt_init(5, true);
+    esp_task_wdt_add(xTaskGetCurrentTaskHandle());
+
+    bool success = (state == RADIOLIB_ERR_NONE);
+    if (success)
+    {
+        Serial.println("Message sent successfully");
+    }
+    else
+    {
+        Serial.print("Message transmission failed, code ");
+        Serial.println(state);
+    }
+
+    // Restore RX interrupt handler and return to RX mode
+    radio.setPacketReceivedAction(onLoRaReceive);
+    radio.startReceive();
+
+    return success;
+}
+
+/**
  * @brief Enter deep sleep mode with DIO0 and button wake-up
  * Device will wake up when:
  * - LoRa DIO0 pin goes HIGH (incoming message), or
@@ -353,10 +420,6 @@ void setup()
     pinMode(POWER_ON, OUTPUT);
     digitalWrite(POWER_ON, HIGH);
 
-    // Wait for power to stabilize before initializing peripherals
-    // Critical for battery operation where voltage may take time to settle
-    delay(200);
-
     // Configure buttons as input with pull-up
     pinMode(WAKE_BUTTON, INPUT_PULLUP);
 
@@ -459,36 +522,10 @@ void setup()
     Serial.println("Short press wakes or sends test message when awake");
     Serial.println("===================================\n");
 
-    delay(2000);
-
-    // Send WakeUp message to announce presence to other devices
-    Serial.println("Sending WakeUp message...");
-    Message wakeUpMsg = Message::createWakeUp();
-    uint8_t wakeUpBuf[64];
-    int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
-
-    if (wakeUpLen > 0)
-    {
-        // Clear RX interrupt handler to allow DIO0 to signal TX completion
-        radio.clearPacketReceivedAction();
-
-        int state = radio.transmit(wakeUpBuf, wakeUpLen);
-
-        if (state == RADIOLIB_ERR_NONE)
-        {
-            Serial.println("WakeUp message sent successfully");
-            display.printLine("Announced presence");
-        }
-        else
-        {
-            Serial.print("Failed to send WakeUp message, code ");
-            Serial.println(state);
-        }
-
-        // Restore RX interrupt handler and return to RX mode
-        radio.setPacketReceivedAction(onLoRaReceive);
-        radio.startReceive();
-    }
+    // Note: WakeUp messages removed - replaced by preamble system
+    // Preamble (0xAA byte) is now sent automatically before each transmission
+    Serial.println("Ready to receive (preamble system active)");
+    display.printLine("Ready to receive");
 
     // Restore any messages persisted across light sleep
     restorePersistentMessages();
@@ -541,32 +578,7 @@ void loop()
             int tlen = testMsg.serialize(tbuf, sizeof(tbuf));
             if (tlen > 0)
             {
-                // Clear RX interrupt handler to allow DIO0 to signal TX completion
-                radio.clearPacketReceivedAction();
-
-                // Reconfigure watchdog for 10 seconds
-                esp_task_wdt_init(10, true);
-                esp_task_wdt_add(xTaskGetCurrentTaskHandle());
-
-                int state = radio.transmit(tbuf, tlen);
-
-                // Restore normal watchdog timeout
-                esp_task_wdt_init(5, true);
-                esp_task_wdt_add(xTaskGetCurrentTaskHandle());
-
-                if (state == RADIOLIB_ERR_NONE)
-                {
-                    Serial.println("Test message sent");
-                }
-                else
-                {
-                    Serial.print("Failed to send test message, code ");
-                    Serial.println(state);
-                }
-
-                // Restore RX interrupt handler and return to RX mode
-                radio.setPacketReceivedAction(onLoRaReceive);
-                radio.startReceive();
+                sendLoRaMessageWithPreamble(tbuf, tlen);
             }
 
             // Reset awake timer
@@ -600,9 +612,10 @@ void loop()
 
             // Deserialize message
             Message msg;
-            String summary;
+
             if (msg.deserialize(packet.buffer, packet.len))
             {
+                String summary;
                 Serial.print("LoRa message deserialized: type=");
                 Serial.println((int)msg.type);
 
@@ -676,30 +689,25 @@ void loop()
                     break;
                 }
 
-                case MessageType::WakeUp:
+                default:
                 {
-                    Serial.println("Received WakeUp message");
-                    // WakeUp messages are used to wake the device from sleep
-                    // The device is already awake if we received this, so just log it
-                    summary = "WakeUp signal";
-                    addMessageToDisplay("WakeUp signal received", packet.rssi, packet.snr);
+                    Serial.println("Unknown message type");
+                    summary = "Unknown message";
+                    addMessageToDisplay("Unknown message type", packet.rssi, packet.snr);
                     break;
                 }
                 }
+                // Persist to RTC circular buffer
+                strncpy(rtcMessageStorage[rtc_head], summary.c_str(), PERSISTENT_MSG_BUF - 1);
+                rtcMessageStorage[rtc_head][PERSISTENT_MSG_BUF - 1] = '\0';
+                rtc_head = (rtc_head + 1) % PERSISTENT_SLOTS;
+                if (rtc_msg_count < PERSISTENT_SLOTS)
+                    rtc_msg_count++;
             }
             else
             {
-                Serial.println("Failed to deserialize LoRa message");
-                summary = "ERROR: Decode failed";
-                addMessageToDisplay("ERROR: Decode failed", packet.rssi, packet.snr);
+                Serial.println("Failed to deserialize LoRa message - unknown format");
             }
-
-            // Persist to RTC circular buffer
-            strncpy(rtcMessageStorage[rtc_head], summary.c_str(), PERSISTENT_MSG_BUF - 1);
-            rtcMessageStorage[rtc_head][PERSISTENT_MSG_BUF - 1] = '\0';
-            rtc_head = (rtc_head + 1) % PERSISTENT_SLOTS;
-            if (rtc_msg_count < PERSISTENT_SLOTS)
-                rtc_msg_count++;
         }
         else if (state == RADIOLIB_ERR_CRC_MISMATCH)
         {
@@ -729,32 +737,7 @@ void loop()
             Serial.print("Sending ACK for seq: ");
             Serial.println(pendingAckSeq);
 
-            // Clear RX interrupt handler to allow DIO0 to signal TX completion
-            radio.clearPacketReceivedAction();
-
-            // Reconfigure watchdog for 10 seconds
-            esp_task_wdt_init(10, true);
-            esp_task_wdt_add(xTaskGetCurrentTaskHandle());
-
-            int state = radio.transmit(ackBuf, ackLen);
-
-            // Restore normal watchdog timeout
-            esp_task_wdt_init(5, true);
-            esp_task_wdt_add(xTaskGetCurrentTaskHandle());
-
-            if (state == RADIOLIB_ERR_NONE)
-            {
-                Serial.println("ACK sent successfully");
-            }
-            else
-            {
-                Serial.print("ACK send failed, code ");
-                Serial.println(state);
-            }
-
-            // Restore RX interrupt handler and return to RX mode
-            radio.setPacketReceivedAction(onLoRaReceive);
-            radio.startReceive();
+            sendLoRaMessageWithPreamble(ackBuf, ackLen);
         }
     }
 
@@ -768,7 +751,7 @@ void loop()
     }
 
     // Small delay to prevent watchdog issues and allow task switching
-    vTaskDelay(pdMS_TO_TICKS(10));
+    delay(10);
 
     // Reset watchdog to prevent timeout
     esp_task_wdt_reset();
