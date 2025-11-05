@@ -12,6 +12,14 @@
 /// With SF10, BW125, 433MHz: 50 bytes (12 header + 38 text) = ~600ms Time on Air
 const uint8_t MAX_TEXT_LENGTH = 50;
 
+/// Wake-up preamble byte sent before actual messages
+/// Helps remote LoRa devices detect incoming transmission and prepare to receive
+const uint8_t LORA_PREAMBLE_BYTE = 0xAA;
+
+/// Delay in milliseconds after sending preamble, before sending actual message
+/// Allows receivers to wake up and prepare to receive the actual data
+const unsigned int PREAMBLE_DELAY_MS = 100;
+
 /// Character set for 6-bit encoding (64 characters)
 /// Index maps to 6-bit value: 0-63
 /// UPPERCASE ONLY: Space + A-Z (26) + 0-9 (10) + punctuation (27)
@@ -21,8 +29,8 @@ const char CHARSET[65] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'\"@#$%&*(
 enum class MessageType : uint8_t
 {
     Text = 0x01,
-    Ack = 0x02,
-    WakeUp = 0x03 // Wake-up message (LoRa-only, never sent via BLE)
+    Ack = 0x02
+    // Note: WakeUp (0x03) removed - replaced by LORA_PREAMBLE_BYTE system
 };
 
 /// Text message with optional GPS coordinates
@@ -41,12 +49,6 @@ struct AckMessage
     uint8_t seq;
 };
 
-/// Wake-up message (LoRa-only, used to wake devices from deep sleep)
-struct WakeUpMessage
-{
-    // No additional data needed - presence of message is the signal
-};
-
 /// Union of all message types
 class Message
 {
@@ -56,14 +58,12 @@ public:
     // Store all message data separately (only one will be used based on type)
     TextMessage textData;
     AckMessage ackData;
-    WakeUpMessage wakeUpData;
 
     Message() : type(MessageType::Text) {}
 
     static Message createText(uint8_t seq, const char *text);
     static Message createTextWithGps(uint8_t seq, const char *text, int32_t lat, int32_t lon);
     static Message createAck(uint8_t seq);
-    static Message createWakeUp();
 
     /// Serializes the message into the provided buffer.
     /// Returns the number of bytes written on success, or -1 on failure.
