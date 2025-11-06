@@ -86,7 +86,7 @@ public:
     /**
      * @brief Start continuous receive mode
      *
-     * For SX1262 with ENABLE_RX_DUTY_CYCLE: Uses hardware-based duty cycle mode
+     * For SX1262 Uses hardware-based duty cycle mode
      * where the radio autonomously sleeps between RX windows to save power.
      * For SX1278 or disabled: Uses standard continuous receive mode.
      *

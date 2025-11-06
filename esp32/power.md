@@ -36,7 +36,6 @@ build_flags =
     -DLORA_SPREADING_FACTOR=11
     -DLORA_CODING_RATE=5
     -DLORA_TX_POWER=20
-    -DENABLE_RX_DUTY_CYCLE          # SX1262 only (SX1278 ignores)
 ```
 
 ### How It Works
@@ -68,7 +67,7 @@ radio->setPreambleLength(512);  // ~2.5s at SF11/BW250
 
 ### Compatibility
 
-- **SX1262 devices:** Autonomous duty cycle (~2 mA) when `ENABLE_RX_DUTY_CYCLE` defined
+- **SX1262 devices:** Autonomous duty cycle (~2 mA)
 - **SX1278 devices:** Continuous RX (~12 mA) - acceptable for USB-powered debuggers
 - **Mixed networks:** SX1262 ↔ SX1278 communication works perfectly
 - **Deep sleep:** Fully compatible - radio operates independently
@@ -86,17 +85,6 @@ radio->setPreambleLength(512);  // ~2.5s at SF11/BW250
 - More messages possible within duty cycle limits
 
 ### Testing
-
-To disable duty cycle mode for testing:
-
-```cpp
-// In platformio.ini, comment out:
-// -DENABLE_RX_DUTY_CYCLE
-```
-
-SX1262 firmware will automatically fall back to continuous RX mode (12 mA).
-
----
 
 ## **1\. Device Startup**
 

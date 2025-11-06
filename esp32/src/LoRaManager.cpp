@@ -94,7 +94,7 @@ bool LoRaManager::startReceive()
         return false;
     }
 
-#if defined(RADIO_SX1262) && defined(ENABLE_RX_DUTY_CYCLE)
+#if defined(RADIO_SX1262)
     // SX1262: Use autonomous hardware duty cycle mode
     // Radio manages its own wake/sleep independently while ESP32 can deep sleep
     ESP_LOGI(TAG, "Starting autonomous Rx Duty Cycle mode (SX1262)");
@@ -106,11 +106,11 @@ bool LoRaManager::startReceive()
     radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
 
     // Start autonomous duty cycle - radio handles timing automatically
-    int dutyCycleState = radio->startReceiveDutyCycleAuto();
+    int err = radio->startReceiveDutyCycleAuto();
 
-    if (dutyCycleState != RADIOLIB_ERR_NONE)
+    if (err != RADIOLIB_ERR_NONE)
     {
-        ESP_LOGE(TAG, "Failed to start autonomous duty cycle, code %d - falling back to continuous RX", dutyCycleState);
+        ESP_LOGE(TAG, "Failed to start autonomous duty cycle, code %d - falling back to continuous RX", err);
         // Fallback to continuous receive
         radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
         int rxState = radio->startReceive();
