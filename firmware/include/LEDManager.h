@@ -1,17 +1,15 @@
 #ifndef LED_MANAGER_H
 #define LED_MANAGER_H
 
-#include "driver/gpio.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include <Arduino.h>
 
 /**
  * @file LEDManager.h
  * @brief Simple helper to control a status LED connected to a single GPIO.
  *
  * The LEDManager is intentionally minimal: it provides setup, on/off and a
- * convenience blink method used for user-visible status indications. The
- * implementation uses ESP-IDF GPIO driver APIs for ESP32 builds.
+ * convenience blink method used for user-visible status indications.
+ * Uses Arduino GPIO abstractions for cross-platform compatibility.
  */
 
 class LEDManager
@@ -28,8 +26,8 @@ public:
      */
     void setup()
     {
-        gpio_set_direction((gpio_num_t)ledPin, GPIO_MODE_OUTPUT);
-        gpio_set_level((gpio_num_t)ledPin, 0); // Ensure LED is off initially
+        pinMode(ledPin, OUTPUT);
+        digitalWrite(ledPin, LOW); // Ensure LED is off initially
     }
 
     /**
@@ -48,11 +46,11 @@ public:
         for (int i = 0; i < times; i++)
         {
             setOn();
-            vTaskDelay(pdMS_TO_TICKS(duration));
+            delay(duration);
             setOff();
             if (i < times - 1)
             {
-                vTaskDelay(pdMS_TO_TICKS(delayBetween));
+                delay(delayBetween);
             }
         }
     }
@@ -62,7 +60,7 @@ public:
      */
     void setOn()
     {
-        gpio_set_level((gpio_num_t)ledPin, 1);
+        digitalWrite(ledPin, HIGH);
     }
 
     /**
@@ -70,7 +68,7 @@ public:
      */
     void setOff()
     {
-        gpio_set_level((gpio_num_t)ledPin, 0);
+        digitalWrite(ledPin, LOW);
     }
 
 private:

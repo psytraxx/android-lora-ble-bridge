@@ -120,7 +120,7 @@ switch(reason) {
 - Verify with serial monitor: `~/.platformio/penv/bin/pio device monitor`
 
 **Debugging BLE/LoRa Flow:**
-- ESP32: `ESP_LOGI(TAG, ...)` logs to serial monitor
+- ESP32: `Serial.println` logs to serial monitor
 - Android: `adb logcat -s LoRaApp` (or check Logcat in Android Studio)
 - Look for: "BLE advertising", "Starting autonomous Rx Duty Cycle mode", "Transmission started"
 

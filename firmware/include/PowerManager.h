@@ -2,6 +2,7 @@
 #define POWER_MANAGER_H
 
 #include <functional>
+#include <cstdint>
 
 /**
  * @file PowerManager.h
@@ -77,6 +78,25 @@ public:
      * Useful for debugging and understanding boot behavior.
      */
     static void printWakeupReason();
+
+    // ---- Peripheral power optimizations (migrated from PeripheralPowerMgmt.h) ----
+    // Disable ADC peripheral (if not using battery monitoring)
+    static void disableADC();
+
+    // Disable I2C peripherals (if not used)
+    static void disableI2C();
+
+    // Disable UART1 and UART2 (keeping UART0 for Serial debug)
+    static void disableExtraUARTs();
+
+    // Disable unused SPI peripheral (SPI3 only). DO NOT disable SPI2 (LoRa uses it).
+    static void disableUnusedSPI();
+
+    // Configure unused GPIOs to prevent floating pins. Pass a bitmask of used pins.
+    static void configureUnusedGPIOs(uint64_t usedPins);
+
+    // Convenience: optimize all unused peripherals (calls the functions above)
+    static void optimizeUnusedPeripherals(uint64_t usedGPIOs = 0, bool disableGPIOConfig = false);
 };
 
 #endif // POWER_MANAGER_H

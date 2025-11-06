@@ -3,9 +3,7 @@
 
 #include "Protocol.h"
 #include "FirmwareConfig.h"
-#include <nvs_flash.h>
-#include <nvs.h>
-#include "esp_log.h"
+#include <Preferences.h>
 
 /**
  * @file MessageBuffer.h
@@ -38,10 +36,10 @@ public:
 
     /**
      * @brief Add a message to the buffer (persists to NVS)
-     * 
+     *
      * If buffer is full, oldest message is overwritten (drop-oldest policy).
      * Message is serialized and stored in NVS flash.
-     * 
+     *
      * @param msg Message to add
      * @return true if message was added successfully
      */
@@ -49,9 +47,9 @@ public:
 
     /**
      * @brief Peek at the next (oldest) message without removing it
-     * 
+     *
      * Reads message from NVS and deserializes it.
-     * 
+     *
      * @param msg Output parameter for the message
      * @return true if a message was retrieved, false if buffer is empty
      */
@@ -59,10 +57,10 @@ public:
 
     /**
      * @brief Remove the front (oldest) message from the buffer
-     * 
+     *
      * Deletes message from NVS and updates buffer state.
      * Use after peek() for reliable message processing.
-     * 
+     *
      * @return true if a message was removed, false if buffer is empty
      */
     bool popFront();
@@ -88,13 +86,11 @@ public:
     void clear();
 
 private:
-    nvs_handle_t m_nvsHandle;
+    Preferences m_preferences;
     int m_head;  // Index where next message will be written
     int m_tail;  // Index of next message to read
     int m_count; // Number of messages in buffer
     bool m_initialized;
-
-    static const char *TAG;
 
     /**
      * @brief Load buffer state from NVS (head, tail, count)

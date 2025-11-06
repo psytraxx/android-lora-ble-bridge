@@ -1,14 +1,9 @@
 #include "LoRaManager.h"
 #include "FirmwareConfig.h"
-#include "esp_log.h"
-#include "Esp32S3Hal.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include <Arduino.h>
 
 // Static instance for ISR access
 LoRaManager *LoRaManager::instance = nullptr;
-
-static const char *TAG = "LORA";
 
 LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy)
     : pinSCK(sck),
@@ -30,13 +25,11 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
     // Set singleton instance for ISR access
     instance = this;
 
-    EspS3Hal *hal = new EspS3Hal(pinSCK, pinMISO, pinMOSI);
-
     // Create RadioLib module instance (stored as base class pointer for polymorphism)
 #if defined(RADIO_SX1278)
-    radio = new SX1278(new Module(hal, pinSS, pinDIO0, pinRST));
+    radio = new SX1278(new Module(pinSS, pinDIO0, pinRST));
 #elif defined(RADIO_SX1262)
-    radio = new SX1262(new Module(hal, pinSS, pinDIO0, pinRST, pinBusy));
+    radio = new SX1262(new Module(pinSS, pinDIO0, pinRST, pinBusy));
 #else
 #error "No supported RADIO defined! Please define RADIO_SX1278 or RADIO_SX1262 in platformio.ini"
 #endif
@@ -44,12 +37,14 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
 
 bool LoRaManager::begin(const LoRaConfig &config)
 {
-    ESP_LOGI(TAG, "Initializing radio");
+    SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
+
+    Serial.println("Initializing radio");
     // Attempt initialization with retries
     for (int attempt = 1; attempt <= LoRaConstants::INIT_RETRY_COUNT; attempt++)
     {
 
-        ESP_LOGI(TAG, "Setup attempt %d/%d", attempt, LoRaConstants::INIT_RETRY_COUNT);
+        Serial.printf("Setup attempt %d/%d\n", attempt, LoRaConstants::INIT_RETRY_COUNT);
 
         int state = radio->begin(
             config.frequency,
@@ -64,25 +59,25 @@ bool LoRaManager::begin(const LoRaConfig &config)
             // Using RadioLib default preamble (8 symbols)
             // WakeUp messages are now used to wake duty-cycled receivers
             this->state = STATE_IDLE;
-            ESP_LOGI(TAG, "Setup successful");
-            ESP_LOGI(TAG, "  Frequency: %.2f MHz", config.frequency);
-            ESP_LOGI(TAG, "  Bandwidth: %.2f kHz", config.bandwidth);
-            ESP_LOGI(TAG, "  Spreading Factor: %d", config.spreadingFactor);
-            ESP_LOGI(TAG, "  Coding Rate: 4/%d", config.codingRate);
-            ESP_LOGI(TAG, "  TX Power: %d dBm", config.txPower);
+            Serial.println("Setup successful");
+            Serial.printf("  Frequency: %.2f MHz\n", config.frequency);
+            Serial.printf("  Bandwidth: %.2f kHz\n", config.bandwidth);
+            Serial.printf("  Spreading Factor: %d\n", config.spreadingFactor);
+            Serial.printf("  Coding Rate: 4/%d\n", config.codingRate);
+            Serial.printf("  TX Power: %d dBm\n", config.txPower);
             return true;
         }
 
-        ESP_LOGW(TAG, "Setup failed, code %d", state);
+        Serial.printf("Setup failed, code %d\n", state);
 
         if (attempt < LoRaConstants::INIT_RETRY_COUNT)
         {
-            ESP_LOGW(TAG, "Retrying in 1 second...");
-            vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));
+            Serial.println("Retrying in 1 second...");
+            delay(LoRaConstants::INIT_RETRY_DELAY_MS);
         }
     }
 
-    ESP_LOGE(TAG, "Setup failed permanently");
+    Serial.println("Setup failed permanently");
     return false;
 }
 
@@ -90,7 +85,7 @@ bool LoRaManager::startReceive()
 {
     if (state == STATE_UNINITIALIZED)
     {
-        ESP_LOGE(TAG, "Cannot start receive - not initialized");
+        Serial.println("Cannot start receive - not initialized");
         return false;
     }
     
@@ -99,10 +94,11 @@ bool LoRaManager::startReceive()
     int rxState = radio->startReceive();
     if (rxState != RADIOLIB_ERR_NONE)
     {
-        ESP_LOGE(TAG, "Failed to start continuous receive mode, code %d", rxState);
+        Serial.printf("Failed to start continuous receive mode, code %d", rxState);
         return false;
     }
-    ESP_LOGI(TAG, "Continuous receive mode started");
+    Serial.printf("Continuous receive mode started");
+#endif
 
     state = STATE_IDLE;
     return true;
@@ -111,18 +107,18 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 {
     if (state == STATE_UNINITIALIZED)
     {
-        ESP_LOGE(TAG, "Cannot transmit - not initialized");
+        Serial.println("Cannot transmit - not initialized");
         return false;
     }
 
     if (state == STATE_TRANSMITTING)
     {
-        ESP_LOGW(TAG, "Transmission already in progress");
+        Serial.println("Transmission already in progress");
         return false;
     }
 
     // Step 1: Send WakeUp message (blocking) to wake duty-cycled receivers
-    ESP_LOGI(TAG, "Sending WakeUp message...");
+    Serial.println("Sending WakeUp message...");
     Message wakeUpMsg = Message::createWakeUp();
     uint8_t wakeUpBuf[64];
     int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
@@ -137,11 +133,11 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 
         if (wakeUpState != RADIOLIB_ERR_NONE)
         {
-            ESP_LOGW(TAG, "WakeUp transmission failed, code %d - continuing anyway", wakeUpState);
+            Serial.printf("WakeUp transmission failed, code %d - continuing anyway\n", wakeUpState);
         }
         else
         {
-            ESP_LOGI(TAG, "WakeUp sent successfully");
+            Serial.println("WakeUp sent successfully");
         }
 
         // Wait for receiver to wake up and switch to continuous RX
@@ -149,11 +145,11 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
     }
     else
     {
-        ESP_LOGW(TAG, "Failed to serialize WakeUp message");
+        Serial.println("Failed to serialize WakeUp message");
     }
 
     // Step 2: Send actual message (non-blocking)
-    ESP_LOGI(TAG, "Starting transmission of %d bytes", len);
+    Serial.printf("Starting transmission of %d bytes\n", len);
 
     // Switch to transmit mode with interrupt
     radio->clearPacketReceivedAction();
@@ -165,13 +161,13 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 
     if (txState != RADIOLIB_ERR_NONE)
     {
-        ESP_LOGE(TAG, "Failed to start transmission, code %d", txState);
+        Serial.printf("Failed to start transmission, code %d\n", txState);
         startReceive();
         state = STATE_IDLE;
         return false;
     }
 
-    ESP_LOGI(TAG, "Transmission started (non-blocking)");
+    Serial.println("Transmission started (non-blocking)");
     return true;
 }
 
@@ -191,8 +187,8 @@ void LoRaManager::process()
     if (state == STATE_PACKET_SENT)
     {
         txProcessedCount++;
-        ESP_LOGI(TAG, "TX complete (ISR:%lu/Proc:%lu), restoring RX mode",
-                 (unsigned long)txInterruptCount, (unsigned long)txProcessedCount);
+        Serial.printf("TX complete (ISR:%lu/Proc:%lu), restoring RX mode\n",
+                      (unsigned long)txInterruptCount, (unsigned long)txProcessedCount);
 
         // Return to receive mode
         startReceive();
@@ -204,7 +200,7 @@ void LoRaManager::process()
             transmitCallback(true);
         }
 
-        ESP_LOGI(TAG, "Now in RX mode (state=%d)", (int)state);
+        Serial.printf("Now in RX mode (state=%d)\n", (int)state);
         return; // Return to allow next iteration to check for any pending RX
     }
 
@@ -219,13 +215,13 @@ void LoRaManager::process()
     // Check if we're missing packets
     if (rxInterruptCount > rxProcessedCount)
     {
-        ESP_LOGW(TAG, "RX interrupt/process mismatch! ISR:%lu, Proc:%lu (missed %lu)",
-                 (unsigned long)rxInterruptCount, (unsigned long)rxProcessedCount,
-                 (unsigned long)(rxInterruptCount - rxProcessedCount));
+        Serial.printf("RX interrupt/process mismatch! ISR:%lu, Proc:%lu (missed %lu)\n",
+                      (unsigned long)rxInterruptCount, (unsigned long)rxProcessedCount,
+                      (unsigned long)(rxInterruptCount - rxProcessedCount));
     }
 
-    ESP_LOGI(TAG, "RX packet detected (ISR:%lu/Proc:%lu)",
-             (unsigned long)rxInterruptCount, (unsigned long)rxProcessedCount);
+    Serial.printf("RX packet detected (ISR:%lu/Proc:%lu)\n",
+                  (unsigned long)rxInterruptCount, (unsigned long)rxProcessedCount);
 
     // Immediately set to processing to avoid race condition
     state = STATE_IDLE;
@@ -240,8 +236,8 @@ void LoRaManager::process()
         packet.rssi = radio->getRSSI();
         packet.snr = radio->getSNR();
 
-        ESP_LOGI(TAG, "Packet received (%d bytes, RSSI: %d dBm, SNR: %.2f dB)",
-                 packet.len, packet.rssi, packet.snr);
+        Serial.printf("Packet received (%d bytes, RSSI: %d dBm, SNR: %.2f dB)\n",
+                      packet.len, packet.rssi, packet.snr);
 
         if (receiveCallback)
         {
@@ -250,16 +246,16 @@ void LoRaManager::process()
     }
     else if (rxState == RADIOLIB_ERR_CRC_MISMATCH)
     {
-        ESP_LOGW(TAG, "CRC error");
+        Serial.println("CRC error");
     }
     else
     {
-        ESP_LOGE(TAG, "Read failed, code %d", rxState);
+        Serial.printf("Read failed, code %d\n", rxState);
     }
 
     // Note: No need to restart receive mode here - radio remains in RX mode after readData()
     // If the callback starts a transmission, startTransmit() will handle the mode switch
-    ESP_LOGI(TAG, "RX packet processing complete (radio still in RX mode)");
+    Serial.println("RX packet processing complete (radio still in RX mode)");
 }
 
 int LoRaManager::getRSSI() const

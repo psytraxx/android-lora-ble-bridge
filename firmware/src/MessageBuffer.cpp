@@ -1,11 +1,10 @@
 #include "MessageBuffer.h"
 #include <cstring>
-
-const char *MessageBuffer::TAG = "MessageBuffer";
+#include <Arduino.h>
+#include <Preferences.h>
 
 MessageBuffer::MessageBuffer()
-    : m_nvsHandle(0),
-      m_head(0),
+    : m_head(0),
       m_tail(0),
       m_count(0),
       m_initialized(false)
@@ -16,33 +15,16 @@ MessageBuffer::~MessageBuffer()
 {
     if (m_initialized)
     {
-        nvs_close(m_nvsHandle);
+        m_preferences.end();
     }
 }
 
 bool MessageBuffer::begin()
 {
-    // Initialize NVS
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    // Open Preferences namespace
+    if (!m_preferences.begin(NVS_NAMESPACE, false))
     {
-        // NVS partition was truncated and needs to be erased
-        ESP_LOGW(TAG, "NVS partition needs erasing, erasing...");
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        err = nvs_flash_init();
-    }
-
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to initialize NVS: %s", esp_err_to_name(err));
-        return false;
-    }
-
-    // Open NVS namespace
-    err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &m_nvsHandle);
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "Failed to open NVS namespace: %s", esp_err_to_name(err));
+        Serial.printf("Failed to open Preferences namespace\n");
         return false;
     }
 
@@ -51,52 +33,26 @@ bool MessageBuffer::begin()
     // Load persisted state
     loadState();
 
-    ESP_LOGI(TAG, "MessageBuffer initialized: %d messages persisted", m_count);
+    Serial.printf("MessageBuffer initialized: %d messages persisted\n", m_count);
 
     return true;
 }
 
 void MessageBuffer::loadState()
 {
-    // Load head, tail, and count from NVS
-    uint32_t value;
+    // Load head, tail, and count from Preferences
+    m_head = m_preferences.getUInt(NVS_KEY_HEAD, 0);
+    m_tail = m_preferences.getUInt(NVS_KEY_TAIL, 0);
+    m_count = m_preferences.getInt(NVS_KEY_COUNT, 0);
 
-    if (nvs_get_u32(m_nvsHandle, NVS_KEY_HEAD, &value) == ESP_OK)
-    {
-        m_head = value;
-    }
-    else
-    {
-        m_head = 0;
-    }
-
-    if (nvs_get_u32(m_nvsHandle, NVS_KEY_TAIL, &value) == ESP_OK)
-    {
-        m_tail = value;
-    }
-    else
-    {
-        m_tail = 0;
-    }
-
-    if (nvs_get_u32(m_nvsHandle, NVS_KEY_COUNT, &value) == ESP_OK)
-    {
-        m_count = value;
-    }
-    else
-    {
-        m_count = 0;
-    }
-
-    ESP_LOGI(TAG, "Loaded state: head=%d, tail=%d, count=%d", m_head, m_tail, m_count);
+    Serial.printf("Loaded state: head=%d, tail=%d, count=%d\n", m_head, m_tail, m_count);
 }
 
 void MessageBuffer::saveState()
 {
-    nvs_set_u32(m_nvsHandle, NVS_KEY_HEAD, m_head);
-    nvs_set_u32(m_nvsHandle, NVS_KEY_TAIL, m_tail);
-    nvs_set_u32(m_nvsHandle, NVS_KEY_COUNT, m_count);
-    nvs_commit(m_nvsHandle);
+    m_preferences.putUInt(NVS_KEY_HEAD, m_head);
+    m_preferences.putUInt(NVS_KEY_TAIL, m_tail);
+    m_preferences.putInt(NVS_KEY_COUNT, m_count);
 }
 
 void MessageBuffer::getMessageKey(size_t index, char *keyBuf, size_t keyBufSize)
@@ -108,7 +64,7 @@ bool MessageBuffer::add(const Message &msg)
 {
     if (!m_initialized)
     {
-        ESP_LOGE(TAG, "MessageBuffer not initialized");
+        Serial.printf("MessageBuffer not initialized\n");
         return false;
     }
 
@@ -118,7 +74,7 @@ bool MessageBuffer::add(const Message &msg)
 
     if (len < 0)
     {
-        ESP_LOGE(TAG, "Failed to serialize message");
+        Serial.printf("Failed to serialize message\n");
         return false;
     }
 
@@ -126,11 +82,11 @@ bool MessageBuffer::add(const Message &msg)
     char key[16];
     getMessageKey(m_tail, key, sizeof(key));
 
-    // Store serialized message in NVS as blob
-    esp_err_t err = nvs_set_blob(m_nvsHandle, key, buffer, len);
-    if (err != ESP_OK)
+    // Store serialized message in Preferences as blob
+    size_t written = m_preferences.putBytes(key, buffer, len);
+    if (written != len)
     {
-        ESP_LOGE(TAG, "Failed to write message to NVS: %s", esp_err_to_name(err));
+        Serial.printf("Failed to write message to Preferences\n");
         return false;
     }
 
@@ -139,7 +95,7 @@ bool MessageBuffer::add(const Message &msg)
     {
         // Buffer full - overwrite oldest message
         m_head = (m_head + 1) % MAX_MESSAGES;
-        ESP_LOGW(TAG, "Buffer full, dropping oldest message (head moved to %d)", m_head);
+        Serial.printf("Buffer full, dropping oldest message (head moved to %d)\n", m_head);
     }
     else
     {
@@ -151,7 +107,7 @@ bool MessageBuffer::add(const Message &msg)
     // Persist state
     saveState();
 
-    ESP_LOGI(TAG, "Message added to buffer (count=%d)", m_count);
+    Serial.printf("Message added to buffer (count=%d)\n", m_count);
 
     return true;
 }
@@ -160,7 +116,7 @@ bool MessageBuffer::peek(Message &msg)
 {
     if (!m_initialized)
     {
-        ESP_LOGE(TAG, "MessageBuffer not initialized");
+        Serial.printf("MessageBuffer not initialized\n");
         return false;
     }
 
@@ -173,21 +129,27 @@ bool MessageBuffer::peek(Message &msg)
     char key[16];
     getMessageKey(m_head, key, sizeof(key));
 
-    // Read serialized message from NVS
+    // Read serialized message from Preferences
     uint8_t buffer[MAX_MESSAGE_SIZE];
-    size_t len = sizeof(buffer);
+    size_t len = m_preferences.getBytesLength(key);
 
-    esp_err_t err = nvs_get_blob(m_nvsHandle, key, buffer, &len);
-    if (err != ESP_OK)
+    if (len == 0 || len > MAX_MESSAGE_SIZE)
     {
-        ESP_LOGE(TAG, "Failed to read message from NVS: %s", esp_err_to_name(err));
+        Serial.printf("Invalid message length in Preferences: %zu\n", len);
+        return false;
+    }
+
+    size_t read = m_preferences.getBytes(key, buffer, len);
+    if (read != len)
+    {
+        Serial.printf("Failed to read message from Preferences\n");
         return false;
     }
 
     // Deserialize message
     if (!msg.deserialize(buffer, len))
     {
-        ESP_LOGE(TAG, "Failed to deserialize message from NVS");
+        Serial.printf("Failed to deserialize message from Preferences\n");
         return false;
     }
 
@@ -198,7 +160,7 @@ bool MessageBuffer::popFront()
 {
     if (!m_initialized)
     {
-        ESP_LOGE(TAG, "MessageBuffer not initialized");
+        Serial.printf("MessageBuffer not initialized\n");
         return false;
     }
 
@@ -211,11 +173,11 @@ bool MessageBuffer::popFront()
     char key[16];
     getMessageKey(m_head, key, sizeof(key));
 
-    // Erase message from NVS
-    esp_err_t err = nvs_erase_key(m_nvsHandle, key);
-    if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND)
+    // Remove message from Preferences
+    bool erased = m_preferences.remove(key);
+    if (!erased)
     {
-        ESP_LOGW(TAG, "Failed to erase message from NVS: %s", esp_err_to_name(err));
+        Serial.printf("Warning: Failed to erase message from Preferences\n");
         // Continue anyway to update state
     }
 
@@ -226,7 +188,7 @@ bool MessageBuffer::popFront()
     // Persist state
     saveState();
 
-    ESP_LOGI(TAG, "Message removed from buffer (count=%d)", m_count);
+    Serial.printf("Message removed from buffer (count=%d)\n", m_count);
 
     return true;
 }
@@ -235,7 +197,7 @@ void MessageBuffer::clear()
 {
     if (!m_initialized)
     {
-        ESP_LOGE(TAG, "MessageBuffer not initialized");
+        Serial.printf("MessageBuffer not initialized\n");
         return;
     }
 
@@ -244,7 +206,7 @@ void MessageBuffer::clear()
     {
         char key[16];
         getMessageKey(i, key, sizeof(key));
-        nvs_erase_key(m_nvsHandle, key);
+        m_preferences.remove(key);
     }
 
     // Reset state
@@ -254,5 +216,5 @@ void MessageBuffer::clear()
 
     saveState();
 
-    ESP_LOGI(TAG, "MessageBuffer cleared");
+    Serial.printf("MessageBuffer cleared\n");
 }

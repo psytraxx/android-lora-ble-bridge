@@ -19,11 +19,9 @@
 #include "ApplicationController.h"
 #include "PowerManager.h"
 #include <freertos/queue.h>
-#include <esp_task_wdt.h>
-#include <freertos/task.h>
 #include <esp_wifi.h>
 #include <esp_bt.h>
-#include "esp_log.h"
+#include <Adafruit_SleepyDog.h>
 
 // RTC memory - persists across deep sleep
 RTC_DATA_ATTR int bootCount = 0;
@@ -50,19 +48,17 @@ ApplicationController appController;
 void onLoRaPacketReceived(const LoRaPacket &packet);
 void onLoRaTransmitComplete(bool success);
 
-static const char *TAG = "Main";
-
 /**
  * @brief Setup routine for ESP32 LoRa-BLE Bridge
  */
 void setup()
 {
+    Serial.begin(115200);
+
     bootCount++; // Increment boot counter (persists in RTC memory)
 
-    ESP_LOGI(TAG, "Disabling WiFi and Bluetooth Classic for power savings");
-
     // Print wakeup reason and boot count
-    ESP_LOGI(TAG, "Boot count: %d", bootCount);
+    Serial.printf("Boot count: %d\n", bootCount);
     PowerManager::printWakeupReason();
 
     // Configure power management (CPU frequency scaling and light sleep)
@@ -74,41 +70,55 @@ void setup()
     if (err == ESP_OK || err == ESP_ERR_WIFI_NOT_INIT)
     {
         esp_wifi_deinit();
-        ESP_LOGI(TAG, "WiFi disabled successfully");
+        Serial.println("WiFi disabled successfully");
     }
     else
     {
-        ESP_LOGE(TAG, "WiFi stop failed: %d (may not be initialized)", err);
+        Serial.printf("WiFi stop failed: %d (may not be initialized)\n", err);
     }
 
     // Disable Bluetooth Classic (we only use BLE via NimBLE)
     // Note: NimBLE uses the BLE controller, so we only release Classic BT memory
     esp_bt_mem_release(ESP_BT_MODE_CLASSIC_BT);
-    ESP_LOGI(TAG, "Bluetooth Classic memory released (using NimBLE for BLE only)");
+    Serial.println("Bluetooth Classic memory released (using NimBLE for BLE only)");
 
-    // Reconfigure watchdog timer (already initialized by ESP-IDF) with sufficient timeout
-    esp_task_wdt_config_t wdtConfig = {
-        .timeout_ms = WatchdogConstants::TIMEOUT_SECONDS * 1000,
-        .idle_core_mask = 0,
-        .trigger_panic = true};
-    esp_task_wdt_deinit(); // Deinitialize existing watchdog first
-    esp_task_wdt_init(&wdtConfig);
-    esp_task_wdt_add(xTaskGetCurrentTaskHandle());
-    ESP_LOGI(TAG, "Watchdog timer reconfigured with %d s timeout", WatchdogConstants::TIMEOUT_SECONDS);
+    // Optimize power by disabling unused peripherals
+    // NOTE: Keep SPI2 for LoRa radio, UART0 for debug, and GPIOs for BLE/LoRa
+    // Used GPIO pins: LoRa (SCK, MISO, MOSI, SS, RST, DIO0, BUSY), LED, Button (if applicable)
+    uint64_t usedGPIOs = 0;
+    usedGPIOs |= (1ULL << LORA_SCK);
+    usedGPIOs |= (1ULL << LORA_MISO);
+    usedGPIOs |= (1ULL << LORA_MOSI);
+    usedGPIOs |= (1ULL << LORA_SS);
+    usedGPIOs |= (1ULL << LORA_RST);
+    usedGPIOs |= (1ULL << LORA_DIO0);
+    usedGPIOs |= (1ULL << LORA_BUSY);
+#ifdef LED_PIN
+    usedGPIOs |= (1ULL << LED_PIN);
+#endif
+#ifdef BUTTON_PIN
+    usedGPIOs |= (1ULL << BUTTON_PIN);
+#endif
 
-    ESP_LOGI(TAG, "ESP32 LoRa-BLE Bridge starting");
+    PowerManager::optimizeUnusedPeripherals(usedGPIOs);
+    Serial.println("Unused peripherals optimized for power savings");
+
+    // Reconfigure watchdog timer with sufficient timeout (Arduino ESP32 v2.0+)
+    Watchdog.enable(WatchdogConstants::TIMEOUT_SECONDS * 1000); // timeout in milliseconds
+
+    Serial.printf("ESP32 LoRa-BLE Bridge starting\n");
 
     // Initialize message buffer (NVS-backed, persists across deep sleep)
     if (!messageBuffer.begin())
     {
-        ESP_LOGE(TAG, "Failed to initialize message buffer. Halting execution.");
+        Serial.printf("Failed to initialize message buffer. Halting execution.\n");
         while (1)
         {
             vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));
         }
     }
 
-    ESP_LOGI(TAG, "Message buffer initialized with %d persisted messages", messageBuffer.getCount());
+    Serial.printf("Message buffer initialized with %d persisted messages\n", messageBuffer.getCount());
 
     // Initialize LoRa Manager
     loraManager = new LoRaManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_BUSY);
@@ -125,7 +135,7 @@ void setup()
     // Initialize LoRa radio with retry logic
     if (!loraManager->begin(loraConfig))
     {
-        ESP_LOGE(TAG, "LoRa setup failed permanently. Halting execution.");
+        Serial.println("LoRa setup failed permanently. Halting execution.");    
         while (1)
         {
             vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));
@@ -152,10 +162,10 @@ void setup()
 
     if (bleToLoraQueue == nullptr || loraToBleQueue == nullptr)
     {
-        ESP_LOGE(TAG, "Failed to create message queues. Halting execution.");
+        Serial.println("Failed to create message queues. Halting execution.");
         while (1)
         {
-            vTaskDelay(pdMS_TO_TICKS(BLEConstants::INIT_RETRY_DELAY_MS));
+            delay(BLEConstants::INIT_RETRY_DELAY_MS);
         }
     }
 
@@ -168,20 +178,20 @@ void setup()
 
     while (bleRetries > 0 && !bleSuccess)
     {
-        ESP_LOGI(TAG, "BLE setup attempt %d/%d", BLEConstants::INIT_RETRY_COUNT - bleRetries + 1, BLEConstants::INIT_RETRY_COUNT);
+        Serial.printf("BLE setup attempt %d/%d\n", BLEConstants::INIT_RETRY_COUNT - bleRetries + 1, BLEConstants::INIT_RETRY_COUNT);
 
         if (bleManager->setup(DEVICE_NAME))
         {
             bleSuccess = true;
-            ESP_LOGI(TAG, "BLE setup successful");
+            Serial.println("BLE setup successful");
         }
         else
         {
-            ESP_LOGE(TAG, "BLE setup failed");
+            Serial.println("BLE setup failed");
             if (bleRetries > 1)
             {
-                ESP_LOGI(TAG, "Retrying in 2 seconds...");
-                vTaskDelay(pdMS_TO_TICKS(BLEConstants::INIT_RETRY_DELAY_MS));
+                Serial.println("Retrying in 2 seconds...");
+                delay(BLEConstants::INIT_RETRY_DELAY_MS);
             }
             bleRetries--;
         }
@@ -189,14 +199,50 @@ void setup()
 
     if (!bleSuccess)
     {
-        ESP_LOGE(TAG, "BLE setup failed permanently. Halting execution.");
+        Serial.println("BLE setup failed permanently. Halting execution.");
         while (1)
         {
-            vTaskDelay(pdMS_TO_TICKS(BLEConstants::INIT_RETRY_DELAY_MS));
+            delay(BLEConstants::INIT_RETRY_DELAY_MS);
         }
     }
 
     bleManager->startAdvertising();
+
+    // Initialize LoRa Manager
+    loraManager = new LoRaManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_BUSY);
+
+    // Configure LoRa parameters
+    LoRaConfig loraConfig = {
+        .frequency = LORA_FREQUENCY,
+        .bandwidth = LORA_BANDWIDTH,
+        .spreadingFactor = LORA_SPREADING_FACTOR,
+        .codingRate = LORA_CODING_RATE,
+        .txPower = LORA_TX_POWER,
+        .syncWord = LoRaConstants::SYNC_WORD};
+
+    // Initialize LoRa radio with retry logic
+    if (!loraManager->begin(loraConfig))
+    {
+        Serial.println("LoRa setup failed permanently. Halting execution.");
+        while (1)
+        {
+            delay(LoRaConstants::INIT_RETRY_DELAY_MS);
+        }
+    }
+
+    // Set callbacks for LoRa events
+    loraManager->setReceiveCallback(onLoRaPacketReceived);
+    loraManager->setTransmitCallback(onLoRaTransmitComplete);
+
+    // Start continuous receive mode
+    if (!loraManager->startReceive())
+    {
+        Serial.println("Failed to start receive mode. Halting execution.");
+        while (1)
+        {
+            delay(LoRaConstants::INIT_RETRY_DELAY_MS);
+        }
+    }
 
     // Configure GPIO wake-up for LoRa interrupt (allows wake from light sleep)
     PowerManager::configureWakeupSources(WAKE_BUTTON, LORA_DIO0);
@@ -209,7 +255,7 @@ void setup()
     ledManager.setup();
 #endif
 
-    ESP_LOGI(TAG, "All systems initialized");
+    Serial.printf("All systems initialized\n");
 }
 
 /**
@@ -221,7 +267,7 @@ void queueOrBufferMessage(const Message &msg, const char *msgTypeName)
 {
     if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
     {
-        ESP_LOGW(TAG, "LoRa to BLE queue full, dropping %s", msgTypeName);
+        Serial.printf("LoRa to BLE queue full, dropping %s\n", msgTypeName);
     }
 }
 
@@ -230,7 +276,7 @@ void queueOrBufferMessage(const Message &msg, const char *msgTypeName)
  */
 void onLoRaPacketReceived(const LoRaPacket &packet)
 {
-    ESP_LOGI(TAG, "onLoRaPacketReceived: packet received");
+    Serial.println("onLoRaPacketReceived: packet received");
 
     // Notify application controller of activity
     appController.notifyActivity();
@@ -239,22 +285,22 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
     Message msg;
     if (!msg.deserialize(packet.buffer, packet.len))
     {
-        ESP_LOGE(TAG, "Failed to deserialize LoRa message");
+        Serial.println("Failed to deserialize LoRa message");
         return;
     }
 
-    ESP_LOGI(TAG, "Deserialized: type=%d", (int)msg.type);
+    Serial.printf("Deserialized: type=%d\n", (int)msg.type);
 
     // Handle message types
     switch (msg.type)
     {
     case MessageType::Text:
     {
-        ESP_LOGI(TAG, "Text - seq: %d, text: \"%s\"", msg.textData.seq, msg.textData.text);
+        Serial.printf("Text - seq: %d, text: \"%s\"\n", msg.textData.seq, msg.textData.text);
 
         if (msg.textData.hasGps)
         {
-            ESP_LOGI(TAG, ", GPS: %f°, %f°", msg.textData.lat / 1000000.0, msg.textData.lon / 1000000.0);
+            Serial.printf(", GPS: %f°, %f°\n", msg.textData.lat / 1000000.0, msg.textData.lon / 1000000.0);
         }
 
         // Send ACK
@@ -264,13 +310,13 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
 
         if (ackLen > 0)
         {
-            ESP_LOGI(TAG, "Sending ACK for seq: %d", msg.textData.seq);
+            Serial.printf("Sending ACK for seq: %d\n", msg.textData.seq);
 
             // Wait before sending ACK to ensure sender has switched to RX mode
-            vTaskDelay(pdMS_TO_TICKS(LoRaConstants::ACK_DELAY_MS));
+            delay(LoRaConstants::ACK_DELAY_MS);
 
             // Reset watchdog before long LoRa transmission
-            esp_task_wdt_reset();
+            Watchdog.reset();
 
             // Start non-blocking transmission via LoRaManager
             loraManager->startTransmit(ackBuf, ackLen);
@@ -287,7 +333,7 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
 
     case MessageType::Ack:
     {
-        ESP_LOGI(TAG, "ACK - seq: %d", msg.ackData.seq);
+        Serial.printf("ACK - seq: %d\n", msg.ackData.seq);
 
         // Queue or buffer ACK for BLE delivery
         queueOrBufferMessage(msg, "ACK");
@@ -300,7 +346,7 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
 
     case MessageType::WakeUp:
     {
-        ESP_LOGI(TAG, "WakeUp message received");
+        Serial.printf("WakeUp message received");
         // Wake-up messages don't need to be forwarded to BLE
         // They are used to wake devices from deep sleep via LoRa
         break;
@@ -308,7 +354,7 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
 
     default:
     {
-        ESP_LOGW(TAG, "Unknown message type received");
+        Serial.printf("Unknown message type: %d\n", (int)msg.type);
         break;
     }
     }
@@ -321,11 +367,11 @@ void onLoRaTransmitComplete(bool success)
 {
     if (success)
     {
-        ESP_LOGI(TAG, "LoRa transmission completed successfully");
+        Serial.println("LoRa transmission completed successfully");
     }
     else
     {
-        ESP_LOGW(TAG, "LoRa transmission failed");
+        Serial.println("LoRa transmission failed");
     }
 }
 
@@ -335,7 +381,7 @@ void onLoRaTransmitComplete(bool success)
 void loop()
 {
     // Reset watchdog
-    esp_task_wdt_reset();
+    Watchdog.reset();
 
     // Process component events (non-blocking)
     bleManager->process();
@@ -345,23 +391,5 @@ void loop()
     appController.update();
 
     // Adaptive delay based on activity (managed by ApplicationController)
-    vTaskDelay(pdMS_TO_TICKS(appController.getLoopDelay()));
-}
-
-/**
- * @brief ESP-IDF entry point
- *
- * In ESP-IDF, app_main() runs as a task. We call setup() once,
- * then enter the main loop directly without creating another task.
- */
-extern "C" void app_main(void)
-{
-    // Call setup once
-    setup();
-
-    // Run main loop continuously
-    while (1)
-    {
-        loop();
-    }
+    delay(appController.getLoopDelay());
 }
