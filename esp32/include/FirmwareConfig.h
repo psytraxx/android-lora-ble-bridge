@@ -65,16 +65,6 @@ namespace LoRaConstants
 }
 
 //==============================================================================
-// Rx Duty Cycle Feature Flag
-//==============================================================================
-
-/// Enable autonomous Rx Duty Cycle mode for SX1262 (SX1262 only)
-/// When enabled, SX1262 radio autonomously manages its own wake/sleep
-/// consuming ~1.5-2mA average instead of ~12mA continuous RX
-/// SX1278 devices ignore this flag and use continuous RX regardless
-#define ENABLE_RX_DUTY_CYCLE
-
-//==============================================================================
 // BLE Configuration
 //==============================================================================
 
