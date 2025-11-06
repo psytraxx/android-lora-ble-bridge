@@ -206,11 +206,6 @@ private:
 
     // Singleton instance for ISR access
     static LoRaManager *instance;
-
-    /**
-     * @brief Restore receive mode with interrupt handler
-     */
-    void restoreReceiveMode();
 };
 
 #endif // LORA_MANAGER_H

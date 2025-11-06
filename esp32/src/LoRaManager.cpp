@@ -199,7 +199,7 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
     if (txState != RADIOLIB_ERR_NONE)
     {
         ESP_LOGE(TAG, "Failed to start transmission, code %d", txState);
-        restoreReceiveMode();
+        startReceive();
         state = STATE_IDLE;
         return false;
     }
@@ -228,7 +228,7 @@ void LoRaManager::process()
                  (unsigned long)txInterruptCount, (unsigned long)txProcessedCount);
 
         // Return to receive mode
-        restoreReceiveMode();
+        startReceive();
         state = STATE_IDLE;
 
         // Invoke transmit callback
@@ -341,37 +341,4 @@ void IRAM_ATTR LoRaManager::onTransmitISR()
         // Cleanup happens in process() called from main loop
         instance->state = STATE_PACKET_SENT;
     }
-}
-void LoRaManager::restoreReceiveMode()
-{
-    // Clear transmit interrupt handler
-    radio->clearPacketSentAction();
-
-    // Re-register receive interrupt handler
-    radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
-
-#if defined(RADIO_SX1262) && defined(ENABLE_RX_DUTY_CYCLE)
-    // Restore autonomous duty cycle mode after transmission
-    int state = radio->startReceiveDutyCycleAuto();
-
-    if (state != RADIOLIB_ERR_NONE)
-    {
-        ESP_LOGE(TAG, "Failed to restart autonomous Rx Duty Cycle mode, code %d", state);
-    }
-    else
-    {
-        ESP_LOGI(TAG, "Autonomous Rx Duty Cycle mode restored");
-    }
-#else
-    // Standard continuous receive mode
-    int rxState = radio->startReceive();
-    if (rxState != RADIOLIB_ERR_NONE)
-    {
-        ESP_LOGE(TAG, "Failed to restart receive mode, code %d", rxState);
-    }
-    else
-    {
-        ESP_LOGI(TAG, "Continuous receive mode restored");
-    }
-#endif
 }
