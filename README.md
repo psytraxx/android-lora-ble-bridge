@@ -30,6 +30,12 @@ graph TD
     D --> C
     C -->|ACK| B
     B --> A
+    %% Wake-up behaviour note: EXT0 (LoRa) wakes device but should NOT trigger WakeUp reply; Button or cold boot SHOULD send WakeUp
+    subgraph WakeUpRules[Wake-up rules]
+      direction TB
+      W1[EXT0 LoRa DIO0 \nWake source] ---|DO NOT send WakeUp| E
+      W2[EXT1 Button or Cold Boot] ---|SEND WakeUp| C
+    end
     
     subgraph "Sender Side"
         A
@@ -219,14 +225,15 @@ sequenceDiagram
     ER->>AR: 3. Forward via BLE
     Note right of ER: ~10-50ms
     
-    Note over ER: 4. Wait 500ms (RX mode)
-    ER-->>ER: delay(500ms)
-    
-    ER->>ES: 5. Send ACK (LoRa)
-    Note left of ER: ACK airtime (SF10+BW31kHz)<br/>+ 50ms mode switch
 
-    ES->>AS: 6. Receive ACK (BLE)
-    Note left of ES: ~10-50ms + notify
+  Note over ER: 4. Wait (ACK_DELAY) before ACK → ensures sender switched to RX
+  ER-->>ER: delay(ACK_DELAY = 500ms)
+
+  ER->>ES: 5. Send ACK (LoRa)
+  Note left of ER: ACK airtime (SF10+BW31kHz)<br/>+ 50ms mode switch
+
+  ES->>AS: 6. Receive ACK (BLE)
+  Note left of ES: ~10-50ms + notify
 
     Note over AS: ✓ Show checkmark
 
@@ -249,7 +256,9 @@ gantt
 
     section Receiver
     Process & Forward     :a3, 850, 950
-    ACK Delay (500ms)     :a4, 950, 1450
+  ACK Delay (ACK_DELAY = 500ms)     :a4, 950, 1450
+
+  %% WakeUp announcements are intentionally omitted from this timeline; they are only sent on Button or Cold Boot (EXT1/cold), NOT when woken by LoRa (EXT0)
 
     section LoRa RX
     ACK Transmission      :a5, 1450, 1750
