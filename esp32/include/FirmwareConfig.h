@@ -52,12 +52,27 @@ namespace LoRaConstants
     /// 500ms provides safe margin
     constexpr int ACK_DELAY_MS = 500;
 
+    /// Delay after sending WakeUp message before sending actual message
+    /// WakeUp transmission: ~380ms (blocking, already complete when we start waiting)
+    /// Receiver needs: detect interrupt (50ms) + exit duty cycle (100ms) + enter continuous RX (50ms) + settle (50ms)
+    /// Total receiver time: ~250ms. Using 700ms for very safe margin.
+    constexpr int WAKEUP_TO_MESSAGE_DELAY_MS = 700;
+
     /// Number of retry attempts for LoRa initialization
     constexpr int INIT_RETRY_COUNT = 3;
 
     /// Delay between LoRa initialization retries (milliseconds)
     constexpr int INIT_RETRY_DELAY_MS = 1000;
 }
+
+//==============================================================================
+// Rx Duty Cycle Feature Flag
+//==============================================================================
+
+/// Enable autonomous Rx Duty Cycle mode for SX1262 (SX1262 only)
+/// When enabled, SX1262 radio autonomously manages its own wake/sleep
+/// SX1278 devices ignore this flag and use continuous RX regardless
+#define ENABLE_RX_DUTY_CYCLE
 
 //==============================================================================
 // BLE Configuration
