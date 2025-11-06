@@ -137,17 +137,17 @@ void onLoRaReceive(void)
 }
 
 /**
- * @brief Send a LoRa message with 512-symbol preamble
- *
- * RadioLib's built-in 512-symbol preamble ensures:
- * - Duty-cycled SX1262 receivers detect transmission
- * - Continuous SX1278 receivers detect normally (just longer preamble)
+ * @brief Send a LoRa message
+ * Handles the full transmission sequence:
+ * 1. Clear RX interrupt
+ * 2. Send message
+ * 3. Restore RX interrupt and mode
  *
  * @param data Message data buffer
  * @param len Message length in bytes
  * @return true if transmission successful, false otherwise
  */
-bool sendLoRaMessageWithPreamble(const uint8_t *data, size_t len)
+bool transmitMessage(const uint8_t *data, size_t len)
 {
     // Clear RX interrupt handler to allow DIO0 to signal TX completion
     radio.clearPacketReceivedAction();
@@ -158,7 +158,7 @@ bool sendLoRaMessageWithPreamble(const uint8_t *data, size_t len)
 
     Serial.print("Sending message (");
     Serial.print(len);
-    Serial.println(" bytes with 512-symbol preamble)...");
+    Serial.println(" bytes)...");
 
     // Send message - RadioLib's 512-symbol preamble is built-in
     int state = radio.transmit(data, len);
@@ -446,19 +446,8 @@ void setup()
 
         if (state == RADIOLIB_ERR_NONE)
         {
-            // Set 512-symbol preamble for compatibility with duty-cycled receivers
-            // SX1278 uses continuous RX, but long preamble ensures interoperability
-            int preambleState = radio.setPreambleLength(512);
-            if (preambleState != RADIOLIB_ERR_NONE)
-            {
-                Serial.print("Warning: Failed to set preamble length, code ");
-                Serial.println(preambleState);
-            }
-            else
-            {
-                Serial.println("  Preamble: 512 symbols");
-            }
-
+            // Using RadioLib default preamble (8 symbols)
+            // WakeUp messages are now used to wake duty-cycled receivers
             loraSuccess = true;
             display.printLine("LoRa initialized!");
             Serial.println("LoRa setup successful");
@@ -517,10 +506,36 @@ void setup()
     Serial.println("Short press wakes or sends test message when awake");
     Serial.println("===================================\n");
 
-    // Note: WakeUp messages removed - replaced by preamble system
-    // Preamble (0xAA byte) is now sent automatically before each transmission
-    Serial.println("Ready to receive (preamble system active)");
-    display.printLine("Ready to receive");
+    delay(2000);
+
+    // Send WakeUp message to announce presence to other devices
+    Serial.println("Sending WakeUp message...");
+    Message wakeUpMsg = Message::createWakeUp();
+    uint8_t wakeUpBuf[64];
+    int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
+
+    if (wakeUpLen > 0)
+    {
+        // Clear RX interrupt handler to allow DIO0 to signal TX completion
+        radio.clearPacketReceivedAction();
+
+        int state = radio.transmit(wakeUpBuf, wakeUpLen);
+
+        if (state == RADIOLIB_ERR_NONE)
+        {
+            Serial.println("WakeUp message sent successfully");
+            display.printLine("Announced presence");
+        }
+        else
+        {
+            Serial.print("Failed to send WakeUp message, code ");
+            Serial.println(state);
+        }
+
+        // Restore RX interrupt handler and return to RX mode
+        radio.setPacketReceivedAction(onLoRaReceive);
+        radio.startReceive();
+    }
 
     // Restore any messages persisted across light sleep
     restorePersistentMessages();
@@ -573,7 +588,7 @@ void loop()
             int tlen = testMsg.serialize(tbuf, sizeof(tbuf));
             if (tlen > 0)
             {
-                sendLoRaMessageWithPreamble(tbuf, tlen);
+                transmitMessage(tbuf, tlen);
             }
 
             // Reset awake timer
@@ -684,6 +699,16 @@ void loop()
                     break;
                 }
 
+                case MessageType::WakeUp:
+                {
+                    Serial.println("Received WakeUp message");
+                    // WakeUp messages are used to wake the device from sleep
+                    // The device is already awake if we received this, so just log it
+                    summary = "WakeUp signal";
+                    addMessageToDisplay("WakeUp signal received", packet.rssi, packet.snr);
+                    break;
+                }
+
                 default:
                 {
                     Serial.println("Unknown message type");
@@ -732,7 +757,7 @@ void loop()
             Serial.print("Sending ACK for seq: ");
             Serial.println(pendingAckSeq);
 
-            sendLoRaMessageWithPreamble(ackBuf, ackLen);
+            transmitMessage(ackBuf, ackLen);
         }
     }
 

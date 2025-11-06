@@ -49,6 +49,7 @@ ApplicationController appController;
 // Forward declaration
 void onLoRaPacketReceived(const LoRaPacket &packet);
 void onLoRaTransmitComplete(bool success);
+void sendWakeUpMessage();
 
 static const char *TAG = "Main";
 
@@ -211,8 +212,47 @@ void setup()
 
     ESP_LOGI(TAG, "All systems initialized");
 
-    // Note: WakeUp messages removed - replaced by preamble system
-    // Preamble (0xAA byte) is now sent automatically before each transmission
+    // Process external wakeup event and send WakeUp message if appropriate
+    // PowerManager determines when to call sendWakeUpMessage() based on wake reason
+    PowerManager::onExternalWakeup(sendWakeUpMessage);
+}
+
+/**
+ * @brief Send a wake-up message via LoRa to announce device presence
+ * Called after button wake or cold boot, but NOT after LoRa wake (prevents loops)
+ */
+void sendWakeUpMessage()
+{
+    Message wakeUpMsg = Message::createWakeUp();
+    uint8_t buffer[64]; // WakeUp message is only 1 byte, but use larger buffer for safety
+    int msgLen = wakeUpMsg.serialize(buffer, sizeof(buffer));
+
+    if (msgLen > 0)
+    {
+        ESP_LOGI(TAG, "Serialized WakeUp message (%d bytes)", msgLen);
+
+        // Send via LoRa if initialized
+        if (loraManager && loraManager->isInitialized())
+        {
+            // Small delay to ensure LoRa is ready after initialization
+            vTaskDelay(pdMS_TO_TICKS(50));
+
+            // Reset watchdog before transmission
+            esp_task_wdt_reset();
+
+            // Start non-blocking transmission
+            loraManager->startTransmit(buffer, msgLen);
+            ESP_LOGI(TAG, "WakeUp message sent via LoRa");
+        }
+        else
+        {
+            ESP_LOGW(TAG, "LoRa not initialized, cannot send WakeUp");
+        }
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Failed to serialize WakeUp message");
+    }
 }
 
 /**
@@ -298,6 +338,14 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
 #ifdef LED_PIN
         ledManager.blink();
 #endif
+        break;
+    }
+
+    case MessageType::WakeUp:
+    {
+        ESP_LOGI(TAG, "WakeUp message received");
+        // Wake-up messages don't need to be forwarded to BLE
+        // They are used to wake devices from deep sleep via LoRa
         break;
     }
 

@@ -57,11 +57,6 @@ namespace LoRaConstants
 
     /// Delay between LoRa initialization retries (milliseconds)
     constexpr int INIT_RETRY_DELAY_MS = 1000;
-
-    /// Preamble length in symbols (applied to all radios)
-    /// 512 symbols ensures duty-cycled SX1262 receivers detect transmissions
-    /// Also works for continuous-RX SX1278 receivers (just longer preamble)
-    constexpr uint16_t PREAMBLE_LENGTH_SYMBOLS = 512;
 }
 
 //==============================================================================

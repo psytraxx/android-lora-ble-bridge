@@ -61,19 +61,8 @@ bool LoRaManager::begin(const LoRaConfig &config)
 
         if (state == RADIOLIB_ERR_NONE)
         {
-            // Set long preamble for duty-cycled receivers
-            // 512 symbols ensures detection during SX1262 autonomous duty cycle windows
-            // Also works fine for SX1278 continuous RX (just longer preamble)
-            int preambleState = radio->setPreambleLength(LoRaConstants::PREAMBLE_LENGTH_SYMBOLS);
-            if (preambleState != RADIOLIB_ERR_NONE)
-            {
-                ESP_LOGW(TAG, "Failed to set preamble length, code %d", preambleState);
-            }
-            else
-            {
-                ESP_LOGI(TAG, "Preamble length set to 512 symbols");
-            }
-
+            // Using RadioLib default preamble (8 symbols)
+            // WakeUp messages are now used to wake duty-cycled receivers
             this->state = STATE_IDLE;
             ESP_LOGI(TAG, "Setup successful");
             ESP_LOGI(TAG, "  Frequency: %.2f MHz", config.frequency);
@@ -81,7 +70,6 @@ bool LoRaManager::begin(const LoRaConfig &config)
             ESP_LOGI(TAG, "  Spreading Factor: %d", config.spreadingFactor);
             ESP_LOGI(TAG, "  Coding Rate: 4/%d", config.codingRate);
             ESP_LOGI(TAG, "  TX Power: %d dBm", config.txPower);
-            ESP_LOGI(TAG, "  Preamble: %d symbols", LoRaConstants::PREAMBLE_LENGTH_SYMBOLS);
             return true;
         }
 
@@ -166,12 +154,7 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
         return false;
     }
 
-    ESP_LOGI(TAG, "Starting transmission of %d bytes (with 512-symbol preamble)", len);
-
-    // RadioLib's built-in 512-symbol preamble (set in begin()) ensures:
-    // - SX1262 duty-cycled receivers: Preamble spans multiple RX windows
-    // - SX1278 continuous receivers: Standard detection (preamble just longer)
-    // No separate wake-up packets needed!
+    ESP_LOGI(TAG, "Starting transmission of %d bytes", len);
 
     // Switch to transmit mode with interrupt
     radio->clearPacketReceivedAction();

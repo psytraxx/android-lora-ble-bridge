@@ -21,7 +21,8 @@ const char CHARSET[65] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'\"@#$%&*(
 enum class MessageType : uint8_t
 {
     Text = 0x01,
-    Ack = 0x02
+    Ack = 0x02,
+    WakeUp = 0x03  // Wake-up message (LoRa-only, used to wake devices from deep sleep)
 };
 
 /// Text message with optional GPS coordinates
@@ -40,6 +41,12 @@ struct AckMessage
     uint8_t seq;
 };
 
+/// Wake-up message (LoRa-only, used to wake devices from deep sleep)
+struct WakeUpMessage
+{
+    // No additional data needed - presence of message is the signal
+};
+
 /// Union of all message types
 class Message
 {
@@ -49,12 +56,14 @@ public:
     // Store all message data separately (only one will be used based on type)
     TextMessage textData;
     AckMessage ackData;
+    WakeUpMessage wakeUpData;
 
     Message() : type(MessageType::Text) {}
 
     static Message createText(uint8_t seq, const char *text);
     static Message createTextWithGps(uint8_t seq, const char *text, int32_t lat, int32_t lon);
     static Message createAck(uint8_t seq);
+    static Message createWakeUp();
 
     /// Serializes the message into the provided buffer.
     /// Returns the number of bytes written on success, or -1 on failure.

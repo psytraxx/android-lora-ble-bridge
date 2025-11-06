@@ -185,6 +185,13 @@ Message Message::createAck(uint8_t seq)
     return msg;
 }
 
+Message Message::createWakeUp()
+{
+    Message msg;
+    msg.type = MessageType::WakeUp;
+    return msg;
+}
+
 /// Serializes the message into the provided buffer.
 /// Returns the number of bytes written on success, or -1 on failure.
 int Message::serialize(uint8_t *buf, size_t bufSize) const
@@ -243,6 +250,16 @@ int Message::serialize(uint8_t *buf, size_t bufSize) const
         buf[0] = static_cast<uint8_t>(MessageType::Ack);
         buf[1] = ackData.seq;
         return 2;
+    }
+
+    case MessageType::WakeUp:
+    {
+        if (bufSize < 1)
+        {
+            return -1; // Buffer too small
+        }
+        buf[0] = static_cast<uint8_t>(MessageType::WakeUp);
+        return 1;
     }
 
     default:
@@ -313,6 +330,19 @@ bool Message::deserialize(const uint8_t *buf, size_t len)
 
         type = MessageType::Ack;
         ackData.seq = buf[1];
+
+        return true;
+    }
+
+    case 0x03:
+    { // Wake-up message
+        if (len < 1)
+        {
+            return false; // Buffer too small
+        }
+
+        type = MessageType::WakeUp;
+        // No additional data to parse
 
         return true;
     }
