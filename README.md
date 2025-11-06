@@ -6,14 +6,14 @@ A long-range communication system for sending text messages (up to 50 characters
 ## Features
 
 - 📱 **Android App**: Modern Kotlin app with Jetpack Compose, GPS integration, and BLE communication
-- 📡 **Long Range**: 5-10 km typical range (up to 15+ km in ideal conditions)
-- 🔋 **Power Optimized**: 40-50% power savings (70-100 hours on 2500 mAh battery)
+- 📡 **Long Range**: 5-15 km typical range (SF11 provides excellent range)
+- 🔋 **Power Optimized**: Autonomous duty cycle on SX1262 (~52 days on 2500 mAh battery)
 - 📦 **Message Buffering**: Buffers up to 10 messages when phone is disconnected
-- ✅ **Reliable**: ACK mechanism confirms message delivery with automatic retry
+- ✅ **Reliable**: 512-symbol preamble ensures delivery to duty-cycled receivers
 - 🌍 **GPS Precision**: ±1 meter accuracy (GPS sent only when available)
-- 🚀 **Fast**: ~1-2 second end-to-end latency
+- 🚀 **Fast**: ~0.8s airtime with BW250 kHz (6x faster than BW31.25 kHz)
 - 📉 **Bandwidth Efficient**: 6-bit character packing (40% smaller than UTF-8)
-- 🔧 **Improved Stability**: Extended timeouts and async operations prevent disconnects
+- 🔧 **Hardware Autonomous**: SX1262 manages duty cycle independently while ESP32 sleeps
 
 ## Architecture
 
@@ -115,18 +115,23 @@ cd android
 
 ### LoRa Module Configuration
 
-**Common Frequencies:**
-- 433 MHz: 433920000 (worldwide)
-- 868 MHz: 868100000 (Europe)
-- 915 MHz: 915000000 (Americas, Australia)
+**Current Configuration:**
+- **Frequency**: 433.92 MHz (worldwide ISM band)
+- **Bandwidth**: 250 kHz (fast airtime, good range)
+- **Spreading Factor**: 11 (excellent sensitivity)
+- **Coding Rate**: 4/5 (error correction)
+- **TX Power**: 20 dBm (100 mW)
+- **Preamble**: 512 symbols (~2.5s for duty cycle compatibility)
 
 **Regional Power Limits:**
-- EU (433 MHz): 2 dBm max
-- US (433 MHz): 17 dBm max
+- EU (433 MHz): 2 dBm max (current config exceeds, adjust for EU compliance)
+- US (433 MHz): 17 dBm max ✓
 - US (915 MHz): 30 dBm max
-- Australia: 14 dBm (433 MHz) / 30 dBm (915 MHz)
+- Australia: 14 dBm (433 MHz) ✓ / 30 dBm (915 MHz)
 
-**Antenna:** Use antenna tuned for your chosen frequency (~17 cm for 433 MHz quarter-wave)
+**Antenna:** Use antenna tuned for 433 MHz (~17 cm for quarter-wave)
+
+**Note:** Current TX power (20 dBm) complies with US/AU regulations but exceeds EU limit. For EU operation, reduce to 2 dBm in `platformio.ini`.
 
 ## Message Buffering
 
@@ -177,19 +182,18 @@ The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
 
 ## Performance
 
-- **Max text**: 50 characters (42 bytes with 6-bit packing)
+- **Max text**: 50 characters (38 bytes with 6-bit packing)
 - **GPS data**: 8 bytes when included (fixed size)
-- **Range**: 5-10 km typical (up to 15+ km ideal conditions)
-- **Latency**: 1-2 seconds end-to-end
-- **Battery**: 70-100 hours on 2500 mAh
-- **Time on Air**:
-  - Note: Actual values depend on SF11 + BW31kHz configuration
-  - Significantly longer than previous SF10+BW125kHz estimates
-  - See protocol.md and use [LoRa Calculator](https://www.loratools.nl/#/airtime)
-- **LoRa Config**: SF11, BW31kHz, CR4/5, 433.92 MHz default, 20 dBm
-- **Duty Cycle**: Calculate using actual Time on Air values (EU 1% = 36s/hour)
+- **Range**: 5-15 km typical (SF11 provides excellent sensitivity)
+- **Airtime**: ~0.8 seconds per message (BW250 kHz, 6x faster than BW31.25 kHz)
+- **Battery Life**:
+  - **SX1262 (Heltec)**: ~52 days on 2500 mAh (autonomous duty cycle ~1.5-2mA)
+  - **SX1278 (Debugger)**: ~9 days on 2500 mAh (continuous RX ~12mA)
+- **LoRa Config**: 433.92 MHz, BW250 kHz, SF11, CR4/5, 20 dBm TX, 512-symbol preamble
+- **Preamble**: 512 symbols (~2.5s) ensures detection by duty-cycled receivers
+- **Duty Cycle**: EU requires 1% (36s/hour) - calculate at [LoRa Calculator](https://www.loratools.nl/#/airtime)
 
-See **[protocol.md](protocol.md)** for detailed Time on Air calculations and duty cycle compliance.
+See **[protocol.md](protocol.md)** for detailed specifications and **[esp32/power.md](esp32/power.md)** for power optimization details.
 
 ## Message Flow & ACK Timing
 
@@ -286,11 +290,12 @@ delay(50);  // Ensure radio is fully in RX mode
 | Phase | Time | Description |
 |-------|------|-------------|
 | **BLE Transfer** | 10-50ms | Android ↔ ESP32 via Bluetooth LE |
-| **LoRa Airtime** | Varies | Text+GPS packet at SF11, BW31kHz (depends on message length) |
-| **Mode Switch (TX→RX)** | 10-50ms | SX1278 radio mode transition |
+| **LoRa Airtime** | ~800ms | Text+GPS packet at SF11, BW250kHz (typical message) |
+| **Preamble** | ~2.5s | 512-symbol preamble for duty-cycled receivers |
+| **Mode Switch (TX→RX)** | 10-50ms | Radio mode transition |
 | **RX Settle** | 50ms | Additional settle time in code |
 | **ACK Wait** | 500ms | Deliberate delay before ACK sent |
-| **ACK Airtime** | Varies | ACK packet (2 bytes) at SF11, BW31kHz |
+| **ACK Airtime** | ~200ms | ACK packet (2 bytes) at SF11, BW250kHz |
 
 ### Why These Timings Matter
 
@@ -324,10 +329,12 @@ delay(1000);  // Increase from 500ms
 
 **Formula for safe ACK timing:**
 ```
-ACK_Delay = LoRa_TX_Time + RX_Mode_Switch + Processing_Buffer
-         ≈ TX_Time + 100ms + 200ms
-         Current: 500ms (may need adjustment based on actual Time on Air)
+ACK_Delay = Mode_Switch + RX_Settle + Processing_Buffer
+         ≈ 50ms + 50ms + 400ms
+         Current: 500ms (provides adequate margin at BW250kHz)
 ```
+
+**Note:** With BW250 kHz (8x faster than BW31.25 kHz), airtime is ~0.8s instead of ~5s, so timing margins are more forgiving.
 
 ### Debugging Timing Issues
 
@@ -436,9 +443,10 @@ adb logcat -s LoRaApp
 ## Acknowledgments
 
 Built with:
-- [ESP32 Arduino Core](https://github.com/espressif/arduino-esp32) - ESP32 C++/Arduino framework
-- [LoRa Library](https://github.com/sandeepmistry/arduino-LoRa) - Arduino LoRa driver
-- [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) - BLE stack for Arduino
+- [ESP-IDF](https://github.com/espressif/esp-idf) - ESP32 framework for ESP32 firmware
+- [Arduino Core](https://github.com/espressif/arduino-esp32) - ESP32 Arduino framework for debugger
+- [RadioLib](https://github.com/jgromes/RadioLib) - Universal radio library supporting SX1262/SX1278
+- [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) - Lightweight BLE stack for Arduino/ESP32
 
 ---
 

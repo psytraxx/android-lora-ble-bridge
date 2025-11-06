@@ -44,10 +44,10 @@ Used to wake LoRa devices from deep sleep. **LoRa-only** - never sent via BLE.
 ### Text Length Limit
 - **Maximum**: 50 characters (enforced in both Android and ESP32)
 - **Rationale**: Optimized for long-range LoRa transmission
-  - With SF10, BW31.25kHz, 433MHz configuration
-  - Time on Air: ~2.4 seconds for max message with GPS (51 bytes)
-  - Allows ~15 messages/hour within 1% duty cycle limits (EU)
-  - Range: 5-10 km typical, up to 15+ km in ideal conditions
+  - With SF11, BW250 kHz, 433.92 MHz configuration
+  - Time on Air: ~1.0 second for max message with GPS (51 bytes)
+  - Allows ~36 messages/hour within 1% duty cycle limits (EU)
+  - Range: 5-15 km typical (SF11 provides excellent sensitivity)
 
 ### 6-bit Character Encoding
 - **Character Set**: ` ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'"@#$%&*()[]{}=+/<>_`
@@ -172,47 +172,62 @@ Note: LoRa-only, never sent via BLE
 ## Performance Characteristics
 
 ### LoRa Configuration
-- **Spreading Factor**: SF10
-- **Bandwidth**: 31.25 kHz
+- **Spreading Factor**: SF11 (excellent sensitivity)
+- **Bandwidth**: 250 kHz (fast airtime)
 - **Coding Rate**: 4/5
 - **Frequency**: 433.92 MHz (default, configurable)
 - **TX Power**: 20 dBm / ~100 mW (default, configurable -4 to 20 dBm)
+- **Preamble**: 512 symbols (~2.5s at SF11/BW250, for duty cycle compatibility)
 
 ### Time on Air (ToA)
 
-| Message Size | Content | ToA @ SF10 BW31.25 | Example |
-|--------------|---------|------------|---------|
-| 5 bytes | Empty text (no GPS) | ~1.4 s | "" |
-| 8 bytes | 3-char text (no GPS) | ~1.5 s | "SOS" |
-| 17 bytes | 15-char text (no GPS) | ~1.7 s | "AT CHECKPOINT 2" |
-| 26 bytes | 15-char text + GPS | ~1.9 s | "AT CHECKPOINT 2" with location |
-| 43 bytes | 50-char text (no GPS) | ~2.2 s | Maximum length text only |
-| 51 bytes | 50-char text + GPS | ~2.4 s | Maximum length with GPS |
-| 2 bytes | ACK | ~1.3 s | Acknowledgment |
+| Message Size | Content | ToA @ SF11 BW250 | Example |
+|--------------|---------|------------------|---------|
+| 5 bytes | Empty text (no GPS) | ~0.5 s | "" |
+| 8 bytes | 3-char text (no GPS) | ~0.5 s | "SOS" |
+| 17 bytes | 15-char text (no GPS) | ~0.7 s | "AT CHECKPOINT 2" |
+| 26 bytes | 15-char text + GPS | ~0.8 s | "AT CHECKPOINT 2" with location |
+| 43 bytes | 50-char text (no GPS) | ~0.9 s | Maximum length text only |
+| 51 bytes | 50-char text + GPS | ~1.0 s | Maximum length with GPS |
+| 2 bytes | ACK | ~0.4 s | Acknowledgment |
 
-**Benefits over old protocol**:
-- One message instead of two (text + GPS)
-- No 100ms inter-message delay needed
-- Simpler message handling
-- GPS is optional, saves bandwidth when not needed
-
-**Note**: Time on Air calculations are for SF10, BW31.25kHz, CR4/5 configuration.
-Use [LoRa Calculator](https://www.loratools.nl/#/airtime) to verify for your specific configuration.
+**Benefits of current configuration:**
+- One unified message (text + GPS optional)
+- Fast airtime with BW250 kHz
+- 512-symbol preamble ensures duty-cycled receivers detect packets
+- No separate wake-up packets needed
 
 ### Duty Cycle Compliance (EU: 1% = 36 seconds/hour)
 
-**Note**: Based on SF10, BW31.25kHz configuration (actual implementation)
+**Based on SF11, BW250 kHz configuration**
 
 | Scenario | Per Message | Messages/Hour | Use Case |
 |----------|-------------|---------------|----------|
-| Text only (50 char) | ~2.2 s | ~16 | Detailed updates without GPS |
-| Text only (25 char) | ~1.9 s | ~18 | Normal messages |
-| Text (10 char) + GPS | ~1.7 s | ~21 | Status with location |
-| Text (50 char) + GPS | ~2.4 s | ~15 | Full message with location |
-| Emergency (5 char) | ~1.4 s | ~25 | SOS messages |
-| ACK | ~1.3 s | ~27 | Acknowledgments |
+| Text only (50 char) | ~0.9 s | ~40 | Detailed updates without GPS |
+| Text only (25 char) | ~0.7 s | ~51 | Normal messages |
+| Text (10 char) + GPS | ~0.7 s | ~51 | Status with location |
+| Text (50 char) + GPS | ~1.0 s | ~36 | Full message with location |
+| Emergency (5 char) | ~0.5 s | ~72 | SOS messages |
+| ACK | ~0.4 s | ~90 | Acknowledgments |
+
+**Note:** Use [LoRa Calculator](https://www.loratools.nl/#/airtime) to calculate exact ToA for your specific messages.
 
 ## Implementation Notes
+
+### Timing and practical notes
+
+- Preamble length: 512 symbols (chosen to reliably intersect duty-cycled receive windows). At SF11 / BW250 this equates to roughly ~2.5 seconds of preamble on-air — plan for a long preamble when sizing duty-cycle and wake behaviours.
+
+- RX settle time: hardware receivers (SX126x) need a short stabilization window after switching into RX. Allow ~50 ms after calling startReceive()/startReceiveDutyCycleAuto() before assuming the radio is actively listening for payload bytes.
+
+- ACK timing: when a node receives a packet it waits a short ACK delay before transmitting its ACK. This implementation uses an ACK delay of ~500 ms to allow the radio subsystem to safely switch from RX to TX and avoid collisions. The ACK itself is a small packet (ToA ~0.4 s at SF11/BW250).
+
+- Duty-cycle interoperability: the 512-symbol preamble ensures that duty-cycled SX1262 receivers (using RadioLib's startReceiveDutyCycleAuto()) will be awake at least once during the preamble and can lock onto the following payload. Continuous-receive radios (SX127x) simply stay in RX and detect the preamble normally.
+
+- Preventing wake-up loops: on ESP32 devices we distinguish the wake source. If the device was woken by LoRa (EXT0 / DIO0), do NOT send a WakeUp message in response. If woken by a local button (EXT1) or on a cold boot, send a WakeUp message. This avoids two devices repeatedly triggering each other.
+
+- Practical tip for testing: when validating interoperability between an autonomous-duty SX1262 node and a continuous SX127x receiver, send a single packet from the transmitter and monitor the receiver for the full preamble duration plus RX settle (packet transmission + ~50 ms). For ACK testing include the 500 ms ACK delay in your timing expectations.
+
 
 ### Error Handling
 - Invalid character: Character not in 64-char charset rejected

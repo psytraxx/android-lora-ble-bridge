@@ -61,6 +61,19 @@ bool LoRaManager::begin(const LoRaConfig &config)
 
         if (state == RADIOLIB_ERR_NONE)
         {
+            // Set long preamble for duty-cycled receivers
+            // 512 symbols ensures detection during SX1262 autonomous duty cycle windows
+            // Also works fine for SX1278 continuous RX (just longer preamble)
+            int preambleState = radio->setPreambleLength(LoRaConstants::PREAMBLE_LENGTH_SYMBOLS);
+            if (preambleState != RADIOLIB_ERR_NONE)
+            {
+                ESP_LOGW(TAG, "Failed to set preamble length, code %d", preambleState);
+            }
+            else
+            {
+                ESP_LOGI(TAG, "Preamble length set to 512 symbols");
+            }
+
             this->state = STATE_IDLE;
             ESP_LOGI(TAG, "Setup successful");
             ESP_LOGI(TAG, "  Frequency: %.2f MHz", config.frequency);
@@ -68,6 +81,7 @@ bool LoRaManager::begin(const LoRaConfig &config)
             ESP_LOGI(TAG, "  Spreading Factor: %d", config.spreadingFactor);
             ESP_LOGI(TAG, "  Coding Rate: 4/%d", config.codingRate);
             ESP_LOGI(TAG, "  TX Power: %d dBm", config.txPower);
+            ESP_LOGI(TAG, "  Preamble: %d symbols", LoRaConstants::PREAMBLE_LENGTH_SYMBOLS);
             return true;
         }
 
@@ -92,12 +106,52 @@ bool LoRaManager::startReceive()
         return false;
     }
 
-    restoreReceiveMode();
+#if defined(RADIO_SX1262) && defined(ENABLE_RX_DUTY_CYCLE)
+    // SX1262: Use autonomous hardware duty cycle mode
+    // Radio manages its own wake/sleep independently while ESP32 can deep sleep
+    ESP_LOGI(TAG, "Starting autonomous Rx Duty Cycle mode (SX1262)");
+
+    // Clear any previous interrupt handlers
+    radio->clearPacketSentAction();
+
+    // Set receive interrupt handler
+    radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
+
+    // Start autonomous duty cycle - radio handles timing automatically
+    int dutyCycleState = radio->startReceiveDutyCycleAuto();
+
+    if (dutyCycleState != RADIOLIB_ERR_NONE)
+    {
+        ESP_LOGE(TAG, "Failed to start autonomous duty cycle, code %d - falling back to continuous RX", dutyCycleState);
+        // Fallback to continuous receive
+        radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
+        int rxState = radio->startReceive();
+        if (rxState != RADIOLIB_ERR_NONE)
+        {
+            ESP_LOGE(TAG, "Fallback continuous RX also failed, code %d", rxState);
+            return false;
+        }
+        ESP_LOGI(TAG, "Continuous receive mode started (fallback)");
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Autonomous duty cycle mode active (~2%% duty, ~1.5-2mA avg)");
+    }
+#else
+    // SX1278 or duty cycle disabled: Standard continuous receive mode
+    radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
+    int rxState = radio->startReceive();
+    if (rxState != RADIOLIB_ERR_NONE)
+    {
+        ESP_LOGE(TAG, "Failed to start continuous receive mode, code %d", rxState);
+        return false;
+    }
+    ESP_LOGI(TAG, "Continuous receive mode started (~12mA)");
+#endif
+
     state = STATE_IDLE;
-    ESP_LOGI(TAG, "Continuous receive mode started");
     return true;
 }
-
 bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 {
     if (state == STATE_UNINITIALIZED)
@@ -112,25 +166,12 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
         return false;
     }
 
-    ESP_LOGI(TAG, "Starting transmission of %d bytes", len);
+    ESP_LOGI(TAG, "Starting transmission of %d bytes (with 512-symbol preamble)", len);
 
-    // Send wake-up preamble first (blocking, quick transmission)
-    ESP_LOGI(TAG, "Sending wake-up preamble...");
-    uint8_t preamble = LORA_PREAMBLE_BYTE;
-    int preambleState = radio->transmit(&preamble, 1);
-
-    if (preambleState != RADIOLIB_ERR_NONE)
-    {
-        ESP_LOGW(TAG, "Preamble transmission failed, code %d - continuing anyway", preambleState);
-        // Continue anyway - receiver might still be awake
-    }
-    else
-    {
-        ESP_LOGI(TAG, "Preamble sent successfully");
-    }
-
-    // Small delay to allow receivers to wake and prepare
-    vTaskDelay(pdMS_TO_TICKS(PREAMBLE_DELAY_MS));
+    // RadioLib's built-in 512-symbol preamble (set in begin()) ensures:
+    // - SX1262 duty-cycled receivers: Preamble spans multiple RX windows
+    // - SX1278 continuous receivers: Standard detection (preamble just longer)
+    // No separate wake-up packets needed!
 
     // Switch to transmit mode with interrupt
     radio->clearPacketReceivedAction();
@@ -294,7 +335,20 @@ void LoRaManager::restoreReceiveMode()
     // Re-register receive interrupt handler
     radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
 
-    // Restart receive mode (blocking call to ensure it completes)
+#if defined(RADIO_SX1262) && defined(ENABLE_RX_DUTY_CYCLE)
+    // Restore autonomous duty cycle mode after transmission
+    int state = radio->startReceiveDutyCycleAuto();
+
+    if (state != RADIOLIB_ERR_NONE)
+    {
+        ESP_LOGE(TAG, "Failed to restart autonomous Rx Duty Cycle mode, code %d", state);
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Autonomous Rx Duty Cycle mode restored");
+    }
+#else
+    // Standard continuous receive mode
     int rxState = radio->startReceive();
     if (rxState != RADIOLIB_ERR_NONE)
     {
@@ -302,6 +356,7 @@ void LoRaManager::restoreReceiveMode()
     }
     else
     {
-        ESP_LOGI(TAG, "Receive mode restored");
+        ESP_LOGI(TAG, "Continuous receive mode restored");
     }
+#endif
 }

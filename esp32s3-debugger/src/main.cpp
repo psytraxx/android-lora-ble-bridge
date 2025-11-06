@@ -137,13 +137,11 @@ void onLoRaReceive(void)
 }
 
 /**
- * @brief Send a LoRa message with wake-up preamble
- * Handles the full transmission sequence:
- * 1. Clear RX interrupt
- * 2. Send preamble byte (0xAA)
- * 3. Wait for receivers to wake
- * 4. Send actual message
- * 5. Restore RX interrupt and mode
+ * @brief Send a LoRa message with 512-symbol preamble
+ *
+ * RadioLib's built-in 512-symbol preamble ensures:
+ * - Duty-cycled SX1262 receivers detect transmission
+ * - Continuous SX1278 receivers detect normally (just longer preamble)
  *
  * @param data Message data buffer
  * @param len Message length in bytes
@@ -158,27 +156,11 @@ bool sendLoRaMessageWithPreamble(const uint8_t *data, size_t len)
     esp_task_wdt_init(10, true);
     esp_task_wdt_add(xTaskGetCurrentTaskHandle());
 
-    // Send wake-up preamble first (blocking, quick transmission)
-    Serial.println("Sending wake-up preamble...");
-    uint8_t preamble = LORA_PREAMBLE_BYTE;
-    int preambleState = radio.transmit(&preamble, 1);
+    Serial.print("Sending message (");
+    Serial.print(len);
+    Serial.println(" bytes with 512-symbol preamble)...");
 
-    if (preambleState != RADIOLIB_ERR_NONE)
-    {
-        Serial.print("Preamble transmission failed, code ");
-        Serial.print(preambleState);
-        Serial.println(" - continuing anyway");
-        // Continue anyway - receiver might still be awake
-    }
-    else
-    {
-        Serial.println("Preamble sent successfully");
-    }
-
-    // Small delay to allow receivers to wake and prepare
-    delay(PREAMBLE_DELAY_MS);
-
-    // Send actual message
+    // Send message - RadioLib's 512-symbol preamble is built-in
     int state = radio.transmit(data, len);
 
     // Restore normal watchdog timeout
@@ -464,6 +446,19 @@ void setup()
 
         if (state == RADIOLIB_ERR_NONE)
         {
+            // Set 512-symbol preamble for compatibility with duty-cycled receivers
+            // SX1278 uses continuous RX, but long preamble ensures interoperability
+            int preambleState = radio.setPreambleLength(512);
+            if (preambleState != RADIOLIB_ERR_NONE)
+            {
+                Serial.print("Warning: Failed to set preamble length, code ");
+                Serial.println(preambleState);
+            }
+            else
+            {
+                Serial.println("  Preamble: 512 symbols");
+            }
+
             loraSuccess = true;
             display.printLine("LoRa initialized!");
             Serial.println("LoRa setup successful");

@@ -57,7 +57,22 @@ namespace LoRaConstants
 
     /// Delay between LoRa initialization retries (milliseconds)
     constexpr int INIT_RETRY_DELAY_MS = 1000;
+
+    /// Preamble length in symbols (applied to all radios)
+    /// 512 symbols ensures duty-cycled SX1262 receivers detect transmissions
+    /// Also works for continuous-RX SX1278 receivers (just longer preamble)
+    constexpr uint16_t PREAMBLE_LENGTH_SYMBOLS = 512;
 }
+
+//==============================================================================
+// Rx Duty Cycle Feature Flag
+//==============================================================================
+
+/// Enable autonomous Rx Duty Cycle mode for SX1262 (SX1262 only)
+/// When enabled, SX1262 radio autonomously manages its own wake/sleep
+/// consuming ~1.5-2mA average instead of ~12mA continuous RX
+/// SX1278 devices ignore this flag and use continuous RX regardless
+#define ENABLE_RX_DUTY_CYCLE
 
 //==============================================================================
 // BLE Configuration
