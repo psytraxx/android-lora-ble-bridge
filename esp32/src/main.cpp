@@ -211,8 +211,8 @@ void setup()
 
     ESP_LOGI(TAG, "All systems initialized");
 
-    // Note: WakeUp messages removed - replaced by preamble system
-    // Preamble (0xAA byte) is now sent automatically before each transmission
+    // Print wakeup reason for debugging
+    PowerManager::printWakeupReason();
 }
 
 /**
@@ -298,6 +298,14 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
 #ifdef LED_PIN
         ledManager.blink();
 #endif
+        break;
+    }
+
+    case MessageType::WakeUp:
+    {
+        ESP_LOGI(TAG, "WakeUp message received");
+        // Wake-up messages don't need to be forwarded to BLE
+        // They are used to wake devices from deep sleep via LoRa
         break;
     }
 

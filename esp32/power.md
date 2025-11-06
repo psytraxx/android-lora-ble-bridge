@@ -2,6 +2,102 @@
 
 This document outlines the primary user scenarios and system behaviors based on the power-saving architecture.
 
+---
+
+## **Power Optimization: Rx Duty Cycle Mode**
+
+### Overview
+
+The SX1262 LoRa radio supports **hardware-autonomous Rx Duty Cycle mode** using RadioLib's `startReceiveDutyCycleAuto()` which significantly reduces power consumption while waiting for incoming messages during deep sleep.
+
+### Power Consumption
+
+**SX1262 (Heltec WiFi LoRa V3) with Autonomous Duty Cycle:**
+- ESP32 in deep sleep: ~10 μA
+- SX1262 autonomous duty cycle: ~1.5-2 mA (managed by RadioLib)
+- **Total: ~2 mA**
+- Battery life (2500 mAh): ~1250 hours (~52 days)
+
+**SX1278 (LilyGo T-Display-S3 Debugger) with Continuous RX:**
+- ESP32 in deep sleep: ~10 μA
+- SX1278 continuous RX: ~12 mA
+- **Total: ~12 mA**
+- Battery life (2500 mAh): ~208 hours (~8.7 days)
+- Acceptable for USB-powered debuggers and test devices
+
+### Configuration (platformio.ini)
+
+```ini
+# All devices use same LoRa parameters for interoperability
+[env]
+build_flags =
+    -DLORA_FREQUENCY=433.92
+    -DLORA_BANDWIDTH=250.0          # Changed from 31.25 (8x faster airtime)
+    -DLORA_SPREADING_FACTOR=11
+    -DLORA_CODING_RATE=5
+    -DLORA_TX_POWER=20
+    -DENABLE_RX_DUTY_CYCLE          # SX1262 only (SX1278 ignores)
+```
+
+### How It Works
+
+1. **RadioLib manages duty cycle timing automatically** (hardcoded in library)
+2. SX1262 radio chip independently wakes periodically to listen for preamble
+3. ESP32 can be in deep sleep - no CPU involvement needed
+4. When 512-symbol preamble detected (~2.5s), radio stays awake for full message
+5. Radio triggers DIO1 interrupt, waking ESP32 from deep sleep
+6. ESP32 processes message, returns to deep sleep
+7. SX1262 continues autonomous duty cycling
+
+**Key Insight:** The radio's duty cycle is **independent from ESP32 deep sleep**. The radio manages itself while ESP32 sleeps.
+
+### Transmission Strategy
+
+**512-Symbol Preamble:**
+```cpp
+// In LoRaManager::begin()
+radio->setPreambleLength(512);  // ~2.5s at SF11/BW250
+```
+
+**How it works:**
+- Long preamble (~2.5s) spans multiple receiver RX windows
+- Single transmission reliably wakes duty-cycled receivers  
+- Also works for continuous RX receivers (preamble just longer)
+- Preamble is part of LoRa packet structure (handled by RadioLib)
+- No separate wake-up packets needed!
+
+### Compatibility
+
+- **SX1262 devices:** Autonomous duty cycle (~2 mA) when `ENABLE_RX_DUTY_CYCLE` defined
+- **SX1278 devices:** Continuous RX (~12 mA) - acceptable for USB-powered debuggers
+- **Mixed networks:** SX1262 ↔ SX1278 communication works perfectly
+- **Deep sleep:** Fully compatible - radio operates independently
+
+### Airtime Performance
+
+**Message transmission time at SF11, BW250 kHz:**
+- Typical message (~25 chars + GPS): ~0.8 seconds
+- Empty message: ~0.5 seconds
+- Maximum message (50 chars + GPS): ~1.0 seconds
+
+**Benefits:**
+- Fast airtime reduces collisions
+- Improved responsiveness
+- More messages possible within duty cycle limits
+
+### Testing
+
+To disable duty cycle mode for testing:
+
+```cpp
+// In platformio.ini, comment out:
+// -DENABLE_RX_DUTY_CYCLE
+```
+
+SX1262 firmware will automatically fall back to continuous RX mode (12 mA).
+
+---
+
 ## **1\. Device Startup**
 
 * **Action:** The device is powered on or reset.  

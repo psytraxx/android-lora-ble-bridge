@@ -61,6 +61,8 @@ bool LoRaManager::begin(const LoRaConfig &config)
 
         if (state == RADIOLIB_ERR_NONE)
         {
+            // Using RadioLib default preamble (8 symbols)
+            // WakeUp messages are now used to wake duty-cycled receivers
             this->state = STATE_IDLE;
             ESP_LOGI(TAG, "Setup successful");
             ESP_LOGI(TAG, "  Frequency: %.2f MHz", config.frequency);
@@ -92,12 +94,52 @@ bool LoRaManager::startReceive()
         return false;
     }
 
-    restoreReceiveMode();
+#if defined(RADIO_SX1262) && defined(ENABLE_RX_DUTY_CYCLE)
+    // SX1262: Use autonomous hardware duty cycle mode
+    // Radio manages its own wake/sleep independently while ESP32 can deep sleep
+    ESP_LOGI(TAG, "Starting autonomous Rx Duty Cycle mode (SX1262)");
+
+    // Clear any previous interrupt handlers
+    radio->clearPacketSentAction();
+
+    // Set receive interrupt handler
+    radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
+
+    // Start autonomous duty cycle - radio handles timing automatically
+    int dutyCycleState = radio->startReceiveDutyCycleAuto();
+
+    if (dutyCycleState != RADIOLIB_ERR_NONE)
+    {
+        ESP_LOGE(TAG, "Failed to start autonomous duty cycle, code %d - falling back to continuous RX", dutyCycleState);
+        // Fallback to continuous receive
+        radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
+        int rxState = radio->startReceive();
+        if (rxState != RADIOLIB_ERR_NONE)
+        {
+            ESP_LOGE(TAG, "Fallback continuous RX also failed, code %d", rxState);
+            return false;
+        }
+        ESP_LOGI(TAG, "Continuous receive mode started (fallback)");
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Autonomous duty cycle mode active (~2%% duty, ~1.5-2mA avg)");
+    }
+#else
+    // SX1278 or duty cycle disabled: Standard continuous receive mode
+    radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
+    int rxState = radio->startReceive();
+    if (rxState != RADIOLIB_ERR_NONE)
+    {
+        ESP_LOGE(TAG, "Failed to start continuous receive mode, code %d", rxState);
+        return false;
+    }
+    ESP_LOGI(TAG, "Continuous receive mode started (~12mA)");
+#endif
+
     state = STATE_IDLE;
-    ESP_LOGI(TAG, "Continuous receive mode started");
     return true;
 }
-
 bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 {
     if (state == STATE_UNINITIALIZED)
@@ -112,25 +154,39 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
         return false;
     }
 
-    ESP_LOGI(TAG, "Starting transmission of %d bytes", len);
+    // Step 1: Send WakeUp message (blocking) to wake duty-cycled receivers
+    ESP_LOGI(TAG, "Sending WakeUp message...");
+    Message wakeUpMsg = Message::createWakeUp();
+    uint8_t wakeUpBuf[64];
+    int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
 
-    // Send wake-up preamble first (blocking, quick transmission)
-    ESP_LOGI(TAG, "Sending wake-up preamble...");
-    uint8_t preamble = LORA_PREAMBLE_BYTE;
-    int preambleState = radio->transmit(&preamble, 1);
-
-    if (preambleState != RADIOLIB_ERR_NONE)
+    if (wakeUpLen > 0)
     {
-        ESP_LOGW(TAG, "Preamble transmission failed, code %d - continuing anyway", preambleState);
-        // Continue anyway - receiver might still be awake
+        // Clear RX interrupt temporarily
+        radio->clearPacketReceivedAction();
+
+        // Send WakeUp synchronously (blocking)
+        int wakeUpState = radio->transmit(wakeUpBuf, wakeUpLen);
+
+        if (wakeUpState != RADIOLIB_ERR_NONE)
+        {
+            ESP_LOGW(TAG, "WakeUp transmission failed, code %d - continuing anyway", wakeUpState);
+        }
+        else
+        {
+            ESP_LOGI(TAG, "WakeUp sent successfully");
+        }
+
+        // Wait for receiver to wake up and switch to continuous RX
+        vTaskDelay(pdMS_TO_TICKS(LoRaConstants::WAKEUP_TO_MESSAGE_DELAY_MS));
     }
     else
     {
-        ESP_LOGI(TAG, "Preamble sent successfully");
+        ESP_LOGW(TAG, "Failed to serialize WakeUp message");
     }
 
-    // Small delay to allow receivers to wake and prepare
-    vTaskDelay(pdMS_TO_TICKS(PREAMBLE_DELAY_MS));
+    // Step 2: Send actual message (non-blocking)
+    ESP_LOGI(TAG, "Starting transmission of %d bytes", len);
 
     // Switch to transmit mode with interrupt
     radio->clearPacketReceivedAction();
@@ -294,7 +350,20 @@ void LoRaManager::restoreReceiveMode()
     // Re-register receive interrupt handler
     radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
 
-    // Restart receive mode (blocking call to ensure it completes)
+#if defined(RADIO_SX1262) && defined(ENABLE_RX_DUTY_CYCLE)
+    // Restore autonomous duty cycle mode after transmission
+    int state = radio->startReceiveDutyCycleAuto();
+
+    if (state != RADIOLIB_ERR_NONE)
+    {
+        ESP_LOGE(TAG, "Failed to restart autonomous Rx Duty Cycle mode, code %d", state);
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Autonomous Rx Duty Cycle mode restored");
+    }
+#else
+    // Standard continuous receive mode
     int rxState = radio->startReceive();
     if (rxState != RADIOLIB_ERR_NONE)
     {
@@ -302,6 +371,7 @@ void LoRaManager::restoreReceiveMode()
     }
     else
     {
-        ESP_LOGI(TAG, "Receive mode restored");
+        ESP_LOGI(TAG, "Continuous receive mode restored");
     }
+#endif
 }

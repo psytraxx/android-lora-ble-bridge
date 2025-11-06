@@ -118,22 +118,25 @@ switch(reason) {
 7. Increment version in comments
 
 **Changing LoRa Parameters:**
-- Edit `esp32/include/FirmwareConfig.h` (frequency, SF, BW, TX power)
-- Reflash ALL devices (protocol v3.0 is not backward compatible)
+- Edit `esp32/platformio.ini` and `esp32s3-debugger/platformio.ini` (frequency, SF, BW, TX power)
+- **Current settings:** 433.92 MHz, BW250 kHz, SF11, CR4/5, 20dBm TX, 512-symbol preamble
+- Reflash ALL devices (must use same parameters for interoperability)
 - Verify with serial monitor: `~/.platformio/penv/bin/pio device monitor`
 
 **Debugging BLE/LoRa Flow:**
 - ESP32: `ESP_LOGI(TAG, ...)` logs to serial monitor
 - Android: `adb logcat -s LoRaApp` (or check Logcat in Android Studio)
-- Look for: "BLE advertising", "LoRa TX successful", "ACK received"
+- Look for: "BLE advertising", "Starting autonomous Rx Duty Cycle mode", "Transmission started"
 
 ## Power Optimization
 
-- CPU: 160 MHz (not 240 MHz) via `CPU_FREQ_MHZ` in `FirmwareConfig.h`
+- CPU: 160 MHz (not 240 MHz) via `CPU_FREQ_MHZ` in platformio.ini
 - WiFi disabled in `setup()`: `esp_wifi_stop()` + `esp_wifi_deinit()`
 - BT Classic released: `esp_bt_mem_release(ESP_BT_MODE_CLASSIC_BT)`
-- LoRa: SF10 @ BW31.25kHz balances range vs airtime
-- Deep sleep: ~70-100 hours on 2500 mAh (vs 20-30 hours without)
+- **LoRa:** BW250 kHz @ SF11 for fast airtime (~0.8s) + good range
+- **Autonomous Duty Cycle (SX1262):** ~1.5-2mA average (vs 12mA continuous RX)
+- **512-Symbol Preamble:** Ensures detection by duty-cycled receivers (~2.5s)
+- Deep sleep: ~52 days on 2500 mAh with SX1262 duty cycle (vs ~9 days continuous)
 
 ## Regulatory Compliance
 
