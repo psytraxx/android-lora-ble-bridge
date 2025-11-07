@@ -1,0 +1,10 @@
+{
+	"rust-analyzer.cargo.target": "xtensa-esp32s3-none-elf",
+	"rust-analyzer.check.targets": ["xtensa-esp32s3-none-elf"],
+	"rust-analyzer.check.command": "clippy",
+	"rust-analyzer.cargo.allTargets": false,
+	"rust-analyzer.check.allTargets": false,
+	"chat.tools.terminal.autoApprove": {
+		"cargo clippy": true
+	}
+}
