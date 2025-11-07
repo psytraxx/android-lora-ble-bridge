@@ -20,18 +20,19 @@ object LoRaProtocol {
     /**
      * Serialize a message to bytes for BLE/LoRa transmission
      * @see UC-5.1: Serialize Text Message
+     * Protocol v3.2: WakeUp message removed (preamble-based wake-on-radio)
      */
     fun serialize(message: Message): ByteArray {
         return when (message) {
             is Message.TextMessage -> serializeTextMessage(message)
             is Message.AckMessage -> serializeAckMessage(message)
-            is Message.WakeUpMessage -> serializeWakeUpMessage()
         }
     }
 
     /**
      * Deserialize bytes from BLE/LoRa to Message object
      * @see UC-5.2: Deserialize Received Message
+     * Protocol v3.2: WakeUp message removed (preamble-based wake-on-radio)
      */
     fun deserialize(data: ByteArray): Message {
         require(data.isNotEmpty()) { "Data too short" }
@@ -40,7 +41,6 @@ object LoRaProtocol {
         return when (type) {
             MessageType.TEXT -> deserializeTextMessage(data)
             MessageType.ACK -> deserializeAckMessage(data)
-            MessageType.WAKE_UP -> deserializeWakeUpMessage(data)
         }
     }
 
@@ -100,10 +100,6 @@ object LoRaProtocol {
         return byteArrayOf(MessageType.ACK.value, msg.seq)
     }
 
-    private fun serializeWakeUpMessage(): ByteArray {
-        return byteArrayOf(MessageType.WAKE_UP.value)
-    }
-
     private fun deserializeTextMessage(data: ByteArray): Message.TextMessage {
         require(data.size >= 5) { "Data too short for TextMessage header" }
 
@@ -135,11 +131,6 @@ object LoRaProtocol {
     private fun deserializeAckMessage(data: ByteArray): Message.AckMessage {
         require(data.size >= 2) { "Data too short for AckMessage" }
         return Message.AckMessage(data[1])
-    }
-
-    private fun deserializeWakeUpMessage(data: ByteArray): Message.WakeUpMessage {
-        require(data.size >= 1) { "Data too short for WakeUpMessage" }
-        return Message.WakeUpMessage
     }
 
     /**

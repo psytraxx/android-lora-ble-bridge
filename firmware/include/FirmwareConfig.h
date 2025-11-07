@@ -44,6 +44,17 @@ namespace LoRaConstants
     /// Default LoRa sync word (0x12 = private network, 0x34 = public LoRaWAN)
     constexpr uint8_t SYNC_WORD = 0x12;
 
+    /// Preamble length for wake-on-radio (Option 3: Power Optimized)
+    /// 192 symbols @ SF11/BW250 = ~1573ms preamble
+    /// Must be > duty cycle period (1500ms) for guaranteed detection
+    constexpr uint16_t PREAMBLE_LENGTH = 192;
+
+    /// SX1262 autonomous duty cycle parameters (10% duty cycle)
+    /// Power: ~1.2 mA average, Battery: ~50 days @ 2500mAh
+    constexpr uint16_t RX_WINDOW_MS = 150;     // Listen duration
+    constexpr uint16_t SLEEP_PERIOD_MS = 1350; // Sleep duration
+    // Total period: 1500ms, Duty: 10%, Latency: 0-1500ms (avg 750ms)
+
     /// Time to wait for radio hardware to settle after mode change (TX/RX switch)
     constexpr int RX_SETTLE_TIME_MS = 50;
 
@@ -51,12 +62,6 @@ namespace LoRaConstants
     /// Timing: TX complete + mode switch + settle time = ~200ms minimum
     /// 500ms provides safe margin
     constexpr int ACK_DELAY_MS = 500;
-
-    /// Delay after sending WakeUp message before sending actual message
-    /// WakeUp transmission: ~380ms (blocking, already complete when we start waiting)
-    /// Receiver needs: detect interrupt (50ms) + exit duty cycle (100ms) + enter continuous RX (50ms) + settle (50ms)
-    /// Total receiver time: ~250ms. Using 700ms for very safe margin.
-    constexpr int WAKEUP_TO_MESSAGE_DELAY_MS = 700;
 
     /// Number of retry attempts for LoRa initialization
     constexpr int INIT_RETRY_COUNT = 3;

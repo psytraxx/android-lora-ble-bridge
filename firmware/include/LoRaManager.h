@@ -84,15 +84,20 @@ public:
     bool begin(const LoRaConfig &config);
 
     /**
-     * @brief Start continuous receive mode
+     * @brief Start receive mode with configurable duty cycle
      *
-     * For SX1262 Uses hardware-based duty cycle mode
-     * where the radio autonomously sleeps between RX windows to save power.
-     * For SX1278 or disabled: Uses standard continuous receive mode.
+     * @param useDutyCycle If true (default): use duty cycle on SX1262 (~1.2mA)
+     *                     If false: use continuous RX on SX1262 (~12mA)
+     *                     SX1278 always uses continuous RX (no duty cycle support)
+     *
+     * Use cases:
+     * - true: Idle/waiting for messages (power efficient, default)
+     * - false: Waiting for ACK after TX (reliable/fast detection)
+     * - false: Before transmitting ACK (stable radio state)
      *
      * @return true on success, false on failure
      */
-    bool startReceive();
+    bool startReceive(bool useDutyCycle = true);
 
     /**
      * @brief Start non-blocking interrupt-driven transmission

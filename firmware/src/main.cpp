@@ -260,14 +260,19 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
             ESP_LOGI(TAG, ", GPS: %f°, %f°", msg.textData.lat / 1000000.0, msg.textData.lon / 1000000.0);
         }
 
-        // Send ACK
+        // Send ACK (preamble-based wake-on-radio compatible)
         Message ack = Message::createAck(msg.textData.seq);
         uint8_t ackBuf[64]; // 64 bytes: enough for any message type (ACK=2, Text+GPS=52)
         int ackLen = ack.serialize(ackBuf, sizeof(ackBuf));
 
         if (ackLen > 0)
         {
-            ESP_LOGI(TAG, "Sending ACK for seq: %d", msg.textData.seq);
+            ESP_LOGI(TAG, "Preparing ACK for seq: %d (with %d-symbol preamble)",
+                     msg.textData.seq, LoRaConstants::PREAMBLE_LENGTH);
+
+            // Switch to continuous RX before sending ACK
+            // Ensures radio is in stable state (not mid-duty-cycle sleep)
+            loraManager->startReceive(false);
 
             // Wait before sending ACK to ensure sender has switched to RX mode
             vTaskDelay(pdMS_TO_TICKS(LoRaConstants::ACK_DELAY_MS));
@@ -275,8 +280,10 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
             // Reset watchdog before long LoRa transmission
             esp_task_wdt_reset();
 
-            // Start non-blocking transmission via LoRaManager
+            ESP_LOGI(TAG, "Sending ACK");
             loraManager->startTransmit(ackBuf, ackLen);
+
+            // After TX completes, onLoRaTransmitComplete() returns to duty cycle
         }
 
         // Queue or buffer message for BLE delivery
@@ -301,14 +308,6 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
         break;
     }
 
-    case MessageType::WakeUp:
-    {
-        ESP_LOGI(TAG, "WakeUp message received");
-        // Wake-up messages don't need to be forwarded to BLE
-        // They are used to wake devices from deep sleep via LoRa
-        break;
-    }
-
     default:
     {
         ESP_LOGW(TAG, "Unknown message type received");
@@ -330,6 +329,11 @@ void onLoRaTransmitComplete(bool success)
     {
         ESP_LOGW(TAG, "LoRa transmission failed");
     }
+
+    // After any transmission (message or ACK), return to duty cycle for power savings
+    // useDutyCycle=true → SX1262: duty cycle (~1.2mA), SX1278: continuous (~12mA)
+    ESP_LOGI(TAG, "Returning to duty cycle mode");
+    loraManager->startReceive(true);
 }
 
 /**

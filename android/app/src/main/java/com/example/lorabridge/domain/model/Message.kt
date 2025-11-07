@@ -2,7 +2,7 @@ package com.example.lorabridge.domain.model
 
 /**
  * Domain model for LoRa messages
- * Protocol v3.0 - Unified text + GPS
+ * Protocol v3.2 - Preamble-based wake-on-radio (WakeUp message removed)
  */
 sealed class Message {
     abstract val type: MessageType
@@ -33,14 +33,6 @@ sealed class Message {
         override val type = MessageType.ACK
     }
 
-    /**
-     * Wake-up message - LoRa-only, used to wake devices from deep sleep.
-     * Never sent via BLE.
-     */
-    data object WakeUpMessage : Message() {
-        override val type = MessageType.WAKE_UP
-    }
-
     companion object {
         const val MAX_TEXT_LENGTH = 50
     }
@@ -48,8 +40,8 @@ sealed class Message {
 
 enum class MessageType(val value: Byte) {
     TEXT(0x01),
-    ACK(0x02),
-    WAKE_UP(0x03);  // Wake-up message (LoRa-only, never sent via BLE)
+    ACK(0x02);
+    // Protocol v3.2: WAKE_UP (0x03) removed - using preamble-based wake-on-radio
 
     companion object {
         fun fromByte(value: Byte): MessageType =
