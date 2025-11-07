@@ -4,12 +4,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "esp32/**"
+      - "firmware/**"
       - ".github/workflows/firmware-compile.yml"
   push:
     branches: [main]
     paths:
-      - "esp32/**"
+      - "firmware/**"
       - ".github/workflows/firmware-compile.yml"
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: esp32
+        working-directory: firmware
 
     steps:
       - name: Checkout code

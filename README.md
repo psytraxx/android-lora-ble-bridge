@@ -55,8 +55,8 @@ graph TD
 ```
 android-lora-ble-bridge/
 ├── android/              # Android application (Kotlin + Jetpack Compose)
-├── esp32/                # ESP32 firmware (C++/Arduino) - Transceiver with BLE
-├── esp32s3-debugger/     # ESP32-S3 LoRa debugger with display (C++/Arduino)
+├── firmware/             # ESP32 firmware (C++/Arduino) - Transceiver with BLE
+├── debugger/             # ESP32-S3 LoRa debugger with display (C++/Arduino)
 ├── shared/               # Shared protocol libraries (C++)
 ├── protocol.md           # Protocol specification
 ├── CHANGELOG.md          # Project changelog
@@ -199,7 +199,7 @@ The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
 - **Preamble**: 512 symbols (~2.5s) ensures detection by duty-cycled receivers
 - **Duty Cycle**: EU requires 1% (36s/hour) - calculate at [LoRa Calculator](https://www.loratools.nl/#/airtime)
 
-See **[protocol.md](protocol.md)** for detailed specifications and **[esp32/power.md](esp32/power.md)** for power optimization details.
+See **[protocol.md](protocol.md)** for detailed specifications and **[firmware/power.md](firmware/power.md)** for power optimization details.
 
 ## Message Flow & ACK Timing
 
@@ -275,7 +275,7 @@ gantt
 
 **1. ACK Delay on Receiver (500ms)**
 ```cpp
-// esp32s3-debugger/src/main.cpp
+// debugger/src/main.cpp
 delay(500);  // Wait for sender to return to RX mode
 ```
 - **Purpose**: Ensures ESP32 sender has switched from TX to RX mode
@@ -287,7 +287,7 @@ delay(500);  // Wait for sender to return to RX mode
 
 **2. RX Mode Settle Time (50ms)**
 ```cpp
-// esp32/src/main.cpp
+// firmware/src/main.cpp
 loraManager.startReceiveMode();
 delay(50);  // Ensure radio is fully in RX mode
 ```
@@ -328,7 +328,7 @@ If you need to modify timing for different hardware or conditions:
 
 **Increase ACK delay** (better reliability, slower):
 ```cpp
-// esp32s3-debugger/src/main.cpp
+// debugger/src/main.cpp
 delay(1000);  // Increase from 500ms
 ```
 

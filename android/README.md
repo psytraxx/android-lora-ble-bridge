@@ -285,7 +285,7 @@ lorabridge/
 
 ### ESP32-S3 Firmware
 - **Firmware:** C++/Arduino/PlatformIO
-- **Location:** `../esp32/` or `../esp32s3-debugger/`
+- **Location:** `../firmware/` or `../debugger/`
 - **BLE Service UUID:** 0x1234
 - **TX Characteristic:** 0x5678 (notifications)
 - **RX Characteristic:** 0x5679 (writes)
@@ -385,7 +385,7 @@ Same as original project.
 - **Issues:** Report at GitHub issues page
 - **Docs:** See `docs/` folder
 - **Tests:** `./gradlew test`
-- **ESP32 Firmware:** See `../esp32/` or `../esp32s3-debugger/`
+- **ESP32 Firmware:** See `../firmware/` or `../debugger/`
 
 ---
 

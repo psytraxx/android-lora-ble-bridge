@@ -13,12 +13,12 @@ This is a long-range messaging system bridging BLE (Android ↔ ESP32) with LoRa
 
 ```bash
 # ESP32 firmware (use full PlatformIO path on macOS)
-cd esp32
+cd firmware
 ~/.platformio/penv/bin/pio run              # Build
 ~/.platformio/penv/bin/pio run --target upload --target monitor
 
 # ESP32-S3 debugger
-cd esp32s3-debugger
+cd debugger
 ~/.platformio/penv/bin/pio run --target upload --target monitor
 
 # Android app
@@ -72,7 +72,7 @@ switch(reason) {
 
 ## ESP32 Architecture Patterns
 
-**State Machine:** `ApplicationController` (see `esp32/include/ApplicationController.h`)
+**State Machine:** `ApplicationController` (see `firmware/include/ApplicationController.h`)
 - `DISCONNECTED_ADVERTISING` → `CONNECTED_ACTIVE` (via BLE events)
 - Handles advertising timeout (30s), inactivity timeout (60s), deep sleep trigger
 - Manages `MessageBuffer` (10 message queue when BLE disconnected)
@@ -86,7 +86,7 @@ switch(reason) {
 **Critical Timing:**
 - **ACK delay:** 500ms before sending ACK (allows TX→RX mode switch)
 - **RX settle:** 50ms after `startReceive()` (hardware stabilization)
-- Location: `esp32s3-debugger/src/main.cpp` and `esp32/src/LoRaManager.cpp`
+- Location: `debugger/src/main.cpp` and `firmware/src/LoRaManager.cpp`
 
 ## Android Clean Architecture
 
@@ -118,7 +118,7 @@ switch(reason) {
 7. Increment version in comments
 
 **Changing LoRa Parameters:**
-- Edit `esp32/platformio.ini` and `esp32s3-debugger/platformio.ini` (frequency, SF, BW, TX power)
+- Edit `firmware/platformio.ini` and `debugger/platformio.ini` (frequency, SF, BW, TX power)
 - **Current settings:** 433.92 MHz, BW250 kHz, SF11, CR4/5, 20dBm TX, 512-symbol preamble
 - Reflash ALL devices (must use same parameters for interoperability)
 - Verify with serial monitor: `~/.platformio/penv/bin/pio device monitor`
@@ -153,8 +153,8 @@ switch(reason) {
 ## Key Files Reference
 
 - **Protocol spec:** `protocol.md`, `shared/Protocol/Protocol.{h,cpp}`
-- **ESP32 entry:** `esp32/src/main.cpp` (setup/loop pattern)
-- **State machine:** `esp32/include/ApplicationController.h`
-- **Power mgmt:** `esp32/include/PowerManager.h`
+- **ESP32 entry:** `firmware/src/main.cpp` (setup/loop pattern)
+- **State machine:** `firmware/include/ApplicationController.h`
+- **Power mgmt:** `firmware/include/PowerManager.h`
 - **Android protocol:** `android/app/src/main/java/com/example/lorabridge/data/protocol/LoRaProtocol.kt`
 - **Android UI:** `android/app/src/main/java/com/example/lorabridge/presentation/chat/ChatScreen.kt`

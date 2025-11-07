@@ -52,21 +52,21 @@ Earlier entries refer to the legacy Java implementation.
   - Display now stays at full brightness (255) until light sleep at 30 seconds
   - Simplifies user experience - only two states: full brightness or asleep
   - Reduces code complexity and eliminates dimming/sleep conflict logic
-  - Files modified: `esp32s3-debugger/src/main.cpp`
+  - Files modified: `debugger/src/main.cpp`
 
 - **Deep Sleep LoRa Notification**: Device now sends LoRa message before entering deep sleep
   - Message: "Going to deep sleep" (text only, no GPS)
   - Sequence number: 0 (fixed, not incremented)
   - Transmitted before displaying sleep screen
   - Allows other devices to know this device is entering deep sleep
-  - File: `esp32s3-debugger/src/main.cpp:158-186`
+  - File: `debugger/src/main.cpp:158-186`
 
 - **Wake-up Button Behavior Clarified**: Wake button (GPIO 14) only wakes from deep sleep, not light sleep
   - Light sleep wake-up: LoRa messages only (GPIO 3 / DIO0)
   - Deep sleep wake-up: Button press only (GPIO 14)
   - Prevents accidental wake from light sleep during normal operation
   - Long button press (2 seconds) triggers deep sleep
-  - File: `esp32s3-debugger/src/main.cpp:186-193`
+  - File: `debugger/src/main.cpp:186-193`
 
 #### Code Cleanup
 - Removed constants: `DISPLAY_DIM_TIMEOUT`, `DISPLAY_DIM`
@@ -139,44 +139,44 @@ Earlier entries refer to the legacy Java implementation.
   - Problem: SX1278 LoRa module lost RX mode state after ESP32-S3 light sleep, preventing message reception
   - Solution: Added `loraManager.startReceiveMode()` + 50ms stabilization delay after wake-up
   - Impact: LoRa reception now works reliably across sleep/wake cycles
-  - File: `esp32s3-debugger/src/main.cpp:244-249`
+  - File: `debugger/src/main.cpp:244-249`
 
 - **HIGH - Non-Blocking ACK Delay**: Replaced blocking 500ms delay with timer-based implementation
   - Problem: `delay(500)` blocked all operations (button input, display updates, LoRa reception) during ACK transmission
   - Solution: Implemented `ackPending` flag with `ackSendTime` timer for non-blocking ACK scheduling
   - Impact: System remains responsive during ACK transmission, no missed button presses or messages
-  - File: `esp32s3-debugger/src/main.cpp:86-90, 612-624, 648-671`
+  - File: `debugger/src/main.cpp:86-90, 612-624, 648-671`
 
 - **HIGH - Display Dimming/Sleep Conflict**: Fixed display dimming timeout triggering during sleep countdown
   - Problem: Display would dim at 10 seconds, then immediately wake for sleep at 15 seconds
   - Solution: Set `displayDimmed=true` during sleep entry, check `timeSinceActivity < SLEEP_TIMEOUT` before dimming
   - Impact: Display only dims when not about to sleep, smoother UX
-  - File: `esp32s3-debugger/src/main.cpp:226-227, 673-680`
+  - File: `debugger/src/main.cpp:226-227, 673-680`
 
 #### Reliability Improvements
 - **Button Debounce**: Added debounce on button release in addition to press
   - Prevents spurious wake events from switch bounce
   - 200ms debounce window on both press and release
-  - File: `esp32s3-debugger/src/main.cpp:521`
+  - File: `debugger/src/main.cpp:521`
 
 - **Sleep Re-Entry Race Condition**: Fixed potential race condition in sleep timing logic
   - Calculate `timeSinceActivity` once per loop iteration
   - Prevents edge case where `millis()` wraps during comparison
-  - File: `esp32s3-debugger/src/main.cpp:674, 683`
+  - File: `debugger/src/main.cpp:674, 683`
 
 #### Code Quality Improvements
 - **Message History Initialization**: Added explicit initialization of message history array in setup()
   - Prevents garbage data on first boot
-  - File: `esp32s3-debugger/src/main.cpp:486-491`
+  - File: `debugger/src/main.cpp:486-491`
 
 - **Display Overlap Fix**: Adjusted button indicator Y-offset to prevent overlap with status line
   - Moved from 24 pixels to 32 pixels above bottom
-  - File: `esp32s3-debugger/src/main.cpp:110, 509-510`
+  - File: `debugger/src/main.cpp:110, 509-510`
 
 - **Magic Number Extraction**: Extracted display layout constants for maintainability
   - `LINE_HEIGHT = 18`, `STATUS_HEIGHT = 20`, `STATUS_LINE_Y_OFFSET = 16`, `BUTTON_INDICATOR_Y_OFFSET = 32`
   - Improves code readability and makes layout adjustments easier
-  - File: `esp32s3-debugger/src/main.cpp:111-117`
+  - File: `debugger/src/main.cpp:111-117`
 
 #### Performance Characteristics
 - **Memory Usage**:
@@ -210,20 +210,20 @@ Earlier entries refer to the legacy Java implementation.
   - Problem: Three separate `static Message bufferedMessages[10]` buffers declared in loop() scope with overlapping storage
   - Solution: Created `MessageBuffer` class with proper circular buffer implementation (single global instance)
   - Impact: Messages now reliably buffered and delivered when BLE reconnects
-  - Files: `esp32/include/MessageBuffer.h` (new), `esp32/src/main.cpp`
+  - Files: `firmware/include/MessageBuffer.h` (new), `firmware/src/main.cpp`
 
 - **BLE Advertising Timeout Removed**: Eliminated 8-second inactivity timeout that stopped advertising
   - Problem: Android couldn't reconnect after timeout, preventing buffered message delivery
   - Solution: Removed automatic advertising stop - now always discoverable
   - Impact: Android can always reconnect to retrieve buffered LoRa messages
-  - File: `esp32/src/BLEManager.cpp:194-196`
+  - File: `firmware/src/BLEManager.cpp:194-196`
 
 #### Power Optimizations
 - **Adaptive Loop Delay**: Implemented intelligent delay based on activity
   - Idle state: 100ms delay (90% CPU usage reduction)
   - Active state: 10ms delay (maintains responsiveness)
   - Impact: Significant power savings when no BLE/LoRa activity
-  - File: `esp32/src/main.cpp:489-503`
+  - File: `firmware/src/main.cpp:489-503`
 
 - **ISR Optimization**: Improved interrupt handling for LoRa reception
   - Added `IRAM_ATTR` to LoRa receive callback for fast execution
