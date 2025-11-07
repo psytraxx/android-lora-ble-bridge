@@ -115,9 +115,9 @@ const int STATUS_HEIGHT = 20;             // Reserve space for status line at bo
 const int STATUS_LINE_Y_OFFSET = 16;      // Status line position from bottom
 const int BUTTON_INDICATOR_Y_OFFSET = 32; // Button indicator position from bottom
 
-// ACK delay constant (time to wait for TX->RX mode switch)
-const unsigned long ACK_DELAY_MS = 50;                // 50ms delay before sending ACK
-const unsigned long WAKEUP_TO_MESSAGE_DELAY_MS = 700; // Wait after WakeUp for receiver to wake and enter continuous RX
+// LoRa timing constants
+const unsigned long ACK_DELAY_MS = 500;  // 500ms delay before sending ACK (TX->RX mode switch)
+const uint16_t PREAMBLE_LENGTH = 192;    // 192 symbols (~1573ms @ SF11/BW250) for preamble-based wake-on-radio
 
 // Flags for LoRa activity (set in ISR, checked in loop)
 // IMPORTANT: ISR should ONLY set flags - all data reading happens in main loop
@@ -138,12 +138,8 @@ void onLoRaReceive(void)
 }
 
 /**
- * @brief Send a LoRa message with WakeUp preamble
- * Handles the full transmission sequence:
- * 1. Send WakeUp message to wake duty-cycled receivers
- * 2. Wait for receivers to wake
- * 3. Send actual message
- * 4. Restore RX mode
+ * @brief Send a LoRa message with extended preamble for wake-on-radio
+ * Protocol v3.2: No WakeUp message - extended preamble wakes duty-cycled receivers
  *
  * @param data Message data buffer
  * @param len Message length in bytes
@@ -158,31 +154,7 @@ bool transmitMessage(const uint8_t *data, size_t len)
     esp_task_wdt_init(10, true);
     esp_task_wdt_add(xTaskGetCurrentTaskHandle());
 
-    // Step 1: Send WakeUp message (blocking)
-    Serial.println("Sending WakeUp message...");
-    Message wakeUpMsg = Message::createWakeUp();
-    uint8_t wakeUpBuf[64];
-    int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
-
-    if (wakeUpLen > 0)
-    {
-        int wakeUpState = radio.transmit(wakeUpBuf, wakeUpLen);
-        if (wakeUpState == RADIOLIB_ERR_NONE)
-        {
-            Serial.println("WakeUp sent successfully");
-        }
-        else
-        {
-            Serial.print("WakeUp transmission failed, code ");
-            Serial.print(wakeUpState);
-            Serial.println(" - continuing anyway");
-        }
-
-        // Wait for receiver to wake up and switch to continuous RX
-        delay(WAKEUP_TO_MESSAGE_DELAY_MS);
-    }
-
-    // Step 2: Send actual message
+    // Send message with extended preamble (192 symbols)
     Serial.print("Sending message (");
     Serial.print(len);
     Serial.println(" bytes)...");
@@ -472,8 +444,25 @@ void setup()
 
         if (state == RADIOLIB_ERR_NONE)
         {
-            // Using RadioLib default preamble (8 symbols)
-            // WakeUp messages are now used to wake duty-cycled receivers
+            // Set preamble length for wake-on-radio (Protocol v3.2)
+            int preambleErr = radio.setPreambleLength(PREAMBLE_LENGTH);
+            if (preambleErr != RADIOLIB_ERR_NONE)
+            {
+                Serial.print("Warning: Failed to set preamble length, code ");
+                Serial.println(preambleErr);
+            }
+            else
+            {
+                // Calculate preamble duration: symbols × symbol_time_ms
+                // Symbol time @ SF11/BW250: (2^11) / 250000 = 8.192 ms
+                uint32_t preambleDurationMs = (PREAMBLE_LENGTH * 8192) / 1000;
+                Serial.print("  Preamble: ");
+                Serial.print(PREAMBLE_LENGTH);
+                Serial.print(" symbols (~");
+                Serial.print(preambleDurationMs);
+                Serial.println(" ms)");
+            }
+
             loraSuccess = true;
             display.printLine("LoRa initialized!");
             Serial.println("LoRa setup successful");
@@ -532,7 +521,7 @@ void setup()
     Serial.println("Short press wakes or sends test message when awake");
     Serial.println("===================================\n");
 
-    Serial.println("System ready - WakeUp will be sent before each transmission");
+    Serial.println("System ready - Protocol v3.2 (preamble-based wake-on-radio)");
 
     // Restore any messages persisted across light sleep
     restorePersistentMessages();
@@ -693,16 +682,6 @@ void loop()
                     ackDisplay += String(msg.ackData.seq);
                     summary = ackDisplay;
                     addMessageToDisplay(ackDisplay, packet.rssi, packet.snr);
-                    break;
-                }
-
-                case MessageType::WakeUp:
-                {
-                    Serial.println("Received WakeUp message");
-                    // WakeUp messages are used to wake the device from sleep
-                    // The device is already awake if we received this, so just log it
-                    summary = "WakeUp signal";
-                    addMessageToDisplay("WakeUp signal received", packet.rssi, packet.snr);
                     break;
                 }
 

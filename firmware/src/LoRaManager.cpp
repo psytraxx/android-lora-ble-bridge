@@ -184,39 +184,9 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
         return false;
     }
 
-    // Step 1: Send WakeUp message (blocking) to wake duty-cycled receivers
-    ESP_LOGI(TAG, "Sending WakeUp message...");
-    Message wakeUpMsg = Message::createWakeUp();
-    uint8_t wakeUpBuf[64];
-    int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
-
-    if (wakeUpLen > 0)
-    {
-        // Clear RX interrupt temporarily
-        radio->clearPacketReceivedAction();
-
-        // Send WakeUp synchronously (blocking)
-        int wakeUpState = radio->transmit(wakeUpBuf, wakeUpLen);
-
-        if (wakeUpState != RADIOLIB_ERR_NONE)
-        {
-            ESP_LOGW(TAG, "WakeUp transmission failed, code %d - continuing anyway", wakeUpState);
-        }
-        else
-        {
-            ESP_LOGI(TAG, "WakeUp sent successfully");
-        }
-
-        // Wait for receiver to wake up and switch to continuous RX
-        vTaskDelay(pdMS_TO_TICKS(LoRaConstants::WAKEUP_TO_MESSAGE_DELAY_MS));
-    }
-    else
-    {
-        ESP_LOGW(TAG, "Failed to serialize WakeUp message");
-    }
-
-    // Step 2: Send actual message (non-blocking)
-    ESP_LOGI(TAG, "Starting transmission of %d bytes", len);
+    // Send message with extended preamble (no WakeUp message needed - Protocol v3.2)
+    ESP_LOGI(TAG, "Starting transmission of %d bytes (with %d-symbol preamble)",
+             len, LoRaConstants::PREAMBLE_LENGTH);
 
     // Switch to transmit mode with interrupt
     radio->clearPacketReceivedAction();
