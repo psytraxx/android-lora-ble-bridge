@@ -4,12 +4,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - "esp32s3-debugger/**"
+      - "debugger/**"
       - ".github/workflows/debugger-compile.yml"
   push:
     branches: [main]
     paths:
-      - "esp32s3-debugger/**"
+      - "debugger/**"
       - ".github/workflows/debugger-compile.yml"
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: esp32s3-debugger
+        working-directory: debugger
 
     steps:
       - name: Checkout code
