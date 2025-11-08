@@ -169,29 +169,50 @@ bool MessageBuffer::peek(Message &msg)
         return false;
     }
 
-    // Generate key for message at head (oldest)
-    char key[16];
-    getMessageKey(m_head, key, sizeof(key));
-
-    // Read serialized message from NVS
-    uint8_t buffer[MAX_MESSAGE_SIZE];
-    size_t len = sizeof(buffer);
-
-    esp_err_t err = nvs_get_blob(m_nvsHandle, key, buffer, &len);
-    if (err != ESP_OK)
+    // Try to read messages until we find a valid one or run out
+    while (m_count > 0)
     {
-        ESP_LOGE(TAG, "Failed to read message from NVS: %s", esp_err_to_name(err));
-        return false;
+        // Generate key for message at head (oldest)
+        char key[16];
+        getMessageKey(m_head, key, sizeof(key));
+
+        // Read serialized message from NVS
+        uint8_t buffer[MAX_MESSAGE_SIZE];
+        size_t len = sizeof(buffer);
+
+        esp_err_t err = nvs_get_blob(m_nvsHandle, key, buffer, &len);
+        if (err == ESP_ERR_NVS_NOT_FOUND)
+        {
+            // Message is missing from NVS but count says it should exist
+            // This is a data corruption scenario - skip this message slot
+            ESP_LOGW(TAG, "Message at slot %d missing from NVS (count=%d), skipping to recover", m_head, m_count);
+            m_head = (m_head + 1) % MAX_MESSAGES;
+            m_count--;
+            saveState();
+            continue; // Try next message
+        }
+        else if (err != ESP_OK)
+        {
+            ESP_LOGE(TAG, "Failed to read message from NVS: %s", esp_err_to_name(err));
+            return false;
+        }
+
+        // Deserialize message
+        if (!msg.deserialize(buffer, len))
+        {
+            ESP_LOGE(TAG, "Failed to deserialize message from NVS, skipping corrupted message");
+            m_head = (m_head + 1) % MAX_MESSAGES;
+            m_count--;
+            saveState();
+            continue; // Try next message
+        }
+
+        // Successfully read a valid message
+        return true;
     }
 
-    // Deserialize message
-    if (!msg.deserialize(buffer, len))
-    {
-        ESP_LOGE(TAG, "Failed to deserialize message from NVS");
-        return false;
-    }
-
-    return true;
+    // No valid messages found
+    return false;
 }
 
 bool MessageBuffer::popFront()
