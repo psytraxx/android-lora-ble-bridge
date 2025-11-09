@@ -25,27 +25,10 @@ export class MessageList extends LitElement {
     .messages {
       flex: 1;
       overflow-y: auto;
-      padding: 20px;
+      padding: 16px;
       display: flex;
       flex-direction: column;
       gap: 4px;
-    }
-
-    .messages::-webkit-scrollbar {
-      width: 8px;
-    }
-
-    .messages::-webkit-scrollbar-track {
-      background: var(--md-sys-color-surface-container-low);
-    }
-
-    .messages::-webkit-scrollbar-thumb {
-      background: var(--md-sys-color-outline-variant);
-      border-radius: var(--md-sys-shape-corner-full);
-    }
-
-    .messages::-webkit-scrollbar-thumb:hover {
-      background: var(--md-sys-color-outline);
     }
 
     .empty-state {
@@ -56,20 +39,18 @@ export class MessageList extends LitElement {
       height: 100%;
       color: var(--md-sys-color-on-surface-variant);
       text-align: center;
-      padding: 48px 32px;
+      padding: 48px;
     }
 
-    .empty-state-icon {
-      font-size: 64px;
-      margin-bottom: 24px;
-      opacity: 0.6;
+    .empty-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.38;
     }
 
-    .empty-state-text {
+    .empty-text {
       font-size: var(--md-sys-typescale-body-large);
-      line-height: 1.6;
       margin: 0;
-      letter-spacing: 0.15px;
     }
   `;
 
@@ -77,8 +58,8 @@ export class MessageList extends LitElement {
 		if (this.messages.length === 0) {
 			return html`
         <div class="empty-state">
-          <div class="empty-state-icon">💬</div>
-          <p class="empty-state-text">No messages yet.<br>Connect and start chatting!</p>
+          <div class="empty-icon">💬</div>
+          <p class="empty-text">No messages yet.<br>Connect and start chatting!</p>
         </div>
       `;
 		}

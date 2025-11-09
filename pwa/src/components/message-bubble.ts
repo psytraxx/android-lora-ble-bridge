@@ -1,14 +1,12 @@
 /**
  * Message Bubble Web Component
+ * Matches Android MessageBubble design
  */
 
 import { css, html, LitElement } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { AckStatus, type ChatMessage } from "../services/MessageRepository";
 import { formatMapsUrl, formatTime } from "../utils/format";
-
-// Import Material Web Components
-import '@material/web/elevation/elevation.js';
 
 @customElement("message-bubble")
 export class MessageBubble extends LitElement {
@@ -20,35 +18,35 @@ export class MessageBubble extends LitElement {
       margin: 4px 0;
     }
 
+    /* Message bubble - matches Android RoundedCornerShape(12.dp) */
     .bubble {
       max-width: 85%;
       padding: 12px 16px;
-      border-radius: var(--md-sys-shape-corner-large);
+      border-radius: 12px;
       word-wrap: break-word;
       position: relative;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
       transition: box-shadow 200ms;
     }
 
-    .bubble md-elevation {
-      --md-elevation-level: 1;
+    .bubble:hover {
+      box-shadow: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);
     }
 
-    .bubble:hover md-elevation {
-      --md-elevation-level: 2;
-    }
-
+    /* Sent messages - matches Android primaryContainer */
     .sent {
       margin-left: auto;
       background: var(--md-sys-color-primary-container);
       color: var(--md-sys-color-on-primary-container);
-      border-bottom-right-radius: var(--md-sys-shape-corner-extra-small);
+      border-bottom-right-radius: 4px;
     }
 
+    /* Received messages - matches Android secondaryContainer */
     .received {
       margin-right: auto;
       background: var(--md-sys-color-secondary-container);
       color: var(--md-sys-color-on-secondary-container);
-      border-bottom-left-radius: var(--md-sys-shape-corner-extra-small);
+      border-bottom-left-radius: 4px;
     }
 
     .text {
@@ -97,7 +95,6 @@ export class MessageBubble extends LitElement {
 
 		return html`
       <div class="bubble ${alignClass} ${this.message.ackStatus === AckStatus.PENDING ? "ack-pending" : ""}">
-        <md-elevation></md-elevation>
         <p class="text">${this.message.text}</p>
         <div class="meta">
           <span class="time">${formatTime(this.message.timestamp)}</span>

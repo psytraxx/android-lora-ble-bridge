@@ -1,5 +1,6 @@
 /**
  * Message Input Web Component
+ * Matches Android TextField + IconButton design
  */
 
 import { css, html, LitElement } from "lit";
@@ -11,68 +12,101 @@ import {
 	MAX_TEXT_LENGTH,
 } from "../protocol";
 
-// Import Material Web Components
-import '@material/web/textfield/filled-text-field.js';
-import '@material/web/iconbutton/filled-icon-button.js';
-import type { MdFilledTextField } from '@material/web/textfield/filled-text-field.js';
-
 @customElement("message-input")
 export class MessageInput extends LitElement {
 	@property({ type: Boolean }) disabled = false;
 	@property({ type: Boolean }) hasGps = false;
 	@state() private text = "";
-	@query("md-filled-text-field") input!: MdFilledTextField;
+	@query("input") input!: HTMLInputElement;
 
 	static styles = css`
     :host {
       display: block;
-      padding: 12px 16px;
+      padding: 8px;
       background: var(--md-sys-color-surface);
       border-top: 1px solid var(--md-sys-color-outline-variant);
     }
 
-    .input-container {
+    .input-row {
       display: flex;
       gap: 8px;
-      align-items: flex-end;
+      align-items: center;
     }
 
     .input-wrapper {
       flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
+      position: relative;
     }
 
-    md-filled-text-field {
+    /* TextField - matches Android Material3 */
+    input {
       width: 100%;
+      padding: 16px;
+      border: 1px solid var(--md-sys-color-outline);
+      border-radius: 4px;
+      background: var(--md-sys-color-surface);
+      color: var(--md-sys-color-on-surface);
+      font-size: 16px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
     }
 
-    .counter {
-      font-size: var(--md-sys-typescale-label-small);
+    input:focus {
+      border-color: var(--md-sys-color-primary);
+      border-width: 2px;
+      padding: 15px;
+    }
+
+    input:disabled {
+      background: var(--md-sys-color-surface-variant);
+      color: var(--md-sys-color-on-surface);
+      opacity: 0.38;
+      cursor: not-allowed;
+    }
+
+    .supporting-text {
+      font-size: 12px;
       color: var(--md-sys-color-on-surface-variant);
-      padding: 0 16px;
+      margin: 4px 16px 0;
+    }
+
+    .supporting-text.error {
+      color: var(--md-sys-color-error);
+    }
+
+    /* IconButton - matches Android */
+    .send-btn {
+      width: 48px;
+      height: 48px;
+      border: none;
+      border-radius: 24px;
+      background: var(--md-sys-color-primary);
+      color: var(--md-sys-color-on-primary);
+      cursor: pointer;
       display: flex;
-      gap: 8px;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
     }
 
-    .counter.warning {
-      color: var(--md-sys-color-tertiary);
+    .send-btn:hover:not(:disabled) {
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
 
-    .counter.error {
-      color: var(--md-sys-color-error);
+    .send-btn:active:not(:disabled) {
+      transform: scale(0.92);
     }
 
-    md-filled-icon-button {
-      margin-bottom: 8px;
+    .send-btn:disabled {
+      background: var(--md-sys-color-on-surface);
+      opacity: 0.12;
+      cursor: not-allowed;
     }
 
-    .error-message {
-      color: var(--md-sys-color-error);
-      font-size: var(--md-sys-typescale-label-small);
-      padding: 0 16px;
-      margin-top: 4px;
+    .send-icon {
+      width: 24px;
+      height: 24px;
     }
   `;
 
@@ -96,43 +130,39 @@ export class MessageInput extends LitElement {
 
 		const unsupportedChars = !isValid ? getUnsupportedChars(this.text) : [];
 
-		const supportingText = charCount > 0
-			? `${charCount}/${MAX_TEXT_LENGTH} chars ${messageSize > 0 ? `(${messageSize} B)` : ''}`
-			: '';
-
-		const errorText = unsupportedChars.length > 0
+		const supportingText = unsupportedChars.length > 0
 			? `Unsupported characters: ${unsupportedChars.join(", ")}`
-			: charCount > MAX_TEXT_LENGTH
-			? `Maximum ${MAX_TEXT_LENGTH} characters`
-			: '';
+			: `${charCount}/${MAX_TEXT_LENGTH} chars${messageSize > 0 ? ` (${messageSize} B)` : ''}`;
 
 		return html`
-      <div class="input-container">
+      <div class="input-row">
         <div class="input-wrapper">
-          <md-filled-text-field
-            label="Type a message"
+          <input
+            type="text"
+            placeholder="Type a message..."
             .value=${this.text}
             @input=${this.onInput}
             @keydown=${this.onKeyDown}
             ?disabled=${this.disabled}
             maxlength="${MAX_TEXT_LENGTH + 10}"
-            supporting-text="${supportingText}"
-            error-text="${errorText}"
-            ?error=${!isValid || charCount > MAX_TEXT_LENGTH}
-          >
-          </md-filled-text-field>
+          />
+          ${supportingText ? html`
+            <div class="supporting-text ${!isValid || charCount > MAX_TEXT_LENGTH ? 'error' : ''}">
+              ${supportingText}
+            </div>
+          ` : ''}
         </div>
-        <md-filled-icon-button @click=${this.onSend} ?disabled=${!canSend}>
-          <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
+        <button class="send-btn" @click=${this.onSend} ?disabled=${!canSend} title="Send">
+          <svg class="send-icon" viewBox="0 -960 960 960" fill="currentColor">
             <path d="M120-160v-640l760 320-760 320Zm80-120 474-200-474-200v140l240 60-240 60v140Zm0 0v-400 400Z"/>
           </svg>
-        </md-filled-icon-button>
+        </button>
       </div>
     `;
 	}
 
 	private onInput(e: Event) {
-		this.text = (e.target as MdFilledTextField).value;
+		this.text = (e.target as HTMLInputElement).value;
 	}
 
 	private onKeyDown(e: KeyboardEvent) {

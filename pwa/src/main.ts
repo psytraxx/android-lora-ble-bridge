@@ -2,6 +2,7 @@
  * Main entry point
  */
 
+import './style.css';
 import './components/lora-app';
 
 // Register service worker for PWA offline support

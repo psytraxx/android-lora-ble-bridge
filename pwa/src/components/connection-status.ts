@@ -1,14 +1,11 @@
 /**
  * Connection Status Web Component
+ * Matches Android CenterAlignedTopAppBar design
  */
 
 import { css, html, LitElement } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { ConnectionState } from "../services/BleService";
-
-// Import Material Web Components
-import '@material/web/button/filled-button.js';
-import '@material/web/button/outlined-button.js';
 
 @customElement("connection-status")
 export class ConnectionStatus extends LitElement {
@@ -20,42 +17,78 @@ export class ConnectionStatus extends LitElement {
       display: block;
     }
 
-    .status-bar {
+    /* Top app bar - matches Android CenterAlignedTopAppBar */
+    .top-app-bar {
       background: var(--md-sys-color-primary);
       color: var(--md-sys-color-on-primary);
-      padding: 16px 20px;
+      padding: 12px 16px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      box-shadow: var(--md-sys-elevation-level2);
+      min-height: 64px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .title-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
     }
 
     .title {
-      font-size: var(--md-sys-typescale-title-large);
+      font-size: 22px;
       font-weight: 400;
       margin: 0;
-    }
-
-    .status {
-      font-size: var(--md-sys-typescale-body-medium);
-      display: flex;
-      align-items: center;
-      gap: 16px;
+      letter-spacing: 0;
     }
 
     .status-text {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .actions {
       display: flex;
-      align-items: center;
       gap: 8px;
     }
 
-    .status-icon {
-      font-size: 20px;
+    /* Button - matches Android Material3 Button */
+    button {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+      letter-spacing: 0.1px;
+      text-transform: none;
     }
 
-    md-filled-button, md-outlined-button {
-      --md-sys-color-primary: var(--md-sys-color-on-primary);
-      --md-sys-color-on-primary: var(--md-sys-color-primary);
+    button:active {
+      transform: scale(0.96);
+    }
+
+    .connect-btn {
+      background: var(--md-sys-color-on-primary);
+      color: var(--md-sys-color-primary);
+    }
+
+    .connect-btn:hover {
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+
+    .disconnect-btn {
+      background: transparent;
+      color: var(--md-sys-color-on-primary);
+      border: 1px solid var(--md-sys-color-on-primary);
+    }
+
+    .disconnect-btn:hover {
+      background: rgba(255,255,255,0.1);
     }
   `;
 
@@ -67,25 +100,20 @@ export class ConnectionStatus extends LitElement {
 		const showDisconnectButton = this.state === ConnectionState.CONNECTED;
 
 		return html`
-      <div class="status-bar">
-        <h1 class="title">LoRa Chat</h1>
-        <div class="status">
-          <div class="status-text">
-            <span class="status-icon">${icon}</span>
-            <span>${text}</span>
-          </div>
+      <div class="top-app-bar">
+        <div class="title-container">
+          <h1 class="title">LoRa Chat</h1>
+          <div class="status-text">${icon} ${text}</div>
+        </div>
+        <div class="actions">
           ${
 						showConnectButton
-							? html`
-            <md-filled-button @click=${this.onConnect}>Connect</md-filled-button>
-          `
+							? html`<button class="connect-btn" @click=${this.onConnect}>Connect</button>`
 							: ""
 					}
           ${
 						showDisconnectButton
-							? html`
-            <md-outlined-button @click=${this.onDisconnect}>Disconnect</md-outlined-button>
-          `
+							? html`<button class="disconnect-btn" @click=${this.onDisconnect}>Disconnect</button>`
 							: ""
 					}
         </div>

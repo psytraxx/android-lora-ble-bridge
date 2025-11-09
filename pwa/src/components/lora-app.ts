@@ -32,9 +32,7 @@ export class LoraApp extends LitElement {
       flex-direction: column;
       height: 100vh;
       width: 100%;
-      font-family: Roboto, -apple-system, BlinkMacSystemFont, 'Segoe UI', Oxygen, Ubuntu, Cantarell, sans-serif;
       background: var(--md-sys-color-background);
-      color: var(--md-sys-color-on-background);
     }
 
     .content {
@@ -48,38 +46,70 @@ export class LoraApp extends LitElement {
       flex: 1;
     }
 
-    .toast {
+    /* Linear progress indicator - matches Android Material3 */
+    .progress {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: var(--md-sys-color-surface-variant);
+      overflow: hidden;
+      z-index: 100;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: var(--md-sys-color-primary);
+      animation: progress-indeterminate 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+
+    @keyframes progress-indeterminate {
+      0% {
+        transform: translateX(-100%) scaleX(0.5);
+      }
+      50% {
+        transform: translateX(0%) scaleX(0.5);
+      }
+      100% {
+        transform: translateX(100%) scaleX(0.5);
+      }
+    }
+
+    .banner {
+      background: var(--md-sys-color-error-container);
+      color: var(--md-sys-color-on-error-container);
+      padding: 12px 16px;
+      text-align: center;
+      font-size: var(--md-sys-typescale-body-medium);
+    }
+
+    .snackbar {
       position: fixed;
       bottom: 80px;
       left: 50%;
       transform: translateX(-50%);
       background: var(--md-sys-color-inverse-surface);
       color: var(--md-sys-color-inverse-on-surface);
-      padding: 12px 24px;
+      padding: 14px 16px;
       border-radius: var(--md-sys-shape-corner-extra-small);
       font-size: var(--md-sys-typescale-body-medium);
+      min-width: 280px;
+      max-width: 560px;
       box-shadow: var(--md-sys-elevation-level3);
-      animation: slideUp var(--md-sys-motion-duration-medium2) var(--md-sys-motion-easing-emphasized-decelerate);
       z-index: 1000;
+      animation: snackbarIn 200ms cubic-bezier(0, 0, 0.2, 1);
     }
 
-    @keyframes slideUp {
+    @keyframes snackbarIn {
       from {
-        transform: translateX(-50%) translateY(20px);
+        transform: translateX(-50%) translateY(100%);
         opacity: 0;
       }
       to {
         transform: translateX(-50%) translateY(0);
         opacity: 1;
       }
-    }
-
-    .error-banner {
-      background: var(--md-sys-color-error-container);
-      color: var(--md-sys-color-on-error-container);
-      padding: 12px 16px;
-      text-align: center;
-      font-size: var(--md-sys-typescale-body-medium);
     }
   `;
 
@@ -145,9 +175,18 @@ export class LoraApp extends LitElement {
 
 	render() {
 		const isConnected = this.connectionState === ConnectionState.CONNECTED;
+		const isConnecting =
+			this.connectionState === ConnectionState.SCANNING ||
+			this.connectionState === ConnectionState.CONNECTING;
 		const showBleWarning = !bleService.isSupported();
 
 		return html`
+      ${isConnecting ? html`
+        <div class="progress">
+          <div class="progress-bar"></div>
+        </div>
+      ` : ""}
+
       <connection-status
         .state=${this.connectionState}
         @connect=${this.onConnect}
@@ -157,7 +196,7 @@ export class LoraApp extends LitElement {
       ${
 				showBleWarning
 					? html`
-        <div class="error-banner">
+        <div class="banner">
           Web Bluetooth is not supported. Use Chrome on desktop or Android.
         </div>
       `
@@ -295,13 +334,13 @@ export class LoraApp extends LitElement {
 	}
 
 	private showToast(message: string) {
-		const toast = document.createElement("div");
-		toast.className = "toast";
-		toast.textContent = message;
-		this.shadowRoot?.appendChild(toast);
+		const snackbar = document.createElement("div");
+		snackbar.className = "snackbar";
+		snackbar.textContent = message;
+		this.shadowRoot?.appendChild(snackbar);
 
 		setTimeout(() => {
-			toast.remove();
+			snackbar.remove();
 		}, 3000);
 	}
 }
