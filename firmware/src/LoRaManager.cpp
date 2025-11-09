@@ -88,7 +88,7 @@ bool LoRaManager::startReceive()
         Serial.println("Cannot start receive - not initialized");
         return false;
     }
-    
+
     // SX1278 or duty cycle disabled: Standard continuous receive mode
     radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
     int rxState = radio->startReceive();
@@ -98,7 +98,6 @@ bool LoRaManager::startReceive()
         return false;
     }
     Serial.printf("Continuous receive mode started");
-#endif
 
     state = STATE_IDLE;
     return true;
@@ -141,7 +140,7 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
         }
 
         // Wait for receiver to wake up and switch to continuous RX
-        vTaskDelay(pdMS_TO_TICKS(LoRaConstants::WAKEUP_TO_MESSAGE_DELAY_MS));
+        delay(LoRaConstants::WAKEUP_TO_MESSAGE_DELAY_MS);
     }
     else
     {

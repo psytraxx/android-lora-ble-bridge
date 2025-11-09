@@ -10,92 +10,8 @@
 // peripheral control / driver headers for power optimizations
 #include "driver/periph_ctrl.h"
 #include "driver/i2c.h"
+#include <SPI.h>
 
-// ---- PeripheralPowerMgmt implementations migrated here ----
-void PowerManager::disableADC()
-{
-    Serial.println("Disabling ADC peripheral");
-    periph_module_disable(PERIPH_SARADC_MODULE);
-}
-
-void PowerManager::disableI2C()
-{
-    Serial.println("Disabling I2C peripherals");
-
-    // Delete I2C drivers if initialized
-    i2c_driver_delete(I2C_NUM_0);
-    i2c_driver_delete(I2C_NUM_1);
-
-    // Disable peripheral modules
-    periph_module_disable(PERIPH_I2C0_MODULE);
-    periph_module_disable(PERIPH_I2C1_MODULE);
-}
-
-void PowerManager::disableExtraUARTs()
-{
-    Serial.println("Disabling UART1/UART2 (keeping UART0 for debug)");
-
-    // Delete UART drivers
-    uart_driver_delete(UART_NUM_1);
-    uart_driver_delete(UART_NUM_2);
-
-    // Disable peripheral modules
-    periph_module_disable(PERIPH_UART1_MODULE);
-    periph_module_disable(PERIPH_UART2_MODULE);
-}
-
-void PowerManager::disableUnusedSPI()
-{
-    Serial.println("Disabling SPI3 (keeping SPI2 for LoRa)");
-
-    // ONLY disable SPI3 - SPI2 is used by LoRa radio
-    periph_module_disable(PERIPH_SPI3_MODULE);
-}
-
-void PowerManager::configureUnusedGPIOs(uint64_t usedPins)
-{
-    Serial.println("Configuring unused GPIOs with pull-ups");
-
-    const int safeGPIOs[] = {
-        1, 2, 4, 9, 14, 15, 16, 17, 18, 21,
-        35, 36, 37, 38, 39, 40, 41, 42};
-
-    int configured = 0;
-
-    for (int gpio : safeGPIOs)
-    {
-        if (usedPins & (1ULL << gpio))
-        {
-            continue;
-        }
-
-        gpio_set_direction((gpio_num_t)gpio, GPIO_MODE_INPUT);
-        gpio_set_pull_mode((gpio_num_t)gpio, GPIO_PULLUP_ONLY);
-        gpio_pullup_en((gpio_num_t)gpio);
-        gpio_pulldown_dis((gpio_num_t)gpio);
-
-        configured++;
-    }
-
-    Serial.printf("Configured %d unused GPIOs for low power\n", configured);
-}
-
-void PowerManager::optimizeUnusedPeripherals(uint64_t usedGPIOs, bool disableGPIOConfig)
-{
-    Serial.println("Optimizing unused peripherals for power savings");
-
-    disableADC();
-    disableI2C();
-    disableExtraUARTs();
-    disableUnusedSPI();
-
-    if (!disableGPIOConfig)
-    {
-        configureUnusedGPIOs(usedGPIOs);
-    }
-
-    Serial.println("Peripheral power optimization complete");
-}
 
 void PowerManager::configurePowerManagement()
 {
@@ -163,11 +79,12 @@ void PowerManager::enterDeepSleep()
     Serial.printf("  - LoRa DIO0 going HIGH\n");
     Serial.printf("  - Wake Button going LOW\n");
 
-    // Flush UART0 to ensure all logs are sent before sleeping
-    uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
-    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+    Serial.flush();
+    SPI.end(); // Just in case, end SPI before sleep (should not return)
     // Enter deep sleep - device will reset on wake
     esp_deep_sleep_start();
+
+    
 }
 
 void PowerManager::printWakeupReason()

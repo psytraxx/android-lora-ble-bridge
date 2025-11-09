@@ -82,27 +82,6 @@ void setup()
     esp_bt_mem_release(ESP_BT_MODE_CLASSIC_BT);
     Serial.println("Bluetooth Classic memory released (using NimBLE for BLE only)");
 
-    // Optimize power by disabling unused peripherals
-    // NOTE: Keep SPI2 for LoRa radio, UART0 for debug, and GPIOs for BLE/LoRa
-    // Used GPIO pins: LoRa (SCK, MISO, MOSI, SS, RST, DIO0, BUSY), LED, Button (if applicable)
-    uint64_t usedGPIOs = 0;
-    usedGPIOs |= (1ULL << LORA_SCK);
-    usedGPIOs |= (1ULL << LORA_MISO);
-    usedGPIOs |= (1ULL << LORA_MOSI);
-    usedGPIOs |= (1ULL << LORA_SS);
-    usedGPIOs |= (1ULL << LORA_RST);
-    usedGPIOs |= (1ULL << LORA_DIO0);
-    usedGPIOs |= (1ULL << LORA_BUSY);
-#ifdef LED_PIN
-    usedGPIOs |= (1ULL << LED_PIN);
-#endif
-#ifdef BUTTON_PIN
-    usedGPIOs |= (1ULL << BUTTON_PIN);
-#endif
-
-    PowerManager::optimizeUnusedPeripherals(usedGPIOs);
-    Serial.println("Unused peripherals optimized for power savings");
-
     // Reconfigure watchdog timer with sufficient timeout (Arduino ESP32 v2.0+)
     Watchdog.enable(WatchdogConstants::TIMEOUT_SECONDS * 1000); // timeout in milliseconds
 
@@ -114,7 +93,7 @@ void setup()
         Serial.printf("Failed to initialize message buffer. Halting execution.\n");
         while (1)
         {
-            vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));
+            delay(LoRaConstants::INIT_RETRY_DELAY_MS);
         }
     }
 
