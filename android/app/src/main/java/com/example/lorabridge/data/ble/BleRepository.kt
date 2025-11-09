@@ -63,7 +63,8 @@ class BleRepository @Inject constructor(
         val device: BluetoothDevice,
         val name: String?,
         val address: String,
-        val rssi: Int
+        val rssi: Int,
+        val lastSeenTimestamp: Long = System.currentTimeMillis()
     )
 
     private val _discoveredDevices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
@@ -76,7 +77,9 @@ class BleRepository @Inject constructor(
 
     // Scanning
     private var currentScanCallback: ScanCallback? = null
-    private var scanJob: Job? = null
+    private var deviceCleanupJob: Job? = null
+    private var scanTimeoutJob: Job? = null
+    private var shouldBeScanning: Boolean = false  // Track if scanning should be active
 
     // Auto-disconnect
     private var autoDisconnectJob: Job? = null
@@ -96,6 +99,8 @@ class BleRepository @Inject constructor(
      */
     @SuppressLint("MissingPermission")
     fun startScan() {
+        shouldBeScanning = true
+
         if (!isBluetoothEnabled()) {
             _connectionState.value = BleConnectionState.Error("Bluetooth not enabled")
             return
@@ -122,13 +127,18 @@ class BleRepository @Inject constructor(
         val scanSettings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
-            .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
+            //.setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
             .setNumOfMatches(ScanSettings.MATCH_NUM_ONE_ADVERTISEMENT)
             .setReportDelay(0)
             .build()
 
         currentScanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
+                // Ignore callbacks if we're not actively scanning
+                if (_connectionState.value !is BleConnectionState.Scanning) {
+                    return
+                }
+
                 val deviceName = result.device.name
                 val deviceAddress = result.device.address
                 Log.d(
@@ -136,14 +146,28 @@ class BleRepository @Inject constructor(
                     "BLE device found with service UUID: name='$deviceName', address=$deviceAddress, rssi=${result.rssi}"
                 )
 
-                // Add to discovered devices list if not already present
+                // Update or add device to discovered devices list
                 val currentList = _discoveredDevices.value
-                if (currentList.none { it.address == deviceAddress }) {
+                val existingDeviceIndex = currentList.indexOfFirst { it.address == deviceAddress }
+
+                if (existingDeviceIndex >= 0) {
+                    // Update existing device with new RSSI and timestamp
+                    val updatedDevice = currentList[existingDeviceIndex].copy(
+                        rssi = result.rssi,
+                        lastSeenTimestamp = System.currentTimeMillis()
+                    )
+                    _discoveredDevices.value = currentList.toMutableList().apply {
+                        set(existingDeviceIndex, updatedDevice)
+                    }
+                    Log.d(TAG, "Updated device timestamp. Total devices: ${_discoveredDevices.value.size}")
+                } else {
+                    // Add new device
                     val discoveredDevice = DiscoveredDevice(
                         device = result.device,
                         name = deviceName,
                         address = deviceAddress,
-                        rssi = result.rssi
+                        rssi = result.rssi,
+                        lastSeenTimestamp = System.currentTimeMillis()
                     )
                     _discoveredDevices.value = currentList + discoveredDevice
                     Log.d(
@@ -161,16 +185,54 @@ class BleRepository @Inject constructor(
 
         bluetoothLeScanner.startScan(listOf(scanFilter), scanSettings, currentScanCallback)
 
+        // Start periodic cleanup of stale devices
+        startDeviceCleanup()
+
         // Scan timeout - stop scanning after 30 seconds if no connection made
-        scanJob = scope.launch {
+        scanTimeoutJob = scope.launch {
             delay(BleConstants.SCAN_TIMEOUT_MS)
             if (_connectionState.value is BleConnectionState.Scanning) {
                 stopScan()
-                if (_discoveredDevices.value.isEmpty()) {
-                    _connectionState.value =
-                        BleConnectionState.Error("No devices found", canRetry = true)
+                val devicesFound = _discoveredDevices.value.isNotEmpty()
+
+                // Clear device list on timeout
+                _discoveredDevices.value = emptyList()
+
+                // Show appropriate error message
+                _connectionState.value = if (devicesFound) {
+                    BleConnectionState.Error("Scan timeout - please retry", canRetry = true)
+                } else {
+                    BleConnectionState.Error("No devices found", canRetry = true)
                 }
-                // If devices were found but user didn't connect, keep them visible in the dialog
+            }
+        }
+    }
+
+    /**
+     * Start periodic cleanup of stale devices (devices not seen in 15 seconds)
+     * Only cleans up while actively scanning
+     */
+    private fun startDeviceCleanup() {
+        deviceCleanupJob?.cancel()
+        deviceCleanupJob = scope.launch {
+            while (true) {
+                delay(3_000L)  // Check every 3 seconds
+
+                // Only clean up if we're actively scanning
+                if (currentScanCallback != null && _connectionState.value is BleConnectionState.Scanning) {
+                    val currentTime = System.currentTimeMillis()
+                    val currentList = _discoveredDevices.value
+
+                    val filteredList = currentList.filter {
+                        currentTime - it.lastSeenTimestamp < BleConstants.DEVICE_STALE_TIMEOUT_MS
+                    }
+
+                    if (filteredList.size != currentList.size) {
+                        val removedCount = currentList.size - filteredList.size
+                        Log.d(TAG, "Removed $removedCount stale device(s). Remaining: ${filteredList.size}")
+                        _discoveredDevices.value = filteredList
+                    }
+                }
             }
         }
     }
@@ -180,7 +242,9 @@ class BleRepository @Inject constructor(
      */
     @SuppressLint("MissingPermission")
     fun stopScan() {
-        scanJob?.cancel()
+        shouldBeScanning = false
+        scanTimeoutJob?.cancel()
+        deviceCleanupJob?.cancel()
         currentScanCallback?.let {
             try {
                 bluetoothLeScanner?.stopScan(it)
@@ -189,6 +253,34 @@ class BleRepository @Inject constructor(
                 Log.e(TAG, "Error stopping scan", e)
             }
             currentScanCallback = null
+        }
+    }
+
+    /**
+     * Pause scanning (app going to background)
+     */
+    @SuppressLint("MissingPermission")
+    fun pauseScan() {
+        if (currentScanCallback != null) {
+            scanTimeoutJob?.cancel()
+            deviceCleanupJob?.cancel()
+            try {
+                bluetoothLeScanner?.stopScan(currentScanCallback)
+                Log.d(TAG, "Scan paused (app backgrounded)")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error pausing scan", e)
+            }
+            currentScanCallback = null
+        }
+    }
+
+    /**
+     * Resume scanning (app coming to foreground)
+     */
+    fun resumeScan() {
+        if (shouldBeScanning && currentScanCallback == null && !isConnected()) {
+            Log.d(TAG, "Resuming scan (app foregrounded)")
+            startScan()
         }
     }
 

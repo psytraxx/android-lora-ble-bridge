@@ -155,6 +155,7 @@ class ChatViewModel @Inject constructor(
      */
     fun disconnect() {
         bleRepository.disconnect()
+        messageRepository.clearMessages()
         // Dialog will automatically start scanning when it appears
     }
 

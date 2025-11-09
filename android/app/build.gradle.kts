@@ -88,6 +88,7 @@ dependencies {
 
     // Lifecycle
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.lifecycle.process)
 
     // Location Services
     implementation(libs.play.services.location)
