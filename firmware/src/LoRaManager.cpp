@@ -144,7 +144,7 @@ bool LoRaManager::configureForDeepSleepWake()
     ESP_LOGI(TAG, "Enabling preamble detection IRQ for early wake");
 
     // Start continuous RX mode (autonomous duty cycle won't work during deep sleep)
-    int rxState = radio->startReceive();
+    int rxState = radio->startReceiveDutyCycleAuto();
     if (rxState != RADIOLIB_ERR_NONE)
     {
         ESP_LOGE(TAG, "Failed to start continuous RX for deep sleep, code %d", rxState);
