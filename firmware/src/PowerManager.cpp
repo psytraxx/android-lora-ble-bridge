@@ -1,6 +1,7 @@
 #include "PowerManager.h"
 #include "FirmwareConfig.h"
 #include "esp_pm.h"
+#include "esp_err.h"
 #include <esp_sleep.h>
 #include <driver/gpio.h>
 #include <driver/uart.h>
@@ -17,20 +18,26 @@ void PowerManager::configurePowerManagement()
 {
     Serial.println("Configuring power management");
 
+    
+#ifdef CONFIG_PM_ENABLE
     esp_pm_config_esp32s3_t pm_config = {};
     pm_config.max_freq_mhz = CPU_FREQ_MHZ;
     pm_config.min_freq_mhz = PowerConstants::CPU_MIN_FREQ_MHZ;
-    pm_config.light_sleep_enable = false;
+    pm_config.light_sleep_enable = false; // We handle sleep manually
 
     esp_err_t rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
     {
-        Serial.printf("Failed to configure power management (err=%d)\n", rv);
+        Serial.printf("Failed to configure power management (err=%d - %s)\n", rv, esp_err_to_name(rv));
         return;
     }
 
     Serial.printf("Power management configured (CPU: %d MHz max, %d MHz min)\n",
                   CPU_FREQ_MHZ, PowerConstants::CPU_MIN_FREQ_MHZ);
+#else
+    Serial.printf("Setting CPU frequency to %d MHz\n", CPU_FREQ_MHZ);
+    setCpuFrequencyMhz(CPU_FREQ_MHZ);
+#endif
 }
 
 // see https://github.com/geeksville/Meshtastic-esp32/blob/0f167faa63f53af19dee7959927966db69591436/src/sleep.cpp#L395
