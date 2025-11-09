@@ -115,12 +115,12 @@ const int STATUS_HEIGHT = 20;             // Reserve space for status line at bo
 const int STATUS_LINE_Y_OFFSET = 16;      // Status line position from bottom
 const int BUTTON_INDICATOR_Y_OFFSET = 32; // Button indicator position from bottom
 
-// LoRa timing constants
-const unsigned long ACK_DELAY_MS = 500;  // 500ms delay before sending ACK (TX->RX mode switch)
-const uint16_t PREAMBLE_LENGTH = 192;    // 192 symbols (~1573ms @ SF11/BW250) for preamble-based wake-on-radio
+// LoRa timing constants (must match firmware configuration)
+const unsigned long ACK_DELAY_MS = 200;  // 200ms delay before sending ACK (TX->RX mode switch + settle)
+const uint16_t PREAMBLE_LENGTH = 96;     // 96 symbols (~786ms @ SF11/BW250) for deep sleep wake-on-radio
 
 // Flags for LoRa activity (set in ISR, checked in loop)
-// IMPORTANT: ISR should ONLY set flags - all data reading happens in main loop
+// IMPORTANT: ISR should ONLY set flags - all data reading happens in main loop 
 volatile bool loraPacketReceived = false;
 
 /**

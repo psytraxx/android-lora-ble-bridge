@@ -119,6 +119,14 @@ void ApplicationController::handleDisconnectedAdvertising()
         // Stop advertising before sleep
         bleManager->stopAdvertising();
 
+        // Configure radio for deep sleep wake-on-radio
+        // CRITICAL: Must switch from autonomous duty cycle to continuous RX with preamble detection
+        // This allows ESP32 to wake during the preamble and be ready to receive the packet
+        if (!loraManager->configureForDeepSleepWake())
+        {
+            ESP_LOGE(TAG, "Failed to configure radio for deep sleep - entering anyway");
+        }
+
         // Enter deep sleep (does not return - device will reset on wake)
         PowerManager::enterDeepSleep();
     }

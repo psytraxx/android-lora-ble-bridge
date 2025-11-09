@@ -270,10 +270,6 @@ void onLoRaPacketReceived(const LoRaPacket &packet)
             ESP_LOGI(TAG, "Preparing ACK for seq: %d (with %d-symbol preamble)",
                      msg.textData.seq, LoRaConstants::PREAMBLE_LENGTH);
 
-            // Switch to continuous RX before sending ACK
-            // Ensures radio is in stable state (not mid-duty-cycle sleep)
-            loraManager->startReceive(false);
-
             // Wait before sending ACK to ensure sender has switched to RX mode
             vTaskDelay(pdMS_TO_TICKS(LoRaConstants::ACK_DELAY_MS));
 
@@ -330,10 +326,9 @@ void onLoRaTransmitComplete(bool success)
         ESP_LOGW(TAG, "LoRa transmission failed");
     }
 
-    // After any transmission (message or ACK), return to duty cycle for power savings
-    // useDutyCycle=true → SX1262: duty cycle (~1.2mA), SX1278: continuous (~12mA)
-    ESP_LOGI(TAG, "Returning to duty cycle mode");
-    loraManager->startReceive(true);
+    // After transmission, return to RX mode
+    ESP_LOGI(TAG, "Returning to RX mode");
+    loraManager->startReceive();
 }
 
 /**

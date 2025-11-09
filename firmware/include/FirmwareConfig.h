@@ -44,24 +44,30 @@ namespace LoRaConstants
     /// Default LoRa sync word (0x12 = private network, 0x34 = public LoRaWAN)
     constexpr uint8_t SYNC_WORD = 0x12;
 
-    /// Preamble length for wake-on-radio (Option 3: Power Optimized)
-    /// 192 symbols @ SF11/BW250 = ~1573ms preamble
-    /// Must be > duty cycle period (1500ms) for guaranteed detection
-    constexpr uint16_t PREAMBLE_LENGTH = 192;
-
-    /// SX1262 autonomous duty cycle parameters (10% duty cycle)
-    /// Power: ~1.2 mA average, Battery: ~50 days @ 2500mAh
-    constexpr uint16_t RX_WINDOW_MS = 150;     // Listen duration
-    constexpr uint16_t SLEEP_PERIOD_MS = 1350; // Sleep duration
-    // Total period: 1500ms, Duty: 10%, Latency: 0-1500ms (avg 750ms)
-
-    /// Time to wait for radio hardware to settle after mode change (TX/RX switch)
-    constexpr int RX_SETTLE_TIME_MS = 50;
+    /// Preamble length for deep sleep wake-on-radio
+    /// 96 symbols @ SF11/BW250 = ~786ms preamble
+    ///
+    /// Timing requirements for deep sleep wake (SX1262 preamble detection):
+    ///    - ESP32 boot time: ~100-200ms from deep sleep
+    ///    - SPI reinit: ~50ms
+    ///    - Radio settle: ~50ms
+    ///    - Total: ~300ms required, 786ms provides 2.6x safety margin
+    ///
+    /// The preamble allows ESP32 to wake during transmission and be ready
+    /// to receive the packet payload, preventing packet loss.
+    ///
+    /// Note: Since we use continuous RX (not autonomous duty cycle), the preamble
+    /// only needs to be long enough for ESP32 wake, not for duty cycle detection.
+    constexpr uint16_t PREAMBLE_LENGTH = 96;
 
     /// Delay before sending ACK to ensure sender has switched to RX mode
-    /// Timing: TX complete + mode switch + settle time = ~200ms minimum
-    /// 500ms provides safe margin
-    constexpr int ACK_DELAY_MS = 500;
+    /// Timing breakdown:
+    ///   - Radio mode switch (TX→RX): ~10-20ms
+    ///   - Radio RX settle: ~50ms
+    ///   - Processing time: ~10ms
+    ///   - Total minimum: ~80ms
+    ///   - With 2.5x safety margin: 200ms
+    constexpr int ACK_DELAY_MS = 200;
 
     /// Number of retry attempts for LoRa initialization
     constexpr int INIT_RETRY_COUNT = 3;

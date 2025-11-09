@@ -84,20 +84,32 @@ public:
     bool begin(const LoRaConfig &config);
 
     /**
-     * @brief Start receive mode with configurable duty cycle
+     * @brief Start continuous receive mode
      *
-     * @param useDutyCycle If true (default): use duty cycle on SX1262 (~1.2mA)
-     *                     If false: use continuous RX on SX1262 (~12mA)
-     *                     SX1278 always uses continuous RX (no duty cycle support)
-     *
-     * Use cases:
-     * - true: Idle/waiting for messages (power efficient, default)
-     * - false: Waiting for ACK after TX (reliable/fast detection)
-     * - false: Before transmitting ACK (stable radio state)
+     * Puts radio in continuous RX mode (~12mA) for reliable packet reception
+     * when ESP32 is awake. For deep sleep, use configureForDeepSleepWake() instead.
      *
      * @return true on success, false on failure
      */
-    bool startReceive(bool useDutyCycle = true);
+    bool startReceive();
+
+    /**
+     * @brief Configure radio for deep sleep wake-on-radio with preamble detection
+     *
+     * Configures the radio to trigger DIO interrupt on preamble detection rather than
+     * RX_DONE. This allows the ESP32 to wake from deep sleep during the preamble,
+     * giving it time to boot and reinitialize SPI before the packet completes.
+     *
+     * Critical for SX1262:
+     * - Puts radio in continuous RX mode (autonomous duty cycle won't work during deep sleep)
+     * - Enables preamble detection IRQ so DIO triggers early (~1.5s before packet ends)
+     * - ESP32 wakes, boots, and is ready to receive the packet
+     *
+     * This method should be called immediately before PowerManager::enterDeepSleep()
+     *
+     * @return true on success, false on failure
+     */
+    bool configureForDeepSleepWake();
 
     /**
      * @brief Start non-blocking interrupt-driven transmission

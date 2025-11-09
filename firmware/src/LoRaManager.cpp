@@ -99,7 +99,7 @@ bool LoRaManager::begin(const LoRaConfig &config)
     return false;
 }
 
-bool LoRaManager::startReceive(bool useDutyCycle)
+bool LoRaManager::startReceive()
 {
     if (state == STATE_UNINITIALIZED)
     {
@@ -113,63 +113,85 @@ bool LoRaManager::startReceive(bool useDutyCycle)
     // Set receive interrupt handler
     radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
 
-#if defined(RADIO_SX1262)
-    if (useDutyCycle)
-    {
-        // SX1262: Autonomous duty cycle mode (low power)
-        // 10% duty: 150ms RX / 1350ms sleep = ~1.2mA avg
-        ESP_LOGI(TAG, "Starting autonomous Rx Duty Cycle mode (SX1262)");
-
-        int err = radio->startReceiveDutyCycleAuto(
-            LoRaConstants::RX_WINDOW_MS,    // RX period: 150ms
-            LoRaConstants::SLEEP_PERIOD_MS  // Sleep period: 1350ms
-        );
-
-        if (err != RADIOLIB_ERR_NONE)
-        {
-            ESP_LOGE(TAG, "Failed to start autonomous duty cycle, code %d - falling back to continuous RX", err);
-            int rxState = radio->startReceive();
-            if (rxState != RADIOLIB_ERR_NONE)
-            {
-                ESP_LOGE(TAG, "Fallback continuous RX also failed, code %d", rxState);
-                return false;
-            }
-            ESP_LOGI(TAG, "Continuous receive mode started (fallback)");
-        }
-        else
-        {
-            uint16_t totalPeriod = LoRaConstants::RX_WINDOW_MS + LoRaConstants::SLEEP_PERIOD_MS;
-            float dutyCycle = (100.0f * LoRaConstants::RX_WINDOW_MS) / totalPeriod;
-            ESP_LOGI(TAG, "Duty cycle: %.1f%% (~1.2mA avg, %dms period)",
-                     dutyCycle, totalPeriod);
-        }
-    }
-    else
-    {
-        // SX1262: Continuous RX mode (high power, reliable)
-        // Use for: waiting for ACK, before sending ACK
-        ESP_LOGI(TAG, "Starting continuous RX mode (SX1262, ~12mA)");
-        int rxState = radio->startReceive();
-        if (rxState != RADIOLIB_ERR_NONE)
-        {
-            ESP_LOGE(TAG, "Failed to start continuous receive mode, code %d", rxState);
-            return false;
-        }
-    }
-#else
-    // SX1278: Always continuous receive (no duty cycle support)
-    ESP_LOGI(TAG, "Starting continuous receive mode (SX1278, ~12mA)");
+    // Start continuous RX mode for reliable packet reception
+    ESP_LOGI(TAG, "Starting continuous RX mode (~12mA)");
     int rxState = radio->startReceive();
     if (rxState != RADIOLIB_ERR_NONE)
     {
         ESP_LOGE(TAG, "Failed to start continuous receive mode, code %d", rxState);
         return false;
     }
+
+    state = STATE_IDLE;
+    return true;
+}
+
+bool LoRaManager::configureForDeepSleepWake()
+{
+    if (state == STATE_UNINITIALIZED)
+    {
+        ESP_LOGE(TAG, "Cannot configure deep sleep - not initialized");
+        return false;
+    }
+
+    ESP_LOGI(TAG, "Configuring radio for deep sleep wake-on-radio");
+
+    // Clear any previous interrupt handlers
+    radio->clearPacketSentAction();
+
+#if defined(RADIO_SX1262)
+    // SX1262: Configure for preamble detection wake
+    ESP_LOGI(TAG, "Enabling preamble detection IRQ for early wake");
+
+    // Start continuous RX mode (autonomous duty cycle won't work during deep sleep)
+    int rxState = radio->startReceive();
+    if (rxState != RADIOLIB_ERR_NONE)
+    {
+        ESP_LOGE(TAG, "Failed to start continuous RX for deep sleep, code %d", rxState);
+        return false;
+    }
+
+    // Configure DIO1 to trigger on both preamble detection AND RX done
+    // Preamble detection wakes ESP32 early, RX done ensures we catch the packet
+    int irqState = radio->setIrqFlags(
+        RADIOLIB_SX126X_IRQ_PREAMBLE_DETECTED |
+        RADIOLIB_SX126X_IRQ_RX_DONE
+    );
+
+    if (irqState != RADIOLIB_ERR_NONE)
+    {
+        ESP_LOGW(TAG, "Failed to set preamble detection IRQ (code %d), using standard RX", irqState);
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Preamble detection IRQ configured successfully");
+        ESP_LOGI(TAG, "Radio will trigger DIO1 during preamble (~1.5s before packet ends)");
+    }
+
+    // Set receive interrupt handler (will be called on preamble OR rx done)
+    radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
+
+    ESP_LOGI(TAG, "Radio ready for deep sleep wake (continuous RX mode, ~12mA)");
+#else
+    // SX1278: Standard continuous RX (no preamble detection support)
+    ESP_LOGI(TAG, "SX1278: Using standard continuous RX for deep sleep");
+
+    
+    int rxState = radio->startReceive();
+    if (rxState != RADIOLIB_ERR_NONE)
+    {
+        ESP_LOGE(TAG, "Failed to start continuous RX for deep sleep, code %d", rxState);
+        return false;
+    }
+
+    radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
+    ESP_LOGI(TAG, "Radio ready for deep sleep wake (continuous RX mode, ~12mA)");
 #endif
 
     state = STATE_IDLE;
     return true;
 }
+
 bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 {
     if (state == STATE_UNINITIALIZED)
