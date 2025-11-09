@@ -2,28 +2,38 @@
  * Message Input Web Component
  */
 
-import { LitElement, html, css } from 'lit';
-import { customElement, property, state, query } from 'lit/decorators.js';
-import { isValidText, getUnsupportedChars, calculateMessageSize, MAX_TEXT_LENGTH } from '../protocol';
+import { css, html, LitElement } from "lit";
+import { customElement, property, query, state } from "lit/decorators.js";
+import {
+	calculateMessageSize,
+	getUnsupportedChars,
+	isValidText,
+	MAX_TEXT_LENGTH,
+} from "../protocol";
 
-@customElement('message-input')
+// Import Material Web Components
+import '@material/web/textfield/filled-text-field.js';
+import '@material/web/iconbutton/filled-icon-button.js';
+import type { MdFilledTextField } from '@material/web/textfield/filled-text-field.js';
+
+@customElement("message-input")
 export class MessageInput extends LitElement {
-  @property({ type: Boolean }) disabled = false;
-  @property({ type: Boolean }) hasGps = false;
-  @state() private text = '';
-  @query('input') input!: HTMLInputElement;
+	@property({ type: Boolean }) disabled = false;
+	@property({ type: Boolean }) hasGps = false;
+	@state() private text = "";
+	@query("md-filled-text-field") input!: MdFilledTextField;
 
-  static styles = css`
+	static styles = css`
     :host {
       display: block;
-      padding: 16px;
-      background: var(--surface-color, white);
-      border-top: 1px solid var(--divider-color, #e0e0e0);
+      padding: 12px 16px;
+      background: var(--md-sys-color-surface);
+      border-top: 1px solid var(--md-sys-color-outline-variant);
     }
 
     .input-container {
       display: flex;
-      gap: 12px;
+      gap: 8px;
       align-items: flex-end;
     }
 
@@ -34,143 +44,120 @@ export class MessageInput extends LitElement {
       gap: 4px;
     }
 
-    input {
+    md-filled-text-field {
       width: 100%;
-      padding: 12px 16px;
-      border: 2px solid var(--divider-color, #e0e0e0);
-      border-radius: 24px;
-      font-size: 15px;
-      font-family: inherit;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-
-    input:focus {
-      border-color: var(--primary-color, #1976d2);
-    }
-
-    input:disabled {
-      background: #f5f5f5;
-      cursor: not-allowed;
     }
 
     .counter {
-      font-size: 12px;
-      color: var(--text-secondary-color, #757575);
+      font-size: var(--md-sys-typescale-label-small);
+      color: var(--md-sys-color-on-surface-variant);
       padding: 0 16px;
       display: flex;
       gap: 8px;
     }
 
     .counter.warning {
-      color: #f57c00;
+      color: var(--md-sys-color-tertiary);
     }
 
     .counter.error {
-      color: #d32f2f;
+      color: var(--md-sys-color-error);
     }
 
-    button {
-      padding: 12px 24px;
-      background: var(--primary-color, #1976d2);
-      color: white;
-      border: none;
-      border-radius: 24px;
-      font-size: 15px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.2s, transform 0.1s;
-      white-space: nowrap;
-    }
-
-    button:hover:not(:disabled) {
-      background: var(--primary-dark-color, #1565c0);
-    }
-
-    button:active:not(:disabled) {
-      transform: scale(0.98);
-    }
-
-    button:disabled {
-      background: #bdbdbd;
-      cursor: not-allowed;
+    md-filled-icon-button {
+      margin-bottom: 8px;
     }
 
     .error-message {
-      color: #d32f2f;
-      font-size: 12px;
+      color: var(--md-sys-color-error);
+      font-size: var(--md-sys-typescale-label-small);
       padding: 0 16px;
       margin-top: 4px;
     }
   `;
 
-  render() {
-    const charCount = this.text.length;
-    const messageSize = charCount > 0 ? calculateMessageSize(this.text, this.hasGps) : 0;
-    const isValid = charCount === 0 || isValidText(this.text);
-    const canSend = charCount > 0 && charCount <= MAX_TEXT_LENGTH && isValid && !this.disabled;
+	render() {
+		const charCount = this.text.length;
+		const messageSize =
+			charCount > 0 ? calculateMessageSize(this.text, this.hasGps) : 0;
+		const isValid = charCount === 0 || isValidText(this.text);
+		const canSend =
+			charCount > 0 &&
+			charCount <= MAX_TEXT_LENGTH &&
+			isValid &&
+			!this.disabled;
 
-    let counterClass = '';
-    if (charCount > MAX_TEXT_LENGTH) {
-      counterClass = 'error';
-    } else if (charCount > MAX_TEXT_LENGTH * 0.8) {
-      counterClass = 'warning';
-    }
+		let counterClass = "";
+		if (charCount > MAX_TEXT_LENGTH) {
+			counterClass = "error";
+		} else if (charCount > MAX_TEXT_LENGTH * 0.8) {
+			counterClass = "warning";
+		}
 
-    const unsupportedChars = !isValid ? getUnsupportedChars(this.text) : [];
+		const unsupportedChars = !isValid ? getUnsupportedChars(this.text) : [];
 
-    return html`
+		const supportingText = charCount > 0
+			? `${charCount}/${MAX_TEXT_LENGTH} chars ${messageSize > 0 ? `(${messageSize} B)` : ''}`
+			: '';
+
+		const errorText = unsupportedChars.length > 0
+			? `Unsupported characters: ${unsupportedChars.join(", ")}`
+			: charCount > MAX_TEXT_LENGTH
+			? `Maximum ${MAX_TEXT_LENGTH} characters`
+			: '';
+
+		return html`
       <div class="input-container">
         <div class="input-wrapper">
-          <input
-            type="text"
-            placeholder="Type a message..."
+          <md-filled-text-field
+            label="Type a message"
             .value=${this.text}
             @input=${this.onInput}
             @keydown=${this.onKeyDown}
             ?disabled=${this.disabled}
             maxlength="${MAX_TEXT_LENGTH + 10}"
-          />
-          <div class="counter ${counterClass}">
-            <span>${charCount}/${MAX_TEXT_LENGTH} chars</span>
-            ${messageSize > 0 ? html`<span>(${messageSize} B)</span>` : ''}
-          </div>
-          ${unsupportedChars.length > 0 ? html`
-            <div class="error-message">
-              Unsupported characters: ${unsupportedChars.join(', ')}
-            </div>
-          ` : ''}
+            supporting-text="${supportingText}"
+            error-text="${errorText}"
+            ?error=${!isValid || charCount > MAX_TEXT_LENGTH}
+          >
+          </md-filled-text-field>
         </div>
-        <button @click=${this.onSend} ?disabled=${!canSend}>
-          Send
-        </button>
+        <md-filled-icon-button @click=${this.onSend} ?disabled=${!canSend}>
+          <svg xmlns="http://www.w3.org/2000/svg" height="24" viewBox="0 -960 960 960" width="24" fill="currentColor">
+            <path d="M120-160v-640l760 320-760 320Zm80-120 474-200-474-200v140l240 60-240 60v140Zm0 0v-400 400Z"/>
+          </svg>
+        </md-filled-icon-button>
       </div>
     `;
-  }
+	}
 
-  private onInput(e: Event) {
-    this.text = (e.target as HTMLInputElement).value;
-  }
+	private onInput(e: Event) {
+		this.text = (e.target as MdFilledTextField).value;
+	}
 
-  private onKeyDown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      this.onSend();
-    }
-  }
+	private onKeyDown(e: KeyboardEvent) {
+		if (e.key === "Enter" && !e.shiftKey) {
+			e.preventDefault();
+			this.onSend();
+		}
+	}
 
-  private onSend() {
-    if (this.text.trim().length === 0) return;
+	private onSend() {
+		if (this.text.trim().length === 0) return;
 
-    const text = this.text.trim();
+		const text = this.text.trim();
 
-    this.dispatchEvent(new CustomEvent('send', {
-      detail: { text },
-      bubbles: true,
-      composed: true
-    }));
+		this.dispatchEvent(
+			new CustomEvent("send", {
+				detail: { text },
+				bubbles: true,
+				composed: true,
+			}),
+		);
 
-    this.text = '';
-    this.input.value = '';
-  }
+		this.text = "";
+		if (this.input) {
+			this.input.value = "";
+		}
+	}
 }

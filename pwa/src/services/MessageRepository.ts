@@ -95,9 +95,13 @@ export class MessageRepository {
    * Update ACK status for a message by sequence number
    */
   updateAckStatus(seq: number, status: AckStatus): boolean {
-    const message = this.messages.find(m => m.isSent && m.seq === seq);
-    if (message) {
-      message.ackStatus = status;
+    const index = this.messages.findIndex(m => m.isSent && m.seq === seq);
+    if (index !== -1) {
+      // Create new message object to trigger reactivity
+      this.messages[index] = {
+        ...this.messages[index],
+        ackStatus: status
+      };
       this.notifyListeners();
       this.saveToStorage();
       return true;

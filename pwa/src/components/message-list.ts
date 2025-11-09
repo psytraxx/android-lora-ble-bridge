@@ -2,32 +2,50 @@
  * Message List Web Component
  */
 
-import { LitElement, html, css } from 'lit';
-import { customElement, property, query } from 'lit/decorators.js';
-import { repeat } from 'lit/directives/repeat.js';
-import { ChatMessage } from '../services/MessageRepository';
-import './message-bubble';
+import { css, html, LitElement } from "lit";
+import { customElement, property, query } from "lit/decorators.js";
+import { repeat } from "lit/directives/repeat.js";
+import type { ChatMessage } from "../services/MessageRepository";
+import "./message-bubble";
 
-@customElement('message-list')
+@customElement("message-list")
 export class MessageList extends LitElement {
-  @property({ type: Array }) messages: ChatMessage[] = [];
-  @query('.messages') messagesContainer!: HTMLDivElement;
+	@property({ type: Array }) messages: ChatMessage[] = [];
+	@query(".messages") messagesContainer!: HTMLDivElement;
 
-  static styles = css`
+	static styles = css`
     :host {
       display: flex;
       flex-direction: column;
       height: 100%;
       overflow: hidden;
+      background: var(--md-sys-color-background);
     }
 
     .messages {
       flex: 1;
       overflow-y: auto;
-      padding: 16px;
+      padding: 20px;
       display: flex;
       flex-direction: column;
       gap: 4px;
+    }
+
+    .messages::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .messages::-webkit-scrollbar-track {
+      background: var(--md-sys-color-surface-container-low);
+    }
+
+    .messages::-webkit-scrollbar-thumb {
+      background: var(--md-sys-color-outline-variant);
+      border-radius: var(--md-sys-shape-corner-full);
+    }
+
+    .messages::-webkit-scrollbar-thumb:hover {
+      background: var(--md-sys-color-outline);
     }
 
     .empty-state {
@@ -36,56 +54,59 @@ export class MessageList extends LitElement {
       align-items: center;
       justify-content: center;
       height: 100%;
-      color: var(--text-secondary-color, #757575);
+      color: var(--md-sys-color-on-surface-variant);
       text-align: center;
-      padding: 32px;
+      padding: 48px 32px;
     }
 
     .empty-state-icon {
-      font-size: 48px;
-      margin-bottom: 16px;
+      font-size: 64px;
+      margin-bottom: 24px;
+      opacity: 0.6;
     }
 
     .empty-state-text {
-      font-size: 16px;
+      font-size: var(--md-sys-typescale-body-large);
+      line-height: 1.6;
       margin: 0;
+      letter-spacing: 0.15px;
     }
   `;
 
-  render() {
-    if (this.messages.length === 0) {
-      return html`
+	render() {
+		if (this.messages.length === 0) {
+			return html`
         <div class="empty-state">
           <div class="empty-state-icon">💬</div>
           <p class="empty-state-text">No messages yet.<br>Connect and start chatting!</p>
         </div>
       `;
-    }
+		}
 
-    return html`
+		return html`
       <div class="messages">
         ${repeat(
-          this.messages,
-          (msg) => msg.id,
-          (msg) => html`<message-bubble .message=${msg}></message-bubble>`
-        )}
+					this.messages,
+					(msg) => msg.id,
+					(msg) => html`<message-bubble .message=${msg}></message-bubble>`,
+				)}
       </div>
     `;
-  }
+	}
 
-  updated(changedProperties: Map<string, any>) {
-    super.updated(changedProperties);
+	updated(changedProperties: Map<string, any>) {
+		super.updated(changedProperties);
 
-    if (changedProperties.has('messages') && this.messages.length > 0) {
-      this.scrollToBottom();
-    }
-  }
+		if (changedProperties.has("messages") && this.messages.length > 0) {
+			this.scrollToBottom();
+		}
+	}
 
-  private scrollToBottom() {
-    requestAnimationFrame(() => {
-      if (this.messagesContainer) {
-        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
-      }
-    });
-  }
+	private scrollToBottom() {
+		requestAnimationFrame(() => {
+			if (this.messagesContainer) {
+				this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+			}
+		});
+	}
 }
