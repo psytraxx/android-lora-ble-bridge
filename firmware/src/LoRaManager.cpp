@@ -93,39 +93,7 @@ bool LoRaManager::startReceive()
         ESP_LOGE(TAG, "Cannot start receive - not initialized");
         return false;
     }
-
-#if defined(RADIO_SX1262)
-    // SX1262: Use autonomous hardware duty cycle mode
-    // Radio manages its own wake/sleep independently while ESP32 can deep sleep
-    ESP_LOGI(TAG, "Starting autonomous Rx Duty Cycle mode (SX1262)");
-
-    // Clear any previous interrupt handlers
-    radio->clearPacketSentAction();
-
-    // Set receive interrupt handler
-    radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
-
-    // Start autonomous duty cycle - radio handles timing automatically
-    int err = radio->startReceiveDutyCycleAuto();
-
-    if (err != RADIOLIB_ERR_NONE)
-    {
-        ESP_LOGE(TAG, "Failed to start autonomous duty cycle, code %d - falling back to continuous RX", err);
-        // Fallback to continuous receive
-        radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
-        int rxState = radio->startReceive();
-        if (rxState != RADIOLIB_ERR_NONE)
-        {
-            ESP_LOGE(TAG, "Fallback continuous RX also failed, code %d", rxState);
-            return false;
-        }
-        ESP_LOGI(TAG, "Continuous receive mode started (fallback)");
-    }
-    else
-    {
-        ESP_LOGI(TAG, "Autonomous duty cycle mode active (~2%% duty, ~1.5-2mA avg)");
-    }
-#else
+    
     // SX1278 or duty cycle disabled: Standard continuous receive mode
     radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
     int rxState = radio->startReceive();
@@ -134,8 +102,7 @@ bool LoRaManager::startReceive()
         ESP_LOGE(TAG, "Failed to start continuous receive mode, code %d", rxState);
         return false;
     }
-    ESP_LOGI(TAG, "Continuous receive mode started (~12mA)");
-#endif
+    ESP_LOGI(TAG, "Continuous receive mode started");
 
     state = STATE_IDLE;
     return true;

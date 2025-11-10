@@ -110,7 +110,43 @@ void setup()
 
     ESP_LOGI(TAG, "Message buffer initialized with %d persisted messages", messageBuffer.getCount());
 
-    // Create message queues
+    // Initialize LoRa Manager
+    loraManager = new LoRaManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_BUSY);
+
+    // Configure LoRa parameters
+    LoRaConfig loraConfig = {
+        .frequency = LORA_FREQUENCY,
+        .bandwidth = LORA_BANDWIDTH,
+        .spreadingFactor = LORA_SPREADING_FACTOR,
+        .codingRate = LORA_CODING_RATE,
+        .txPower = LORA_TX_POWER,
+        .syncWord = LoRaConstants::SYNC_WORD};
+
+    // Initialize LoRa radio with retry logic
+    if (!loraManager->begin(loraConfig))
+    {
+        ESP_LOGE(TAG, "LoRa setup failed permanently. Halting execution.");
+        while (1)
+        {
+            vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));
+        }
+    }
+
+    // Set callbacks for LoRa events
+    loraManager->setReceiveCallback(onLoRaPacketReceived);
+    loraManager->setTransmitCallback(onLoRaTransmitComplete);
+
+    // Start continuous receive mode
+    if (!loraManager->startReceive())
+    {
+        ESP_LOGE(TAG, "Failed to start receive mode. Halting execution.");
+        while (1)
+        {
+            vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));
+        }
+    }
+
+     // Create message queues
     bleToLoraQueue = xQueueCreate(QueueConstants::BLE_TO_LORA_SIZE, sizeof(Message));
     loraToBleQueue = xQueueCreate(QueueConstants::LORA_TO_BLE_SIZE, sizeof(Message));
 
@@ -162,42 +198,6 @@ void setup()
 
     bleManager->startAdvertising();
 
-    // Initialize LoRa Manager
-    loraManager = new LoRaManager(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_BUSY);
-
-    // Configure LoRa parameters
-    LoRaConfig loraConfig = {
-        .frequency = LORA_FREQUENCY,
-        .bandwidth = LORA_BANDWIDTH,
-        .spreadingFactor = LORA_SPREADING_FACTOR,
-        .codingRate = LORA_CODING_RATE,
-        .txPower = LORA_TX_POWER,
-        .syncWord = LoRaConstants::SYNC_WORD};
-
-    // Initialize LoRa radio with retry logic
-    if (!loraManager->begin(loraConfig))
-    {
-        ESP_LOGE(TAG, "LoRa setup failed permanently. Halting execution.");
-        while (1)
-        {
-            vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));
-        }
-    }
-
-    // Set callbacks for LoRa events
-    loraManager->setReceiveCallback(onLoRaPacketReceived);
-    loraManager->setTransmitCallback(onLoRaTransmitComplete);
-
-    // Start continuous receive mode
-    if (!loraManager->startReceive())
-    {
-        ESP_LOGE(TAG, "Failed to start receive mode. Halting execution.");
-        while (1)
-        {
-            vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));
-        }
-    }
-
     // Configure GPIO wake-up for LoRa interrupt (allows wake from light sleep)
     PowerManager::configureWakeupSources(WAKE_BUTTON, LORA_DIO0);
 
@@ -210,9 +210,6 @@ void setup()
 #endif
 
     ESP_LOGI(TAG, "All systems initialized");
-
-    // Print wakeup reason for debugging
-    PowerManager::printWakeupReason();
 }
 
 /**
