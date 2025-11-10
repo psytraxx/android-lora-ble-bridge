@@ -138,18 +138,19 @@ void onLoRaReceive(void)
 }
 
 /**
- * @brief Send a LoRa message with WakeUp preamble
+ * @brief Send a LoRa message with optional WakeUp preamble
  * Handles the full transmission sequence:
- * 1. Send WakeUp message to wake duty-cycled receivers
- * 2. Wait for receivers to wake
+ * 1. Send WakeUp message to wake duty-cycled receivers (if not skipped)
+ * 2. Wait for receivers to wake (if WakeUp sent)
  * 3. Send actual message
  * 4. Restore RX mode
  *
  * @param data Message data buffer
  * @param len Message length in bytes
+ * @param skipWakeUp Skip WakeUp preamble (true for ACK, since sender is already awake)
  * @return true if transmission successful, false otherwise
  */
-bool transmitMessage(const uint8_t *data, size_t len)
+bool transmitMessage(const uint8_t *data, size_t len, bool skipWakeUp = false)
 {
     // Clear RX interrupt handler to allow DIO0 to signal TX completion
     radio.clearPacketReceivedAction();
@@ -158,28 +159,35 @@ bool transmitMessage(const uint8_t *data, size_t len)
     esp_task_wdt_init(10, true);
     esp_task_wdt_add(xTaskGetCurrentTaskHandle());
 
-    // Step 1: Send WakeUp message (blocking)
-    Serial.println("Sending WakeUp message...");
-    Message wakeUpMsg = Message::createWakeUp();
-    uint8_t wakeUpBuf[64];
-    int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
-
-    if (wakeUpLen > 0)
+    // Step 1: Send WakeUp message (blocking) - skip for ACK since sender is already awake
+    if (!skipWakeUp)
     {
-        int wakeUpState = radio.transmit(wakeUpBuf, wakeUpLen);
-        if (wakeUpState == RADIOLIB_ERR_NONE)
-        {
-            Serial.println("WakeUp sent successfully");
-        }
-        else
-        {
-            Serial.print("WakeUp transmission failed, code ");
-            Serial.print(wakeUpState);
-            Serial.println(" - continuing anyway");
-        }
+        Serial.println("Sending WakeUp message...");
+        Message wakeUpMsg = Message::createWakeUp();
+        uint8_t wakeUpBuf[64];
+        int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
 
-        // Wait for receiver to wake up and switch to continuous RX
-        delay(WAKEUP_TO_MESSAGE_DELAY_MS);
+        if (wakeUpLen > 0)
+        {
+            int wakeUpState = radio.transmit(wakeUpBuf, wakeUpLen);
+            if (wakeUpState == RADIOLIB_ERR_NONE)
+            {
+                Serial.println("WakeUp sent successfully");
+            }
+            else
+            {
+                Serial.print("WakeUp transmission failed, code ");
+                Serial.print(wakeUpState);
+                Serial.println(" - continuing anyway");
+            }
+
+            // Wait for receiver to wake up and switch to continuous RX
+            delay(WAKEUP_TO_MESSAGE_DELAY_MS);
+        }
+    }
+    else
+    {
+        Serial.println("Skipping WakeUp (sender already awake)");
     }
 
     // Step 2: Send actual message
@@ -754,7 +762,7 @@ void loop()
             Serial.print("Sending ACK for seq: ");
             Serial.println(pendingAckSeq);
 
-            transmitMessage(ackBuf, ackLen);
+            transmitMessage(ackBuf, ackLen, true);  // Skip WakeUp - sender is already awake
         }
     }
 

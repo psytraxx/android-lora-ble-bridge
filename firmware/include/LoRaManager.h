@@ -103,9 +103,10 @@ public:
      *
      * @param data Pointer to data buffer
      * @param len Length of data to transmit
+     * @param skipWakeUp Skip WakeUp preamble (true for ACK, since sender is already awake)
      * @return true if transmission started successfully, false otherwise
      */
-    bool startTransmit(const uint8_t *data, size_t len);
+    bool startTransmit(const uint8_t *data, size_t len, bool skipWakeUp = false);
 
     /**
      * @brief Check if transmission is in progress

@@ -184,8 +184,11 @@ void ApplicationController::processBleToLoraQueue()
             // Reset watchdog before long LoRa transmission
             esp_task_wdt_reset();
 
+            // Skip WakeUp for ACK messages since sender is already awake
+            bool skipWakeUp = (bleMsg.type == MessageType::Ack);
+
             // Start non-blocking transmission via LoRaManager
-            if (loraManager->startTransmit(buf, len))
+            if (loraManager->startTransmit(buf, len, skipWakeUp))
             {
 #ifdef LED_PIN
                 ledManager.blink(LEDConstants::TX_BLINKS);
