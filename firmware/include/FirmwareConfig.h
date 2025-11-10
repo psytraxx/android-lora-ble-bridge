@@ -48,9 +48,9 @@ namespace LoRaConstants
     constexpr int RX_SETTLE_TIME_MS = 50;
 
     /// Delay before sending ACK to ensure sender has switched to RX mode
-    /// Timing: TX complete + mode switch + settle time = ~200ms minimum
-    /// 500ms provides safe margin
-    constexpr int ACK_DELAY_MS = 500;
+    /// Timing: TX complete (0ms, interrupt fired) + mode switch (10ms) + settle time (50ms) = ~60ms minimum
+    /// 150ms provides 2.5x safety margin for balanced speed/reliability
+    constexpr int ACK_DELAY_MS = 150;
 
     /// Delay after sending WakeUp message before sending actual message
     /// WakeUp transmission: ~380ms (blocking, already complete when we start waiting)

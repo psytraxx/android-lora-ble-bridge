@@ -116,7 +116,7 @@ const int STATUS_LINE_Y_OFFSET = 16;      // Status line position from bottom
 const int BUTTON_INDICATOR_Y_OFFSET = 32; // Button indicator position from bottom
 
 // ACK delay constant (time to wait for TX->RX mode switch)
-const unsigned long ACK_DELAY_MS = 50;                // 50ms delay before sending ACK
+const unsigned long ACK_DELAY_MS = 150;               // 150ms delay before sending ACK (balanced: TX complete + mode switch + settle)
 const unsigned long WAKEUP_TO_MESSAGE_DELAY_MS = 700; // Wait after WakeUp for receiver to wake and enter continuous RX
 
 // Flags for LoRa activity (set in ISR, checked in loop)
