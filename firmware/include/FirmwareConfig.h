@@ -55,8 +55,8 @@ namespace LoRaConstants
     /// Delay after sending WakeUp message before sending actual message
     /// WakeUp transmission: ~380ms (blocking, already complete when we start waiting)
     /// Receiver needs: detect interrupt (50ms) + exit duty cycle (100ms) + enter continuous RX (50ms) + settle (50ms)
-    /// Total receiver time: ~250ms. Using 700ms for very safe margin.
-    constexpr int WAKEUP_TO_MESSAGE_DELAY_MS = 700;
+    /// Total receiver time: ~250ms. Using 400ms provides 1.6x safety margin (balanced speed/reliability).
+    constexpr int WAKEUP_TO_MESSAGE_DELAY_MS = 400;
 
     /// Number of retry attempts for LoRa initialization
     constexpr int INIT_RETRY_COUNT = 3;
