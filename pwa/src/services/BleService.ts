@@ -220,7 +220,9 @@ export class BleService {
     if (this.state !== newState) {
       this.state = newState;
       console.log('State changed:', newState);
-      this.stateListeners.forEach((listener) => listener(newState));
+      this.stateListeners.forEach((listener) => {
+        listener(newState);
+      });
     }
   }
 
@@ -228,14 +230,18 @@ export class BleService {
    * Private: Emit message to listeners
    */
   private emitMessage(message: Message): void {
-    this.messageListeners.forEach((listener) => listener(message));
+    this.messageListeners.forEach((listener) => {
+      listener(message);
+    });
   }
 
   /**
    * Private: Emit error to listeners
    */
   private emitError(error: Error): void {
-    this.errorListeners.forEach((listener) => listener(error));
+    this.errorListeners.forEach((listener) => {
+      listener(error);
+    });
   }
 
   /**

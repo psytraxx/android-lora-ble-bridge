@@ -38,9 +38,9 @@ export class MessageInput extends LitElement {
         : `${charCount}/${MAX_TEXT_LENGTH} chars${messageSize > 0 ? ` (${messageSize} B)` : ''}`;
 
     return html`
-      <div class="p-2 bg-base-100 border-t border-base-300">
-        <div class="flex gap-2 items-end">
-          <div class="flex-1">
+      <div class="p-4 bg-base-100 border-t border-base-300">
+        <div class="flex gap-3 items-start">
+          <div class="flex-1 flex flex-col gap-1">
             <input
               type="text"
               placeholder="Type a message..."
@@ -51,20 +51,12 @@ export class MessageInput extends LitElement {
               ?disabled=${this.disabled}
               maxlength="${MAX_TEXT_LENGTH + 10}"
             />
-            ${
-              supportingText
-                ? html`
-              <div class="label">
-                <span class="label-text-alt ${!isValid || charCount > MAX_TEXT_LENGTH ? 'text-error' : ''}">
-                  ${supportingText}
-                </span>
-              </div>
-            `
-                : ''
-            }
+            <span class="text-xs ${!isValid || charCount > MAX_TEXT_LENGTH ? 'text-error' : 'text-base-content/70'}">
+              ${supportingText}
+            </span>
           </div>
           <button
-            class="btn btn-circle btn-primary"
+            class="btn btn-circle btn-primary flex-shrink-0"
             @click=${this.onSend}
             ?disabled=${!canSend}
             title="Send"

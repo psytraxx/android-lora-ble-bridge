@@ -5,7 +5,7 @@
 
 import { html, LitElement } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
-import { type AckMessage, MESSAGE_TYPE, type TextMessage } from '../protocol';
+import { type AckMessage, MESSAGE_TYPE, type Message, type TextMessage } from '../protocol';
 import { bleService, ConnectionState } from '../services/BleService';
 import { locationService } from '../services/LocationService';
 import { AckStatus, type ChatMessage, messageRepository } from '../services/MessageRepository';
@@ -79,11 +79,15 @@ export class LoraApp extends LitElement {
 
   disconnectedCallback() {
     super.disconnectedCallback();
-    this.unsubscribers.forEach((unsub) => unsub());
+    this.unsubscribers.forEach((unsub) => {
+      unsub();
+    });
     this.unsubscribers = [];
 
     // Clear all ACK timeouts
-    this.ackTimeouts.forEach((timeout) => window.clearTimeout(timeout));
+    this.ackTimeouts.forEach((timeout) => {
+      window.clearTimeout(timeout);
+    });
     this.ackTimeouts.clear();
   }
 
@@ -189,7 +193,7 @@ export class LoraApp extends LitElement {
     }
   }
 
-  private handleReceivedMessage(message: TextMessage | AckMessage | any) {
+  private handleReceivedMessage(message: Message) {
     if (message.type === MESSAGE_TYPE.TEXT) {
       // Received a text message
       console.log('Received text message:', message);

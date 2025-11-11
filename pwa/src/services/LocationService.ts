@@ -131,7 +131,9 @@ export class LocationService {
    * Private: Notify listeners of location change
    */
   private notifyListeners(location: LocationData | null): void {
-    this.listeners.forEach((listener) => listener(location));
+    this.listeners.forEach((listener) => {
+      listener(location);
+    });
   }
 }
 
