@@ -17,10 +17,6 @@ cd firmware
 ~/.platformio/penv/bin/pio run              # Build
 ~/.platformio/penv/bin/pio run --target upload --target monitor
 
-# ESP32-S3 debugger
-cd debugger
-~/.platformio/penv/bin/pio run --target upload --target monitor
-
 # Android app
 cd android
 ./gradlew assembleDebug installDebug        # Build + install
@@ -86,7 +82,7 @@ switch(reason) {
 **Critical Timing:**
 - **ACK delay:** 500ms before sending ACK (allows TX→RX mode switch)
 - **RX settle:** 50ms after `startReceive()` (hardware stabilization)
-- Location: `debugger/src/main.cpp` and `firmware/src/LoRaManager.cpp`
+- Location: `firmware/src/LoRaManager.cpp`
 
 ## Android Clean Architecture
 
@@ -118,7 +114,7 @@ switch(reason) {
 7. Increment version in comments
 
 **Changing LoRa Parameters:**
-- Edit `firmware/platformio.ini` and `debugger/platformio.ini` (frequency, SF, BW, TX power)
+- Edit `firmware/platformio.ini` (frequency, SF, BW, TX power)
 - **Current settings:** 433.92 MHz, BW250 kHz, SF11, CR4/5, 20dBm TX, 512-symbol preamble
 - Reflash ALL devices (must use same parameters for interoperability)
 - Verify with serial monitor: `~/.platformio/penv/bin/pio device monitor`
