@@ -35,12 +35,12 @@ export class ConnectionStatus extends LitElement {
             </div>
             ${
               showConnectButton
-                ? html`<button class="btn btn-primary btn-sm" @click=${this.onConnect}>Connect</button>`
+                ? html`<button class="btn btn-success btn-sm px-6" @click=${this.onConnect}>Connect</button>`
                 : ''
             }
             ${
               showDisconnectButton
-                ? html`<button class="btn btn-outline btn-sm" @click=${this.onDisconnect}>Disconnect</button>`
+                ? html`<button class="btn btn-error btn-outline btn-sm px-6" @click=${this.onDisconnect}>Disconnect</button>`
                 : ''
             }
           </div>
