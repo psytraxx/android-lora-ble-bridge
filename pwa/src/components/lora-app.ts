@@ -116,6 +116,7 @@ export class LoraApp extends LitElement {
         }
 
         <connection-status
+          class="sticky top-0 z-10"
           .state=${this.connectionState}
           .deviceName=${this.deviceName}
           @connect=${this.onConnect}
@@ -137,12 +138,14 @@ export class LoraApp extends LitElement {
 
         <main class="flex flex-col flex-1 overflow-hidden min-h-0">
           <message-list class="flex-1 min-h-0" .messages=${this.messages}></message-list>
-          <message-input
-            ?disabled=${!isConnected}
-            .hasGps=${this.hasGps}
-            @send=${this.onSendMessage}
-          ></message-input>
         </main>
+
+        <message-input
+          class="sticky bottom-0 z-10"
+          ?disabled=${!isConnected}
+          .hasGps=${this.hasGps}
+          @send=${this.onSendMessage}
+        ></message-input>
       </div>
     `;
   }
