@@ -2,6 +2,8 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
+  // Use repository name as base for GitHub Pages, fallback to '/' for local dev
+  base: process.env.BASE_URL ? `/${process.env.BASE_URL}/` : '/',
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',

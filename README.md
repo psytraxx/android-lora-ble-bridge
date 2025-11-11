@@ -6,6 +6,7 @@ A long-range communication system for sending text messages (up to 50 characters
 ## Features
 
 - 📱 **Android App**: Modern Kotlin app with Jetpack Compose, GPS integration, and BLE communication
+- 🌐 **Progressive Web App**: Cross-platform PWA with Web Bluetooth support - [Try it now!](https://psytraxx.github.io/android-lora-ble-bridge/)
 - 📡 **Long Range**: 5-15 km typical range (SF11 provides excellent range)
 - 🔋 **Power Optimized**: Autonomous duty cycle on SX1262 (~52 days on 2500 mAh battery)
 - 📦 **Message Buffering**: Buffers up to 10 messages when phone is disconnected
@@ -55,6 +56,7 @@ graph TD
 ```
 android-lora-ble-bridge/
 ├── android/              # Android application (Kotlin + Jetpack Compose)
+├── pwa/                  # Progressive Web App (TypeScript + Lit + Web Bluetooth)
 ├── firmware/             # ESP32 firmware (C++/Arduino) - Transceiver with BLE
 ├── debugger/             # ESP32-S3 LoRa debugger with display (C++/Arduino)
 ├── shared/               # Shared protocol libraries (C++)
@@ -71,6 +73,40 @@ android-lora-ble-bridge/
 - [Android Studio](https://developer.android.com/studio) or Android SDK
 - JDK 11 or higher (for Kotlin + Compose)
 - Gradle (included in Android Studio)
+
+#### Progressive Web App
+- [Node.js](https://nodejs.org/) 18 or higher
+- npm (included with Node.js)
+
+### Progressive Web App Build
+
+#### Live Demo
+🌐 **Try it now**: [https://psytraxx.github.io/android-lora-ble-bridge/](https://psytraxx.github.io/android-lora-ble-bridge/)
+
+**Browser Requirements:**
+- ✅ Chrome 79+ (Desktop: Windows, macOS, Linux)
+- ✅ Chrome 56+ (Android)
+- ✅ Edge 79+ (Desktop)
+- ❌ iOS/Safari (Web Bluetooth not available)
+- ❌ Firefox (Web Bluetooth disabled by default)
+
+#### Local Development
+```bash
+cd pwa
+npm install
+npm run dev
+```
+
+Visit `http://localhost:5173` (Web Bluetooth works on localhost without HTTPS)
+
+#### Production Build
+```bash
+cd pwa
+npm install
+npm run build
+```
+
+Output will be in `pwa/dist/` directory. See [pwa/DEPLOYMENT.md](pwa/DEPLOYMENT.md) for deployment options.
 
 ### Android App Build
 
