@@ -58,7 +58,6 @@ android-lora-ble-bridge/
 ├── android/              # Android application (Kotlin + Jetpack Compose)
 ├── pwa/                  # Progressive Web App (TypeScript + Lit + Web Bluetooth)
 ├── firmware/             # ESP32 firmware (C++/Arduino) - Transceiver with BLE
-├── debugger/             # ESP32-S3 LoRa debugger with display (C++/Arduino)
 ├── shared/               # Shared protocol libraries (C++)
 ├── protocol.md           # Protocol specification
 ├── CHANGELOG.md          # Project changelog
@@ -228,9 +227,7 @@ The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
 - **GPS data**: 8 bytes when included (fixed size)
 - **Range**: 5-15 km typical (SF11 provides excellent sensitivity)
 - **Airtime**: ~0.8 seconds per message (BW250 kHz, 6x faster than BW31.25 kHz)
-- **Battery Life**:
-  - **SX1262 (Heltec)**: ~52 days on 2500 mAh (autonomous duty cycle ~1.5-2mA)
-  - **SX1278 (Debugger)**: ~9 days on 2500 mAh (continuous RX ~12mA)
+- **Battery Life**: ~52 days on 2500 mAh with SX1262 (autonomous duty cycle ~1.5-2mA)
 - **LoRa Config**: 433.92 MHz, BW250 kHz, SF11, CR4/5, 20 dBm TX, 512-symbol preamble
 - **Preamble**: 512 symbols (~2.5s) ensures detection by duty-cycled receivers
 - **Duty Cycle**: EU requires 1% (36s/hour) - calculate at [LoRa Calculator](https://www.loratools.nl/#/airtime)
@@ -311,7 +308,7 @@ gantt
 
 **1. ACK Delay on Receiver (500ms)**
 ```cpp
-// debugger/src/main.cpp
+// firmware/src/main.cpp
 delay(500);  // Wait for sender to return to RX mode
 ```
 - **Purpose**: Ensures ESP32 sender has switched from TX to RX mode
@@ -364,7 +361,7 @@ If you need to modify timing for different hardware or conditions:
 
 **Increase ACK delay** (better reliability, slower):
 ```cpp
-// debugger/src/main.cpp
+// firmware/src/main.cpp
 delay(1000);  // Increase from 500ms
 ```
 
@@ -403,7 +400,7 @@ ACK_Delay = Mode_Switch + RX_Settle + Processing_Buffer
 ```
 
 **If ACKs are missing:**
-1. Increase ACK_DELAY in debugger (500ms → 1000ms)
+1. Increase ACK_DELAY in firmware (500ms → 1000ms)
 2. Increase RX settle time in sender (50ms → 100ms)
 3. Check serial logs for mode transition timing
 
@@ -489,7 +486,7 @@ adb logcat -s LoRaApp
 
 Built with:
 - [ESP-IDF](https://github.com/espressif/esp-idf) - ESP32 framework for ESP32 firmware
-- [Arduino Core](https://github.com/espressif/arduino-esp32) - ESP32 Arduino framework for debugger
+- [Arduino Core](https://github.com/espressif/arduino-esp32) - ESP32 Arduino framework
 - [RadioLib](https://github.com/jgromes/RadioLib) - Universal radio library supporting SX1262/SX1278
 - [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) - Lightweight BLE stack for Arduino/ESP32
 

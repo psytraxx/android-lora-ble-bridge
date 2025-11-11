@@ -42,7 +42,7 @@ export default defineConfig({
         screenshots: [
           {
             src: `${base}screenshot.png`,
-            sizes: '831×756',
+            sizes: '831x756',
             type: 'image/png',
             form_factor: 'wide',
             label: 'Loar Chat'
