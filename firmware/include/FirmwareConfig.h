@@ -110,7 +110,7 @@ namespace BLEConstants
     constexpr int CONNECTION_SETUP_DELAY_MS = 500;
 
     /// Spacing between consecutive BLE message sends to avoid overwhelming stack
-    constexpr int MESSAGE_SPACING_MS = 20;
+    constexpr int MESSAGE_SPACING_MS = 500;
 }
 
 //==============================================================================
