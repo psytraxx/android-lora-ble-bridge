@@ -41,11 +41,18 @@ export default defineConfig({
         ],
         screenshots: [
           {
-            src: `${base}screenshot.png`,
+            src: `${base}screenshot-wide.png`,
             sizes: '831x756',
             type: 'image/png',
             form_factor: 'wide',
-            label: 'Loar Chat'
+            label: 'LoRa Chat'
+          },
+          {
+            src: `${base}screenshot-narrow.png`,
+            sizes: '564x779',
+            type: 'image/png',
+            form_factor: 'narrow',
+            label: 'LoRa Chat'
           }
         ]
       },
