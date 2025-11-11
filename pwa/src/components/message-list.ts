@@ -50,7 +50,7 @@ export class MessageList extends LitElement {
     }
 
     return html`
-      <div class="messages flex-1 overflow-y-auto p-4 flex flex-col gap-2 bg-base-200">
+      <div class="messages h-full overflow-y-auto p-4 flex flex-col gap-2 bg-base-200">
         ${repeat(
           this.messages,
           (msg) => msg.id,

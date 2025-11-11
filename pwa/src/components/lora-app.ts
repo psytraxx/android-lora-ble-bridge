@@ -108,44 +108,43 @@ export class LoraApp extends LitElement {
     const showBleWarning = !bleService.isSupported();
 
     return html`
-      <div class="flex flex-col min-h-screen bg-base-100" style="padding-bottom: env(safe-area-inset-bottom);">
-        ${
-          isConnecting
-            ? html`<progress class="progress progress-primary w-full h-1"></progress>`
-            : ''
-        }
+      <div class="flex flex-col h-screen bg-base-200">
+        <!-- Fixed Header -->
+        <header class="fixed top-0 left-0 right-0 z-10">
+            <connection-status
+              .state=${this.connectionState}
+              .deviceName=${this.deviceName}
+              @connect=${this.onConnect}
+              @disconnect=${this.onDisconnect}
+            ></connection-status>
+            ${isConnecting
+              ? html`<progress class="progress progress-primary w-full h-1"></progress>`
+              : ''}
+            ${showBleWarning
+              ? html`
+                  <div role="alert" class="alert alert-warning rounded-none">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span>Web Bluetooth not supported. Use Chrome on desktop or Android.</span>
+                  </div>
+                `
+              : ''}
+        </header>
 
-        <connection-status
-          class="sticky top-0 z-10"
-          .state=${this.connectionState}
-          .deviceName=${this.deviceName}
-          @connect=${this.onConnect}
-          @disconnect=${this.onDisconnect}
-        ></connection-status>
-
-        ${
-          showBleWarning
-            ? html`
-          <div role="alert" class="alert alert-warning rounded-none">
-            <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <span>Web Bluetooth not supported. Use Chrome on desktop or Android.</span>
-          </div>
-        `
-            : ''
-        }
-
-        <main class="flex flex-col flex-1 overflow-hidden min-h-0">
-          <message-list class="flex-1 min-h-0" .messages=${this.messages}></message-list>
+        <!-- Main content area -->
+        <main class="flex-1 mt-20 mb-20 overflow-y-auto">
+          <message-list class="h-full" .messages=${this.messages}></message-list>
         </main>
 
-        <message-input
-          class="sticky bottom-0 z-10"
-          ?disabled=${!isConnected}
-          .hasGps=${this.hasGps}
-          @send=${this.onSendMessage}
-        ></message-input>
+        <!-- Fixed Footer -->
+        <footer class="fixed bottom-0 left-0 right-0 z-10">
+          <message-input
+            ?disabled=${!isConnected}
+            .hasGps=${this.hasGps}
+            @send=${this.onSendMessage}
+          ></message-input>
+        </footer>
       </div>
     `;
   }
