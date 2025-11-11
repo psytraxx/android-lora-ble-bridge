@@ -105,11 +105,7 @@ export class LoraApp extends LitElement {
       <div class="flex flex-col h-screen bg-base-100">
         ${
           isConnecting
-            ? html`
-          <div class="fixed top-0 inset-x-0 z-50">
-            <progress class="progress progress-primary w-full h-1"></progress>
-          </div>
-        `
+            ? html`<progress class="progress progress-primary w-full h-1"></progress>`
             : ''
         }
 
