@@ -96,9 +96,9 @@ function serializeTextMessage(msg: TextMessage): Uint8Array {
   buffer[offset++] = hasGps ? 1 : 0;
 
   // GPS coordinates (little-endian int32)
-  if (hasGps) {
-    const latMicro = Math.round(msg.latitude! * GPS_PRECISION_MULTIPLIER);
-    const lonMicro = Math.round(msg.longitude! * GPS_PRECISION_MULTIPLIER);
+  if (hasGps && msg.latitude != null && msg.longitude != null) {
+    const latMicro = Math.round(msg.latitude * GPS_PRECISION_MULTIPLIER);
+    const lonMicro = Math.round(msg.longitude * GPS_PRECISION_MULTIPLIER);
 
     writeInt32LE(buffer, offset, latMicro);
     offset += 4;
@@ -194,7 +194,7 @@ function deserializeAckMessage(data: Uint8Array): AckMessage {
 /**
  * Serializes WakeUpMessage
  */
-function serializeWakeUpMessage(msg: WakeUpMessage): Uint8Array {
+function serializeWakeUpMessage(_msg: WakeUpMessage): Uint8Array {
   return new Uint8Array([MESSAGE_TYPE.WAKE_UP]);
 }
 

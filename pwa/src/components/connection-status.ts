@@ -24,27 +24,25 @@ export class ConnectionStatus extends LitElement {
     const showDisconnectButton = this.state === ConnectionState.CONNECTED;
 
     return html`
-      <div class="navbar bg-base-200 shadow-lg min-h-16">
-        <div class="flex-1">
-          <h1 class="text-2xl font-bold tracking-tight px-4">LoRa Chat</h1>
+      <nav class="navbar bg-base-200 shadow-lg">
+        <div class="flex-1 px-4">
+          <h1 class="text-2xl font-bold">LoRa Chat</h1>
         </div>
-        <div class="flex-none">
-          <div class="flex items-center gap-4 px-4">
-            ${badge}
-            <theme-switcher></theme-switcher>
-            ${
-              showConnectButton
-                ? html`<button class="btn btn-success btn-sm px-6" @click=${this.onConnect}>Connect</button>`
-                : ''
-            }
-            ${
-              showDisconnectButton
-                ? html`<button class="btn btn-error btn-outline btn-sm px-6" @click=${this.onDisconnect}>Disconnect</button>`
-                : ''
-            }
-          </div>
+        <div class="flex-none gap-3 px-4">
+          ${badge}
+          <theme-switcher></theme-switcher>
+          ${
+            showConnectButton
+              ? html`<button class="btn btn-primary btn-sm" @click=${this.onConnect}>Connect</button>`
+              : ''
+          }
+          ${
+            showDisconnectButton
+              ? html`<button class="btn btn-error btn-sm" @click=${this.onDisconnect}>Disconnect</button>`
+              : ''
+          }
         </div>
-      </div>
+      </nav>
     `;
   }
 

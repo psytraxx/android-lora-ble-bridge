@@ -22,24 +22,22 @@ export class MessageList extends LitElement {
   render() {
     if (this.messages.length === 0) {
       return html`
-        <div class="flex flex-col items-center justify-center h-full p-12">
+        <div class="flex items-center justify-center h-full p-8">
           <div class="card bg-base-200 shadow-xl max-w-md">
-            <div class="card-body items-center text-center">
-              <div class="text-6xl mb-4 opacity-60">💬</div>
+            <div class="card-body items-center text-center gap-4">
+              <div class="text-6xl opacity-50">💬</div>
               <h2 class="card-title">No messages yet</h2>
               <p class="text-base-content/70">
                 Connect to your ESP32 LoRa device and start sending messages over long-range radio.
               </p>
-              <div class="card-actions mt-4">
-                <div class="stats shadow">
-                  <div class="stat place-items-center">
-                    <div class="stat-title">Max Range</div>
-                    <div class="stat-value text-primary text-2xl">5-15 km</div>
-                  </div>
-                  <div class="stat place-items-center">
-                    <div class="stat-title">Max Length</div>
-                    <div class="stat-value text-secondary text-2xl">50 chars</div>
-                  </div>
+              <div class="stats shadow">
+                <div class="stat place-items-center py-3">
+                  <div class="stat-title text-xs">Max Range</div>
+                  <div class="stat-value text-primary text-xl">5-15 km</div>
+                </div>
+                <div class="stat place-items-center py-3">
+                  <div class="stat-title text-xs">Max Length</div>
+                  <div class="stat-value text-secondary text-xl">50 chars</div>
                 </div>
               </div>
             </div>
@@ -49,7 +47,7 @@ export class MessageList extends LitElement {
     }
 
     return html`
-      <div class="messages flex-1 overflow-y-auto p-4 flex flex-col gap-1 bg-base-200">
+      <div class="messages flex-1 overflow-y-auto p-4 flex flex-col gap-2 bg-base-200">
         ${repeat(
           this.messages,
           (msg) => msg.id,

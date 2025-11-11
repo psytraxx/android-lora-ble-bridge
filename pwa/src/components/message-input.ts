@@ -39,8 +39,8 @@ export class MessageInput extends LitElement {
 
     return html`
       <div class="p-4 bg-base-100 border-t border-base-300">
-        <div class="flex gap-3 items-start">
-          <div class="flex-1 flex flex-col gap-1">
+        <div class="flex gap-2 items-start">
+          <div class="flex flex-col flex-1 gap-1">
             <input
               type="text"
               placeholder="Type a message..."
@@ -50,16 +50,17 @@ export class MessageInput extends LitElement {
               @keydown=${this.onKeyDown}
               ?disabled=${this.disabled}
               maxlength="${MAX_TEXT_LENGTH + 10}"
+              aria-label="Message input"
             />
-            <span class="text-xs ${!isValid || charCount > MAX_TEXT_LENGTH ? 'text-error' : 'text-base-content/70'}">
+            <span class="text-xs ${!isValid || charCount > MAX_TEXT_LENGTH ? 'text-error' : 'text-base-content/70'}" role="status">
               ${supportingText}
             </span>
           </div>
           <button
-            class="btn btn-circle btn-primary flex-shrink-0"
+            class="btn btn-primary btn-circle"
             @click=${this.onSend}
             ?disabled=${!canSend}
-            title="Send"
+            aria-label="Send message"
           >
             <svg class="w-6 h-6" viewBox="0 -960 960 960" fill="currentColor">
               <path d="M120-160v-640l760 320-760 320Zm80-120 474-200-474-200v140l240 60-240 60v140Zm0 0v-400 400Z"/>
