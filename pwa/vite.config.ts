@@ -38,6 +38,15 @@ export default defineConfig({
             type: 'image/png',
             purpose: 'any maskable'
           }
+        ],
+        screenshots: [
+          {
+            src: `${base}screenshot.png`,
+            sizes: '831×756',
+            type: 'image/png',
+            form_factor: 'wide',
+            label: 'Loar Chat'
+          }
         ]
       },
       workbox: {
