@@ -58,7 +58,6 @@ android-lora-ble-bridge/
 ├── android/              # Android application (Kotlin + Jetpack Compose)
 ├── pwa/                  # Progressive Web App (TypeScript + Lit + Web Bluetooth)
 ├── firmware/             # ESP32 firmware (C++/Arduino) - Transceiver with BLE
-├── shared/               # Shared protocol libraries (C++)
 ├── protocol.md           # Protocol specification
 ├── CHANGELOG.md          # Project changelog
 └── README.md             # This file (you are here)

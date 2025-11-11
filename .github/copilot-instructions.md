@@ -33,7 +33,7 @@ cd android
 **Character Set (6-bit):** Space + A-Z + 0-9 + punctuation (64 chars: `.,!?-:;'"@#$%&*()[]{}=+/<>_`)
 - Lowercase auto-converts to uppercase
 - 50 char max → 38 bytes packed (vs 50 bytes UTF-8)
-- See `shared/Protocol/Protocol.{h,cpp}` for pack/unpack implementation
+- See `firmware/include/Protocol.h` and `firmware/src/Protocol.cpp` for pack/unpack implementation
 
 **GPS Encoding:** `lat/lon × 1_000_000 → int32_t` (little-endian, ~1m precision)
 
@@ -105,7 +105,7 @@ switch(reason) {
 ## Common Development Tasks
 
 **Adding New Message Type:**
-1. Update `shared/Protocol/Protocol.h` enum + struct
+1. Update `firmware/include/Protocol.h` enum + struct
 2. Add factory method in `Protocol.cpp` (e.g., `Message::createFoo()`)
 3. Update `serialize()` and `deserialize()` switch cases
 4. Mirror changes in `android/.../LoRaProtocol.kt`
@@ -142,13 +142,13 @@ switch(reason) {
 ## Project-Specific Conventions
 
 - **No backward compatibility:** Protocol v3.0 breaks v2.0 (separate TEXT/GPS → unified)
-- **C++ in `shared/`:** Uses standard headers (`<cstdint>`, `<cstring>`) not Arduino-specific
+- **Protocol C++:** Uses standard headers (`<cstdint>`, `<cstring>`) not Arduino-specific for portability
 - **Android package:** `com.example.lorabridge` (not `.lorabridge.app` or similar)
 - **ESP32 targets:** `esp32dev` and `lilygo-t-display-s3` in `platformio.ini`
 
 ## Key Files Reference
 
-- **Protocol spec:** `protocol.md`, `shared/Protocol/Protocol.{h,cpp}`
+- **Protocol spec:** `protocol.md`, `firmware/include/Protocol.h`, `firmware/src/Protocol.cpp`
 - **ESP32 entry:** `firmware/src/main.cpp` (setup/loop pattern)
 - **State machine:** `firmware/include/ApplicationController.h`
 - **Power mgmt:** `firmware/include/PowerManager.h`
