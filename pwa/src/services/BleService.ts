@@ -5,6 +5,7 @@
  */
 
 import { deserialize, type Message, serialize } from '../protocol';
+import { messageRepository } from './MessageRepository';
 
 /**
  * BLE UUIDs matching ESP32 firmware
@@ -196,6 +197,13 @@ export class BleService {
    */
   private onDisconnected = (): void => {
     console.log('Device disconnected');
+    // Clear messages when the device disconnects to reflect disconnected state in the UI
+    try {
+      messageRepository.clearMessages();
+    } catch (e) {
+      console.warn('Failed to clear messages on disconnect:', e);
+    }
+
     this.cleanup();
     this.setState(ConnectionState.DISCONNECTED);
   };
