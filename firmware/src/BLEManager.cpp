@@ -141,11 +141,7 @@ bool BLEManager::sendMessage(const Message &msg)
     return true;
 }
 
-void BLEManager::process()
-{
-    // Minimal processing - let NimBLE handle internal tasks if needed
-    // Connection state management moved to ApplicationController
-}
+
 
 bool BLEManager::isConnected() const
 {
@@ -157,9 +153,7 @@ bool BLEManager::isConnected() const
     // NimBLEServer::getConnectedCount() works in both Arduino and ESP-IDF
     return srv->getConnectedCount() > 0;
 }
-// Note: Removed BLE advertising inactivity timeout
-// Requirement: Always able to receive LoRa messages and deliver to Android
-// Therefore, advertising must never stop automatically
+
 
 void BLEManager::stopAdvertising()
 {

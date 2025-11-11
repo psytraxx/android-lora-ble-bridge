@@ -108,10 +108,6 @@ public:
     /// @return true if the notification was queued/sent, false otherwise
     bool sendMessage(const Message &msg);
 
-    /// Periodic processing hook; call from main loop to let BLEManager service
-    /// internal tasks if necessary.
-    void process();
-
     /// Internal handler invoked by characteristic callbacks when data is received
     /// @param data Pointer to received bytes
     /// @param length Number of bytes received

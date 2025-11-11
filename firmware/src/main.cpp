@@ -340,7 +340,6 @@ void loop()
     esp_task_wdt_reset();
 
     // Process component events (non-blocking)
-    bleManager->process();
     loraManager->process();
 
     // Application state machine handles all logic
