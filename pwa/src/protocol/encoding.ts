@@ -75,7 +75,11 @@ export function pack6Bit(text: string): Uint8Array {
 
   for (let i = 0; i < charCount; i++) {
     const char = upper[i];
-    const index = charToIndex.get(char)!;
+    const index = charToIndex.get(char);
+
+    if (index === undefined) {
+      throw new Error(`Character "${char}" at position ${i} is not supported.`);
+    }
 
     // Write 6 bits to output
     for (let bit = 5; bit >= 0; bit--) {

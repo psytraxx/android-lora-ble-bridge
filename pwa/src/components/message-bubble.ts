@@ -29,7 +29,9 @@ export class MessageBubble extends LitElement {
           <div class="chat-footer opacity-70 flex gap-2 items-center mt-1">
             <time class="text-xs font-medium">${formatTime(this.message.timestamp)}</time>
             ${
-              this.message.hasGps && this.message.latitude !== undefined && this.message.longitude !== undefined
+              this.message.hasGps &&
+              this.message.latitude !== undefined &&
+              this.message.longitude !== undefined
                 ? html`
               <div class="tooltip tooltip-top" data-tip="Location: ${this.message.latitude.toFixed(6)}, ${this.message.longitude.toFixed(6)}">
                 <a

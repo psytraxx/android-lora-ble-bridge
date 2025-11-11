@@ -14,10 +14,10 @@ registerSW({
   },
   onOfflineReady() {
     console.log('App ready to work offline');
-  },
+  }
 });
 
 // Log app info
-console.log('LoRa Bridge PWA v1.0.0');
+console.log('LoRa Chat PWA v1.0.0');
 console.log('Web Bluetooth support:', !!navigator.bluetooth);
 console.log('Geolocation support:', !!navigator.geolocation);

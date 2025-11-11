@@ -12,8 +12,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
-        name: 'LoRa Bridge',
-        short_name: 'LoRa Bridge',
+        name: 'LoRa Chat',
+        short_name: 'LoRa Chat',
         description: 'Long-range messaging via LoRa radio and BLE',
         theme_color: '#1976d2',
         background_color: '#ffffff',
