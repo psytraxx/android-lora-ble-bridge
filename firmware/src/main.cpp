@@ -221,7 +221,9 @@ void queueOrBufferMessage(const Message &msg, const char *msgTypeName)
 {
     if (xQueueSend(loraToBleQueue, &msg, 0) != pdTRUE)
     {
-        ESP_LOGW(TAG, "LoRa to BLE queue full, dropping %s", msgTypeName);
+        // Queue is full - try to buffer to NVS instead of dropping
+        ESP_LOGW(TAG, "LoRa to BLE queue full, buffering %s to NVS", msgTypeName);
+        messageBuffer.add(msg);
     }
 }
 

@@ -128,7 +128,15 @@ bool BLEManager::sendMessage(const Message &msg)
     }
 
     pTxCharacteristic->setValue(buf, len);
-    pTxCharacteristic->notify();
+
+    // Check if notify() succeeds - it returns false if client hasn't enabled notifications
+    // or if the notification queue is full
+    if (!pTxCharacteristic->notify())
+    {
+        ESP_LOGW(TAG_BLE, "BLE notify failed - client may not be subscribed or queue full");
+        return false;
+    }
+
     ESP_LOGI(TAG_BLE, "BLE notify sent (%d bytes)", len);
     return true;
 }

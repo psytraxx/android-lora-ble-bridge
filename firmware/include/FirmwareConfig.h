@@ -105,10 +105,12 @@ namespace BLEConstants
 
     /// Time to wait after new connection before sending buffered messages
     /// Allows Android to: request MTU, discover services, enable notifications
-    constexpr int CONNECTION_SETUP_DELAY_MS = 1000;
+    /// Reduced from 1000ms to 500ms to minimize message delivery latency while
+    /// still allowing sufficient time for GATT setup
+    constexpr int CONNECTION_SETUP_DELAY_MS = 500;
 
     /// Spacing between consecutive BLE message sends to avoid overwhelming stack
-    constexpr int MESSAGE_SPACING_MS = 20;
+    constexpr int MESSAGE_SPACING_MS = 500;
 }
 
 //==============================================================================

@@ -70,6 +70,10 @@ void ApplicationController::processStateMachine()
         connectionEstablishedMillis = esp_timer_get_time() / 1000ULL;
         transitionTo(AppState::CONNECTED_ACTIVE);
         ESP_LOGI(TAG, "BLE connected");
+
+        // Immediately attempt to forward any buffered messages to minimize delivery delay
+        // This reduces the window where messages can be "missed" during reconnection
+        forwardBufferedMessages();
     }
     else if (!isCurrentlyConnected && wasConnected)
     {
@@ -209,12 +213,14 @@ void ApplicationController::processLoRaToBleQueue()
     {
         ESP_LOGI(TAG, "LoRa → BLE, type=%d", (int)loraMsg.type);
 
-        // Use state machine state instead of direct isConnected() check to avoid race conditions
-        bool isConnected = (state == AppState::CONNECTED_ACTIVE);
+        // Use real-time BLE connection status to avoid race conditions during state transitions
+        // This ensures messages can be sent as soon as BLE hardware is connected, not waiting
+        // for the next state machine update cycle
+        bool isConnected = bleManager->isConnected();
 
         // Debug: log the state when message arrives
-        ESP_LOGI(TAG, "Current state=%d, isConnected=%d, bleManager->isConnected()=%d",
-                 (int)state, isConnected, bleManager->isConnected());
+        ESP_LOGI(TAG, "Current state=%d, bleManager->isConnected()=%d",
+                 (int)state, isConnected);
 
         if (isConnected)
         {
