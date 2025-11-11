@@ -47,7 +47,12 @@ export class MessageRepository {
   /**
    * Add a new sent message
    */
-  addSentMessage(text: string, hasGps: boolean, latitude?: number, longitude?: number): ChatMessage {
+  addSentMessage(
+    text: string,
+    hasGps: boolean,
+    latitude?: number,
+    longitude?: number
+  ): ChatMessage {
     const message: ChatMessage = {
       id: this.generateId(),
       text,
@@ -71,7 +76,13 @@ export class MessageRepository {
   /**
    * Add a received message
    */
-  addReceivedMessage(text: string, seq: number, hasGps: boolean, latitude?: number, longitude?: number): ChatMessage {
+  addReceivedMessage(
+    text: string,
+    seq: number,
+    hasGps: boolean,
+    latitude?: number,
+    longitude?: number
+  ): ChatMessage {
     const message: ChatMessage = {
       id: this.generateId(),
       text,
@@ -95,7 +106,7 @@ export class MessageRepository {
    * Update ACK status for a message by sequence number
    */
   updateAckStatus(seq: number, status: AckStatus): boolean {
-    const index = this.messages.findIndex(m => m.isSent && m.seq === seq);
+    const index = this.messages.findIndex((m) => m.isSent && m.seq === seq);
     if (index !== -1) {
       // Create new message object to trigger reactivity
       this.messages[index] = {
@@ -113,7 +124,7 @@ export class MessageRepository {
    * Find message by sequence number
    */
   findBySeq(seq: number): ChatMessage | undefined {
-    return this.messages.find(m => m.seq === seq);
+    return this.messages.find((m) => m.seq === seq);
   }
 
   /**
@@ -154,7 +165,9 @@ export class MessageRepository {
    */
   private notifyListeners(): void {
     const messages = this.getMessages();
-    this.listeners.forEach(listener => listener(messages));
+    this.listeners.forEach((listener) => {
+      listener(messages);
+    });
   }
 
   /**

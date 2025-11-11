@@ -84,7 +84,7 @@ export function pack6Bit(text: string): Uint8Array {
       const bitPosition = 7 - (bitOffset % 8);
 
       if (bitValue) {
-        packed[byteIndex] |= (1 << bitPosition);
+        packed[byteIndex] |= 1 << bitPosition;
       }
 
       bitOffset++;
@@ -109,7 +109,9 @@ export function unpack6Bit(packed: Uint8Array, charCount: number): string {
 
   const expectedLength = Math.floor((charCount * 6 + 7) / 8);
   if (packed.length < expectedLength) {
-    throw new Error(`Insufficient packed data: expected ${expectedLength} bytes, got ${packed.length}`);
+    throw new Error(
+      `Insufficient packed data: expected ${expectedLength} bytes, got ${packed.length}`
+    );
   }
 
   let result = '';
@@ -124,7 +126,7 @@ export function unpack6Bit(packed: Uint8Array, charCount: number): string {
       const bitPosition = 7 - (bitOffset % 8);
       const bitValue = (packed[byteIndex] >> bitPosition) & 1;
 
-      index |= (bitValue << bit);
+      index |= bitValue << bit;
       bitOffset++;
     }
 

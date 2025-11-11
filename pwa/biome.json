@@ -1,16 +1,9 @@
 {
-	"$schema": "https://biomejs.dev/schemas/1.9.3/schema.json",
-	"organizeImports": {
-		"enabled": true
-	},
+	"$schema": "https://biomejs.dev/schemas/2.3.4/schema.json",
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"recommended": true,
-			"suspicious": {
-				"noExplicitAny": "off",
-				"noImplicitAnyLet": "off"
-			}
+			"recommended": true
 		}
 	},
 	"javascript": {
@@ -19,6 +12,15 @@
 			"lineWidth": 100,
 			"trailingCommas": "none",
 			"indentStyle": "space"
+		}
+	},
+	"assist": {
+		"enabled": true,
+		"actions": {
+			"recommended": true,
+			"source": {
+				"organizeImports": "on"
+			}
 		}
 	}
 }

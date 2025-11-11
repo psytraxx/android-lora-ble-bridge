@@ -64,7 +64,6 @@ export class LocationService {
 
       console.log('Location acquired:', location);
       return location;
-
     } catch (error) {
       console.error('Failed to get location:', error);
       this.notifyListeners(null);
@@ -120,15 +119,11 @@ export class LocationService {
    */
   private requestPosition(): Promise<GeolocationPosition> {
     return new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(
-        resolve,
-        reject,
-        {
-          enableHighAccuracy: true,
-          timeout: 10_000,
-          maximumAge: 0
-        }
-      );
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 10_000,
+        maximumAge: 0
+      });
     });
   }
 
@@ -136,7 +131,7 @@ export class LocationService {
    * Private: Notify listeners of location change
    */
   private notifyListeners(location: LocationData | null): void {
-    this.listeners.forEach(listener => listener(location));
+    this.listeners.forEach((listener) => listener(location));
   }
 }
 

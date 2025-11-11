@@ -10,7 +10,7 @@ export const MESSAGE_TYPE = {
   WAKE_UP: 0x03
 } as const;
 
-export type MessageType = typeof MESSAGE_TYPE[keyof typeof MESSAGE_TYPE];
+export type MessageType = (typeof MESSAGE_TYPE)[keyof typeof MESSAGE_TYPE];
 
 /**
  * TextMessage: [Type][Seq][CharCount][PackedLen][PackedText][HasGPS][Lat?][Lon?]
