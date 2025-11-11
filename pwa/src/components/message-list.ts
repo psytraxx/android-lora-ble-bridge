@@ -30,6 +30,9 @@ export class MessageList extends LitElement {
               <p class="text-base-content/70">
                 Connect to your ESP32 LoRa device and start sending messages over long-range radio.
               </p>
+               <p class="text-base-content/70">
+                Contribute to the project on <a href="https://github.com/psytraxx/android-lora-ble-bridge" target="_blank" rel="noopener noreferrer" class="underline">GitHub</a>.
+              </p>
               <div class="stats shadow">
                 <div class="stat place-items-center py-3">
                   <div class="stat-title text-xs">Max Range</div>

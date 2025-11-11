@@ -25,8 +25,17 @@ export class ConnectionStatus extends LitElement {
 
     return html`
       <nav class="navbar bg-base-200 shadow-lg">
-        <div class="flex-1 px-4">
-          <h1 class="text-2xl font-bold">LoRa Chat</h1>
+         <div class="flex-1 px-4 flex items-center gap-3">
+          <a
+            href="https://github.com/psytraxx/android-lora-ble-bridge"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-2"
+            aria-label="Open GitHub repository"
+          >
+            <img src="./apple-touch-icon.png" width="38" height="38" alt="App icon" class="block rounded"/>
+          </a>
+          <h1 class="text-2xl font-bold">Chat</h1>
         </div>
         <div class="flex-none gap-3 px-4">
           ${badge}
