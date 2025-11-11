@@ -11,7 +11,8 @@ import './theme-switcher';
 @customElement('connection-status')
 export class ConnectionStatus extends LitElement {
   @property({ type: String }) state: ConnectionState = ConnectionState.DISCONNECTED;
-
+  @property({ type: String }) deviceName: string | null = null;
+  @property({ type: String }) deviceId: string | null = null;
   // Disable shadow DOM to allow Tailwind classes to work
   createRenderRoot() {
     return this;
@@ -24,7 +25,7 @@ export class ConnectionStatus extends LitElement {
     const showDisconnectButton = this.state === ConnectionState.CONNECTED;
 
     return html`
-      <nav class="navbar bg-base-200 shadow-lg">
+      <nav class="navbar bg-base-200 shadow-lg relative">
          <div class="flex-1 px-4 flex items-center gap-3">
           <a
             href="https://github.com/psytraxx/android-lora-ble-bridge"
@@ -37,8 +38,18 @@ export class ConnectionStatus extends LitElement {
           </a>
           <h1 class="text-2xl font-bold">Chat</h1>
         </div>
-        <div class="flex-none gap-3 px-4">
-          ${badge}
+        <!-- Center the badge and device info in the middle of the navbar -->
+        <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 flex items-center gap-3">
+          <div class="flex items-center">${badge}</div>
+          ${this.deviceName || this.deviceId
+            ? html`<div class="flex flex-col text-left text-xs ml-2">
+                ${this.deviceName ? html`<div class="font-medium">${this.deviceName}</div>` : ''}
+                ${this.deviceId ? html`<div class="text-base-content/70 truncate max-w-xs">${this.deviceId}</div>` : ''}
+              </div>`
+            : ''}
+        </div>
+
+        <div class="flex-none px-4 flex items-center gap-3 ml-auto">
           <theme-switcher></theme-switcher>
           ${
             showConnectButton

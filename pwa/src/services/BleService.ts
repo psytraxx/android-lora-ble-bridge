@@ -56,6 +56,14 @@ export class BleService {
   }
 
   /**
+   * Get information about the currently selected device
+   */
+  getDevice(): BleDevice | null {
+    if (!this.device) return null;
+    return { id: this.device.id, name: this.device.name ?? '' };
+  }
+
+  /**
    * Check if Web Bluetooth is supported
    */
   isSupported(): boolean {

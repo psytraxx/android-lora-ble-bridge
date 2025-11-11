@@ -60,7 +60,7 @@ export class MessageList extends LitElement {
     `;
   }
 
-  updated(changedProperties: Map<string, any>) {
+  updated(changedProperties: Map<string, unknown>) {
     super.updated(changedProperties);
 
     if (changedProperties.has('messages') && this.messages.length > 0) {

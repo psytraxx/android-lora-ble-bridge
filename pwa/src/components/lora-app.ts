@@ -19,6 +19,7 @@ export class LoraApp extends LitElement {
   @state() private connectionState: ConnectionState = ConnectionState.DISCONNECTED;
   @state() private messages: ChatMessage[] = [];
   @state() private hasGps = false;
+  @state() private deviceName: string | null = null;
 
   private ackTimeouts = new Map<number, number>();
   private unsubscribers: (() => void)[] = [];
@@ -35,6 +36,9 @@ export class LoraApp extends LitElement {
     this.unsubscribers.push(
       bleService.onStateChange((state) => {
         this.connectionState = state;
+        // update device info when state changes
+        const d = bleService.getDevice();
+        this.deviceName = d?.name ?? null;
       })
     );
 
@@ -69,6 +73,8 @@ export class LoraApp extends LitElement {
     // Initial state
     this.connectionState = bleService.getState();
     this.messages = messageRepository.getMessages();
+    const dev = bleService.getDevice();
+    this.deviceName = dev?.name ?? null;
 
     // Check if Web Bluetooth is supported
     if (!bleService.isSupported()) {
@@ -102,7 +108,7 @@ export class LoraApp extends LitElement {
     const showBleWarning = !bleService.isSupported();
 
     return html`
-      <div class="flex flex-col h-screen bg-base-100">
+      <div class="flex flex-col min-h-screen bg-base-100" style="padding-bottom: env(safe-area-inset-bottom);">
         ${
           isConnecting
             ? html`<progress class="progress progress-primary w-full h-1"></progress>`
@@ -111,6 +117,7 @@ export class LoraApp extends LitElement {
 
         <connection-status
           .state=${this.connectionState}
+          .deviceName=${this.deviceName}
           @connect=${this.onConnect}
           @disconnect=${this.onDisconnect}
         ></connection-status>
@@ -128,8 +135,8 @@ export class LoraApp extends LitElement {
             : ''
         }
 
-        <main class="flex flex-col flex-1 overflow-hidden">
-          <message-list class="flex-1" .messages=${this.messages}></message-list>
+        <main class="flex flex-col flex-1 overflow-hidden min-h-0">
+          <message-list class="flex-1 min-h-0" .messages=${this.messages}></message-list>
           <message-input
             ?disabled=${!isConnected}
             .hasGps=${this.hasGps}
@@ -145,6 +152,10 @@ export class LoraApp extends LitElement {
       await bleService.connect();
       toastService.show('Connected successfully!', 'success');
 
+      // Update device info for UI
+      const dev = bleService.getDevice();
+      this.deviceName = dev?.name ?? null;
+
       // Try to get initial GPS location
       await locationService.getCurrentLocation();
     } catch (error) {
@@ -156,6 +167,8 @@ export class LoraApp extends LitElement {
   private async onDisconnect() {
     await bleService.disconnect();
     toastService.show('Disconnected', 'info');
+    // Clear device info
+    this.deviceName = null;
   }
 
   private async onSendMessage(e: CustomEvent) {
