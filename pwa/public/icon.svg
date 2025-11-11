@@ -1,0 +1,32 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="256" fill="#1976d2"/>
+
+  <!-- LoRa signal waves (simplified radio waves) -->
+  <g stroke="#ffffff" stroke-width="12" fill="none" stroke-linecap="round">
+    <!-- Inner wave -->
+    <path d="M 256 180 Q 280 200 280 230 Q 280 260 256 280" opacity="0.8"/>
+    <path d="M 256 180 Q 232 200 232 230 Q 232 260 256 280" opacity="0.8"/>
+
+    <!-- Middle wave -->
+    <path d="M 256 150 Q 300 180 300 230 Q 300 280 256 310" opacity="0.6"/>
+    <path d="M 256 150 Q 212 180 212 230 Q 212 280 256 310" opacity="0.6"/>
+
+    <!-- Outer wave -->
+    <path d="M 256 120 Q 320 160 320 230 Q 320 300 256 340" opacity="0.4"/>
+    <path d="M 256 120 Q 192 160 192 230 Q 192 300 256 340" opacity="0.4"/>
+  </g>
+
+  <!-- Central antenna/tower -->
+  <g fill="#ffffff">
+    <!-- Base -->
+    <rect x="240" y="320" width="32" height="60" rx="4"/>
+    <!-- Tower body -->
+    <path d="M 246 320 L 256 200 L 266 320 Z"/>
+    <!-- Antenna tip -->
+    <circle cx="256" cy="195" r="8"/>
+    <!-- Cross bar -->
+    <rect x="236" y="250" width="40" height="6" rx="3"/>
+  </g>
+
+</svg>
