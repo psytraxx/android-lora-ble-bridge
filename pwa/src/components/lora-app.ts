@@ -128,14 +128,14 @@ export class LoraApp extends LitElement {
             : ''
         }
 
-        <div class="flex flex-col flex-1 overflow-hidden">
+        <main class="flex flex-col flex-1 overflow-hidden">
           <message-list class="flex-1" .messages=${this.messages}></message-list>
           <message-input
             ?disabled=${!isConnected}
             .hasGps=${this.hasGps}
             @send=${this.onSendMessage}
           ></message-input>
-        </div>
+        </main>
       </div>
     `;
   }
