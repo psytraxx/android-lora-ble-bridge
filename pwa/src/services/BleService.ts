@@ -94,7 +94,10 @@ export class BleService {
       this.setState(ConnectionState.CONNECTING);
 
       // Connect to GATT server
-      this.server = await this.device.gatt!.connect();
+      if (!this.device.gatt) {
+        throw new Error('GATT server not available on device');
+      }
+      this.server = await this.device.gatt.connect();
       console.log('GATT server connected');
 
       // Discover LoRa service

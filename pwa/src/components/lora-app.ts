@@ -9,6 +9,7 @@ import { type AckMessage, MESSAGE_TYPE, type Message, type TextMessage } from '.
 import { bleService, ConnectionState } from '../services/BleService';
 import { locationService } from '../services/LocationService';
 import { AckStatus, type ChatMessage, messageRepository } from '../services/MessageRepository';
+import { toastService } from '../services/ToastService';
 import './connection-status';
 import './message-list';
 import './message-input';
@@ -47,7 +48,7 @@ export class LoraApp extends LitElement {
     // Subscribe to BLE errors
     this.unsubscribers.push(
       bleService.onError((error) => {
-        this.showToast(`Error: ${error.message}`);
+        toastService.show(`Error: ${error.message}`, 'error');
       })
     );
 
@@ -71,8 +72,10 @@ export class LoraApp extends LitElement {
 
     // Check if Web Bluetooth is supported
     if (!bleService.isSupported()) {
-      this.showToast(
-        'Web Bluetooth is not supported in this browser. Please use Chrome on desktop or Android.'
+      toastService.show(
+        'Web Bluetooth is not supported in this browser. Please use Chrome on desktop or Android.',
+        'warning',
+        5000
       );
     }
   }
@@ -141,7 +144,7 @@ export class LoraApp extends LitElement {
   private async onConnect() {
     try {
       await bleService.connect();
-      this.showToast('Connected successfully!');
+      toastService.show('Connected successfully!', 'success');
 
       // Try to get initial GPS location
       await locationService.getCurrentLocation();
@@ -153,7 +156,7 @@ export class LoraApp extends LitElement {
 
   private async onDisconnect() {
     await bleService.disconnect();
-    this.showToast('Disconnected');
+    toastService.show('Disconnected', 'info');
   }
 
   private async onSendMessage(e: CustomEvent) {
@@ -189,7 +192,7 @@ export class LoraApp extends LitElement {
       this.setAckTimeout(seq);
     } catch (error) {
       console.error('Failed to send message:', error);
-      this.showToast(`Failed to send: ${(error as Error).message}`);
+      toastService.show(`Failed to send: ${(error as Error).message}`, 'error');
     }
   }
 
@@ -255,16 +258,5 @@ export class LoraApp extends LitElement {
     }, 5000);
 
     this.ackTimeouts.set(seq, timeout);
-  }
-
-  private showToast(message: string) {
-    const toast = document.createElement('div');
-    toast.className = 'toast toast-center toast-bottom z-[1000]';
-    toast.innerHTML = `<div class="alert alert-info"><span>${message}</span></div>`;
-    this.appendChild(toast);
-
-    setTimeout(() => {
-      toast.remove();
-    }, 3000);
   }
 }
