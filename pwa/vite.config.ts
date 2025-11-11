@@ -1,9 +1,12 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// Get base path from environment or default to '/' for local dev
+const base = process.env.BASE_URL ? `/${process.env.BASE_URL}/` : '/';
+
 export default defineConfig({
   // Use repository name as base for GitHub Pages, fallback to '/' for local dev
-  base: process.env.BASE_URL ? `/${process.env.BASE_URL}/` : '/',
+  base,
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
@@ -15,22 +18,22 @@ export default defineConfig({
         theme_color: '#1976d2',
         background_color: '#ffffff',
         display: 'standalone',
-        scope: '/',
-        start_url: '/',
+        scope: base,
+        start_url: base,
         orientation: 'portrait',
         icons: [
           {
-            src: 'pwa-192x192.png',
+            src: `${base}pwa-192x192.png`,
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: 'pwa-512x512.png',
+            src: `${base}pwa-512x512.png`,
             sizes: '512x512',
             type: 'image/png'
           },
           {
-            src: 'pwa-512x512.png',
+            src: `${base}pwa-512x512.png`,
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any maskable'
@@ -51,7 +54,8 @@ export default defineConfig({
               }
             }
           }
-        ]
+        ],
+        navigateFallback: null
       },
       devOptions: {
         enabled: true
