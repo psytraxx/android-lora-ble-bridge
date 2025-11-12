@@ -11,6 +11,7 @@ import {
   isValidText,
   MAX_TEXT_LENGTH
 } from '../protocol';
+import { sharedStylesheet } from '../shared-styles';
 
 @customElement('message-input')
 export class MessageInput extends LitElement {
@@ -19,10 +20,7 @@ export class MessageInput extends LitElement {
   @state() private text = '';
   @query('input') input!: HTMLInputElement;
 
-  // Disable shadow DOM to allow Tailwind classes to work
-  createRenderRoot() {
-    return this;
-  }
+  static styles = [sharedStylesheet];
 
   render() {
     const charCount = this.text.length;

@@ -8,16 +8,14 @@ import { customElement, property, query } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';
 import type { ChatMessage } from '../services/MessageRepository';
 import './message-bubble';
+import { sharedStylesheet } from '../shared-styles';
 
 @customElement('message-list')
 export class MessageList extends LitElement {
   @property({ type: Array }) messages: ChatMessage[] = [];
   @query('.messages') messagesContainer!: HTMLDivElement;
 
-  // Disable shadow DOM to allow Tailwind classes to work
-  createRenderRoot() {
-    return this;
-  }
+  static styles = [sharedStylesheet];
 
   render() {
     if (this.messages.length === 0) {

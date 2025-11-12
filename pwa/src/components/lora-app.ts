@@ -13,6 +13,7 @@ import { toastService } from '../services/ToastService';
 import './connection-status';
 import './message-list';
 import './message-input';
+import { sharedStylesheet } from '../shared-styles';
 
 @customElement('lora-app')
 export class LoraApp extends LitElement {
@@ -24,10 +25,7 @@ export class LoraApp extends LitElement {
   private ackTimeouts = new Map<number, number>();
   private unsubscribers: (() => void)[] = [];
 
-  // Disable shadow DOM to allow Tailwind classes to work
-  createRenderRoot() {
-    return this;
-  }
+  static styles = [sharedStylesheet];
 
   connectedCallback() {
     super.connectedCallback();
@@ -117,11 +115,14 @@ export class LoraApp extends LitElement {
               @connect=${this.onConnect}
               @disconnect=${this.onDisconnect}
             ></connection-status>
-            ${isConnecting
-              ? html`<progress class="progress progress-primary w-full h-1"></progress>`
-              : ''}
-            ${showBleWarning
-              ? html`
+            ${
+              isConnecting
+                ? html`<progress class="progress progress-primary w-full h-1"></progress>`
+                : ''
+            }
+            ${
+              showBleWarning
+                ? html`
                   <div role="alert" class="alert alert-warning rounded-none">
                     <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -129,7 +130,8 @@ export class LoraApp extends LitElement {
                     <span>Web Bluetooth not supported. Use Chrome on desktop or Android.</span>
                   </div>
                 `
-              : ''}
+                : ''
+            }
         </header>
 
         <!-- Main content area -->

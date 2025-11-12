@@ -7,16 +7,15 @@ import { html, LitElement } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import { ConnectionState } from '../services/BleService';
 import './theme-switcher';
+import { sharedStylesheet } from '../shared-styles';
 
 @customElement('connection-status')
 export class ConnectionStatus extends LitElement {
   @property({ type: String }) state: ConnectionState = ConnectionState.DISCONNECTED;
   @property({ type: String }) deviceName: string | null = null;
   @property({ type: String }) deviceId: string | null = null;
-  // Disable shadow DOM to allow Tailwind classes to work
-  createRenderRoot() {
-    return this;
-  }
+
+  static styles = [sharedStylesheet];
 
   render() {
     const badge = this.getStatusDisplay();
@@ -41,12 +40,14 @@ export class ConnectionStatus extends LitElement {
         <!-- Center the badge and device info in the middle of the navbar -->
         <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 flex items-center gap-3">
           <div class="flex items-center">${badge}</div>
-          ${this.deviceName || this.deviceId
-            ? html`<div class="flex flex-col text-left text-xs ml-2">
+          ${
+            this.deviceName || this.deviceId
+              ? html`<div class="flex flex-col text-left text-xs ml-2">
                 ${this.deviceName ? html`<div class="font-medium">${this.deviceName}</div>` : ''}
                 ${this.deviceId ? html`<div class="text-base-content/70 truncate max-w-xs">${this.deviceId}</div>` : ''}
               </div>`
-            : ''}
+              : ''
+          }
         </div>
 
         <div class="flex-none px-4 flex items-center gap-3 ml-auto">

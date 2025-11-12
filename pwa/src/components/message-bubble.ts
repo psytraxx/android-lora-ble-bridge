@@ -6,16 +6,14 @@
 import { html, LitElement } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import { AckStatus, type ChatMessage } from '../services/MessageRepository';
+import { sharedStylesheet } from '../shared-styles';
 import { formatMapsUrl, formatTime } from '../utils/format';
 
 @customElement('message-bubble')
 export class MessageBubble extends LitElement {
   @property({ type: Object }) message!: ChatMessage;
 
-  // Disable shadow DOM to allow Tailwind classes to work
-  createRenderRoot() {
-    return this;
-  }
+  static styles = [sharedStylesheet];
 
   render() {
     const chatAlignment = this.message.isSent ? 'chat-end' : 'chat-start';

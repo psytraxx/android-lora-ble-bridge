@@ -5,15 +5,13 @@
 
 import { html, LitElement } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
+import { sharedStylesheet } from '../shared-styles';
 
 @customElement('theme-switcher')
 export class ThemeSwitcher extends LitElement {
   @state() private theme: 'light' | 'dark' = 'light';
 
-  // Disable shadow DOM to allow Tailwind classes to work
-  createRenderRoot() {
-    return this;
-  }
+  static styles = [sharedStylesheet];
 
   connectedCallback() {
     super.connectedCallback();
