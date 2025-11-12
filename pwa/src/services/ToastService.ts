@@ -15,7 +15,7 @@ class ToastService {
   private initContainer() {
     // Create toast container on body
     this.container = document.createElement('div');
-    this.container.className = 'toast toast-center toast-bottom z-1000';
+    this.container.className = 'toast toast-center toast-middle z-1000';
     document.body.appendChild(this.container);
   }
 
