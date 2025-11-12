@@ -91,8 +91,7 @@ export class BleService {
     try {
       // Request device with LoRa service filter
       this.device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [SERVICE_UUID] }, { name: 'ESP32S3-LoRa' }],
-        optionalServices: [SERVICE_UUID]
+        filters: [{ services: [SERVICE_UUID] }]
       });
 
       console.log('Device selected:', this.device.name);
