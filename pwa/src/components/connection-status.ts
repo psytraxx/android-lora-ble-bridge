@@ -35,7 +35,7 @@ export class ConnectionStatus extends LitElement {
           >
             <img src="./apple-touch-icon.png" width="38" height="38" alt="App icon" class="block rounded"/>
           </a>
-          <h1 class="text-2xl font-bold">Chat</h1>
+          <h1 class="text-2xl font-bold hidden sm:block">Chat</h1>
         </div>
         <!-- Center the badge and device info in the middle of the navbar -->
         <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 flex items-center gap-3">
