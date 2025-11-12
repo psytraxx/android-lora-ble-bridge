@@ -106,7 +106,7 @@ export class LoraApp extends LitElement {
     const showBleWarning = !bleService.isSupported();
 
     return html`
-      <div class="flex flex-col h-screen bg-base-200">
+      <div class="flex flex-col h-screen">
         <!-- Fixed Header -->
         <header class="fixed top-0 left-0 right-0 z-10">
             <connection-status
