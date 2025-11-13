@@ -60,6 +60,7 @@ class ChatViewModel @Inject constructor(
         observeLocation()
         observeChatMessages()
         observeDiscoveredDevices()
+        observeBatteryLevel()
     }
 
     /**
@@ -132,6 +133,17 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             bleRepository.discoveredDevices.collect { devices ->
                 _uiState.value = _uiState.value.copy(discoveredDevices = devices)
+            }
+        }
+    }
+
+    /**
+     * Observe battery level from ESP32
+     */
+    private fun observeBatteryLevel() {
+        viewModelScope.launch {
+            bleRepository.batteryLevel.collect { batteryLevel ->
+                _uiState.value = _uiState.value.copy(batteryLevel = batteryLevel)
             }
         }
     }
@@ -371,5 +383,6 @@ data class ChatUiState(
     val charCount: Int = 0,
     val charCountText: String = "0/50 chars (12 bytes)",
     val canSendMessage: Boolean = false,
-    val discoveredDevices: List<BleRepository.DiscoveredDevice> = emptyList()
+    val discoveredDevices: List<BleRepository.DiscoveredDevice> = emptyList(),
+    val batteryLevel: Int? = null
 )

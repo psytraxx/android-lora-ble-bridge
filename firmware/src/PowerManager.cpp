@@ -6,8 +6,15 @@
 #include <driver/uart.h>
 #include <driver/rtc_io.h>
 #include <esp_log.h>
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 
 static const char *TAG = "PWR";
+
+// Battery voltage constants (Li-ion)
+static const float BATTERY_MIN_VOLTAGE = 3.0f; // 0%
+static const float BATTERY_MAX_VOLTAGE = 4.2f; // 100%
 
 void PowerManager::configurePowerManagement()
 {
@@ -126,4 +133,74 @@ void PowerManager::printWakeupReason()
         ESP_LOGI(TAG, "Woke: Unknown");
         break;
     }
+}
+
+float PowerManager::readBatteryVoltage()
+{
+#ifndef BATTERY_ADC_PIN
+    ESP_LOGW(TAG, "Battery monitoring not configured for this board");
+    return 0.0f;
+#else
+
+    ESP_LOGI(TAG, "Initializing battery ADC (GPIO %d)", BATTERY_ADC_PIN);
+
+    adc_oneshot_unit_handle_t adc1_handle;
+    adc_oneshot_unit_init_cfg_t init_config1 = {
+        .unit_id = ADC_UNIT_1,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
+
+    adc_oneshot_chan_cfg_t config = {
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_3, &config));
+
+#ifdef BATTERY_ADC_CTRL
+    // Enable ADC (Heltec boards)
+    gpio_set_direction((gpio_num_t)BATTERY_ADC_CTRL, GPIO_MODE_OUTPUT);
+    gpio_set_level((gpio_num_t)BATTERY_ADC_CTRL, 1);
+    vTaskDelay(pdMS_TO_TICKS(10)); // Wait for ADC to stabilize
+#endif
+    int raw_value = 0;
+    ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHANNEL_3, &raw_value));
+    int battery_voltage_mv = raw_value * 2; // Voltage divider of 2:1
+
+#ifdef BATTERY_ADC_CTRL
+    // Disable ADC (save power on Heltec boards)
+    gpio_set_level((gpio_num_t)BATTERY_ADC_CTRL, 0);
+#endif
+
+    float battery_voltage = battery_voltage_mv / 1000.0f;
+
+    ESP_LOGI(TAG, "Battery: %.0f mV (%d) -> %.2f V", battery_voltage_mv, raw_value, battery_voltage);
+
+    return battery_voltage;
+#endif
+}
+
+uint8_t PowerManager::readBatteryLevel()
+{
+    float voltage = readBatteryVoltage();
+
+    if (voltage <= 0.0f)
+    {
+        return 0; // Battery monitoring not available
+    }
+
+    // Clamp voltage to valid range
+    if (voltage < BATTERY_MIN_VOLTAGE)
+        voltage = BATTERY_MIN_VOLTAGE;
+    if (voltage > BATTERY_MAX_VOLTAGE)
+        voltage = BATTERY_MAX_VOLTAGE;
+
+    // Convert to percentage (0-100)
+    float percentage = ((voltage - BATTERY_MIN_VOLTAGE) / (BATTERY_MAX_VOLTAGE - BATTERY_MIN_VOLTAGE)) * 100.0f;
+
+    uint8_t level = (uint8_t)percentage;
+    ESP_LOGI(TAG, "Battery level: %d%%", level);
+
+    return level;
 }

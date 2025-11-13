@@ -1,6 +1,7 @@
 #include "BLEManager.h"
 #include "LoraTask.h"
 #include "BleTask.h"
+#include "PowerManager.h"
 #include <string.h>
 
 static const char *TAG_BLE = "BLE";
@@ -48,6 +49,14 @@ void TxCharacteristicCallbacks::onSubscribe(NimBLECharacteristic *pCharacteristi
         ESP_LOGI(TAG_BLE, "Client disabled notifications");
         bleManager->onNotificationsEnabled(false);
     }
+}
+
+// Battery Characteristic callbacks implementation
+void BatteryCharacteristicCallbacks::onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo)
+{
+    uint8_t batteryLevel = PowerManager::readBatteryLevel();
+    pCharacteristic->setValue(&batteryLevel, 1);
+    ESP_LOGI(TAG_BLE, "Battery level read: %d%%", batteryLevel);
 }
 
 // BLEManager implementation
@@ -102,6 +111,27 @@ bool BLEManager::setup(const char *deviceName)
 
     // Start the service
     pService->start();
+
+    // Create the Battery Service (standard BLE service 0x180F)
+    NimBLEService *pBatteryService = pServer->createService(BLEConstants::BATTERY_SERVICE_UUID);
+
+    // Create the Battery Level Characteristic (standard characteristic 0x2A19)
+    // BLE Battery Service standard: uint8 value (0-100%)
+    pBatteryCharacteristic = pBatteryService->createCharacteristic(
+        BLEConstants::BATTERY_LEVEL_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+
+    // Set callback to update battery level on read
+    pBatteryCharacteristic->setCallbacks(new BatteryCharacteristicCallbacks());
+
+    // Set initial battery level
+    uint8_t initialBattery = PowerManager::readBatteryLevel();
+    pBatteryCharacteristic->setValue(&initialBattery, 1);
+
+    // Start the battery service
+    pBatteryService->start();
+
+    ESP_LOGI(TAG_BLE, "Battery service created (initial level: %d%%)", initialBattery);
 
     // Get advertising instance and configure for better discoverability
     pAdvertising = NimBLEDevice::getAdvertising();

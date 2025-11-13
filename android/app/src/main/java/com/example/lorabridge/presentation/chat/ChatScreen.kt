@@ -166,7 +166,17 @@ fun ChatScreen(
                         MaterialTheme.colorScheme.onSurface
                     }
                 )
-                
+
+                // Battery level indicator
+                if (uiState.batteryLevel != null) {
+                    Text(
+                        text = "${uiState.batteryLevel}%",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                }
+
                 Text(
                     text = uiState.gpsText,
                     style = MaterialTheme.typography.bodySmall,

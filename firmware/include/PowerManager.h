@@ -1,6 +1,6 @@
 #ifndef POWER_MANAGER_H
 #define POWER_MANAGER_H
-
+#include <cstdint> 
 #include <functional>
 
 /**
@@ -77,6 +77,28 @@ public:
      * Useful for debugging and understanding boot behavior.
      */
     static void printWakeupReason();
+
+    /**
+     * @brief Read battery voltage from ADC
+     *
+     * Reads the battery voltage via ADC and applies the voltage divider ratio.
+     * On Heltec boards, enables ADC control pin before reading.
+     *
+     * @return Battery voltage in volts (e.g., 3.7V)
+     */
+    static float readBatteryVoltage();
+
+    /**
+     * @brief Read battery level as percentage
+     *
+     * Reads battery voltage and converts to percentage (0-100%) based on
+     * typical Li-ion discharge curve (3.0V = 0%, 4.2V = 100%).
+     *
+     * This follows the BLE Battery Service standard which uses uint8 (0-100%).
+     *
+     * @return Battery level percentage (0-100)
+     */
+    static uint8_t readBatteryLevel();
 };
 
 #endif // POWER_MANAGER_H

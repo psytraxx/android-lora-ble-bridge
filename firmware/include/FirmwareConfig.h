@@ -81,6 +81,12 @@ namespace BLEConstants
     /// BLE RX characteristic UUID (Android -> ESP32 writes)
     constexpr const char *RX_CHARACTERISTIC_UUID = "00005679-0000-1000-8000-00805f9b34fb";
 
+    /// Standard BLE Battery Service UUID (read-only)
+    constexpr const char *BATTERY_SERVICE_UUID = "0000180f-0000-1000-8000-00805f9b34fb";
+
+    /// Standard BLE Battery Level Characteristic UUID (uint8, 0-100%)
+    constexpr const char *BATTERY_LEVEL_UUID = "00002a19-0000-1000-8000-00805f9b34fb";
+
     /// Minimum BLE advertising interval (in 0.625ms units)
     /// 1600 * 0.625ms = 1000ms (1 second)
     constexpr int ADV_MIN_INTERVAL = 1600;
