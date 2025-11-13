@@ -14,9 +14,9 @@ void PowerManager::configurePowerManagement()
     ESP_LOGI(TAG, "Configuring power management");
 
     esp_pm_config_t pm_config = {
-        .max_freq_mhz = CPU_FREQ_MHZ,
+        .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
         .min_freq_mhz = PowerConstants::CPU_MIN_FREQ_MHZ,
-        .light_sleep_enable = false};
+        .light_sleep_enable = true};
 
     esp_err_t rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
@@ -26,7 +26,7 @@ void PowerManager::configurePowerManagement()
     }
 
     ESP_LOGI(TAG, "Power management configured (CPU: %d MHz max, %d MHz min)",
-             CPU_FREQ_MHZ, PowerConstants::CPU_MIN_FREQ_MHZ);
+             CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ, PowerConstants::CPU_MIN_FREQ_MHZ);
 }
 
 // see https://github.com/geeksville/Meshtastic-esp32/blob/0f167faa63f53af19dee7959927966db69591436/src/sleep.cpp#L395

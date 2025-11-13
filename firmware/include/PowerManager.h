@@ -29,7 +29,7 @@ public:
      * @brief Configure ESP32 power management (CPU frequency scaling)
      *
      * Sets up dynamic frequency scaling with:
-     *  - Max frequency: Configured via CPU_FREQ_MHZ build flag
+     *  - Max frequency: Default CPU frequency (e.g., 160 MHz)  
      *  - Min frequency: 20 MHz
      *  - Light sleep: Disabled (manual sleep via enterDeepSleep)
      *
