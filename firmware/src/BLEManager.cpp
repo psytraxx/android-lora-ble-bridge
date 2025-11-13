@@ -1,4 +1,6 @@
 #include "BLEManager.h"
+#include "LoraTask.h"
+#include "BleTask.h"
 #include <string.h>
 
 static const char *TAG_BLE = "BLE";
@@ -22,7 +24,7 @@ void MyServerCallbacks::onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &conn
     bleManager->onDisconnected(connInfo.getConnHandle());
 }
 
-// Characteristic callbacks implementation
+// RX Characteristic callbacks implementation
 void MyCharacteristicCallbacks::onWrite(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo)
 {
     std::string value = pCharacteristic->getValue();
@@ -30,6 +32,21 @@ void MyCharacteristicCallbacks::onWrite(NimBLECharacteristic *pCharacteristic, N
     {
         ESP_LOGI(TAG_BLE, "BLE write received (%d bytes)", value.length());
         bleManager->onMessageReceived((const uint8_t *)value.data(), value.length());
+    }
+}
+
+// TX Characteristic callbacks implementation
+void TxCharacteristicCallbacks::onSubscribe(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo, uint16_t subValue)
+{
+    if (subValue & 0x0001)
+    {
+        ESP_LOGI(TAG_BLE, "Client enabled notifications - Android ready to receive!");
+        bleManager->onNotificationsEnabled(true);
+    }
+    else
+    {
+        ESP_LOGI(TAG_BLE, "Client disabled notifications");
+        bleManager->onNotificationsEnabled(false);
     }
 }
 
@@ -70,6 +87,8 @@ bool BLEManager::setup(const char *deviceName)
         NIMBLE_PROPERTY::READ |
             NIMBLE_PROPERTY::WRITE |
             NIMBLE_PROPERTY::NOTIFY);
+    txCallbacks = new TxCharacteristicCallbacks(this);
+    pTxCharacteristic->setCallbacks(txCallbacks);
 
     // Create the RX Characteristic (for receiving data from phone)
     pRxCharacteristic = pService->createCharacteristic(
@@ -207,6 +226,9 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
         else
         {
             ESP_LOGI(TAG_BLE, "Message forwarded from BLE to LoRa queue");
+
+            // Notify LoRa task that a message is ready
+            LoraTask::notifyMessageQueued();
         }
     }
     else
@@ -218,6 +240,13 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
 void BLEManager::onConnected(uint16_t connHandle)
 {
     currentConnHandle = connHandle;
+    notificationsEnabled = false; // Reset notification flag on new connection
+
+    // Call connection callback if registered
+    if (connectCallback)
+    {
+        connectCallback();
+    }
 }
 
 void BLEManager::onDisconnected(uint16_t connHandle)
@@ -225,5 +254,31 @@ void BLEManager::onDisconnected(uint16_t connHandle)
     if (connHandle == currentConnHandle)
     {
         currentConnHandle = kInvalidConnHandle;
+        notificationsEnabled = false; // Clear notification flag on disconnect
+
+        // Call disconnection callback if registered
+        if (disconnectCallback)
+        {
+            disconnectCallback();
+        }
     }
+}
+
+void BLEManager::onNotificationsEnabled(bool enabled)
+{
+    notificationsEnabled = enabled;
+    ESP_LOGI(TAG_BLE, "Notifications state changed: %s", enabled ? "ENABLED" : "DISABLED");
+
+    // Notify BLE task to immediately forward buffered messages
+    if (enabled)
+    {
+        BleTask::notifyMessageReceived();
+    }
+}
+
+void BLEManager::setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)())
+{
+    connectCallback = onConnect;
+    disconnectCallback = onDisconnect;
+    ESP_LOGI(TAG_BLE, "Connection callbacks registered");
 }

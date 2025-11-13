@@ -180,14 +180,39 @@ bool MessageBuffer::peek(Message &msg)
     esp_err_t err = nvs_get_blob(m_nvsHandle, key, buffer, &len);
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to read message from NVS: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "Failed to read message from NVS: %s (corrupted entry, skipping)", esp_err_to_name(err));
+
+        // Message data is missing or corrupted, but state says it exists
+        // Skip this entry by removing it from the buffer
+        popFront();
+
+        // Try to peek the next message (recursive call)
+        if (!isEmpty())
+        {
+            ESP_LOGW(TAG, "Skipped corrupted message, trying next (count=%d)", m_count);
+            return peek(msg);  // Recursive: try next message
+        }
+
+        // No more messages after skipping corrupted entry
         return false;
     }
 
     // Deserialize message
     if (!msg.deserialize(buffer, len))
     {
-        ESP_LOGE(TAG, "Failed to deserialize message from NVS");
+        ESP_LOGE(TAG, "Failed to deserialize message from NVS (corrupted data, skipping)");
+
+        // Deserialization failed, skip this corrupted entry
+        popFront();
+
+        // Try to peek the next message (recursive call)
+        if (!isEmpty())
+        {
+            ESP_LOGW(TAG, "Skipped corrupted message, trying next (count=%d)", m_count);
+            return peek(msg);  // Recursive: try next message
+        }
+
+        // No more messages after skipping corrupted entry
         return false;
     }
 

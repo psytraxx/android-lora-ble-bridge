@@ -69,6 +69,27 @@ private:
 };
 
 /**
+ * @brief Adapter for NimBLECharacteristicCallbacks to detect when Android
+ *        enables/disables notifications on the TX characteristic.
+ */
+class TxCharacteristicCallbacks : public NimBLECharacteristicCallbacks
+{
+public:
+    explicit TxCharacteristicCallbacks(BLEManager *manager) : bleManager(manager) {}
+
+    /**
+     * @brief Called when client subscribes/unsubscribes to notifications
+     * @param pCharacteristic The characteristic being subscribed to
+     * @param connInfo Connection metadata
+     * @param subValue Subscription value (0x0001 = notifications enabled)
+     */
+    void onSubscribe(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo, uint16_t subValue);
+
+private:
+    BLEManager *bleManager;
+};
+
+/**
  * @brief High-level BLE manager used by the application.
  *
  * Responsibilities:
@@ -119,6 +140,17 @@ public:
     /// Called by MyServerCallbacks when a client disconnects
     void onDisconnected(uint16_t connHandle);
 
+    /// Called by TxCharacteristicCallbacks when notifications are enabled/disabled
+    void onNotificationsEnabled(bool enabled);
+
+    /// Check if client has enabled notifications (Android is ready to receive)
+    bool areNotificationsEnabled() const { return notificationsEnabled; }
+
+    /// Set callbacks for connection state changes
+    /// @param onConnect Callback when client connects
+    /// @param onDisconnect Callback when client disconnects
+    void setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)());
+
 private:
     static constexpr uint16_t kInvalidConnHandle = 0xFFFF;
 
@@ -132,8 +164,14 @@ private:
 
     MyServerCallbacks *serverCallbacks{nullptr};
     MyCharacteristicCallbacks *rxCallbacks{nullptr};
+    TxCharacteristicCallbacks *txCallbacks{nullptr};
 
     uint16_t currentConnHandle{kInvalidConnHandle};
+    bool notificationsEnabled{false};
+
+    // Connection state callbacks
+    void (*connectCallback)(){nullptr};
+    void (*disconnectCallback)(){nullptr};
 };
 
 #endif // BLE_MANAGER_H
