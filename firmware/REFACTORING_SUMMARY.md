@@ -97,7 +97,6 @@ void notifyActivity();
 unsigned long getAdvertisingDuration() const;
 unsigned long getInactivityDuration() const;
 unsigned long getConnectionDuration() const;
-bool isAndroidReady() const;
 ```
 
 ### 2. New: BLE Task (Priority 3)
@@ -233,9 +232,10 @@ void loop()
 ### Modified Files
 - `src/ApplicationController.cpp` (326 → 148 lines, -54%)
 - `include/ApplicationController.h` (complete rewrite)
-- `src/main.cpp` (simplified, delegated to tasks)
-- `src/BLEManager.cpp` (added connection callbacks)
-- `include/BLEManager.h` (added callback support)
+- `src/main.cpp` (simplified, delegated to tasks, fixed watchdog)
+- `src/BLEManager.cpp` (added connection callbacks + notification detection)
+- `include/BLEManager.h` (added callback support + notification tracking)
+- `include/FirmwareConfig.h` (updated CONNECTION_SETUP_DELAY_MS)
 
 ### New Files
 - `include/BleTask.h` (77 lines)
@@ -248,11 +248,11 @@ void loop()
 ## Build Results
 
 ✅ **Build successful** for both targets:
-- `lilygo-t-display-s3`: 705,553 bytes (67.3% flash)
-- `heltec-wifi-lora-v3`: 708,465 bytes (67.6% flash)
+- `lilygo-t-display-s3`: 708,897 bytes (67.6% flash)
+- `heltec-wifi-lora-v3`: 708,897 bytes (67.6% flash)
 
 **Memory impact:**
-- Flash increase: ~3KB (task code overhead)
+- Flash increase: ~3.5KB (task code + notification detection)
 - RAM increase: ~10KB (3 task stacks)
 - **Worth it** for the architectural improvements!
 
@@ -297,7 +297,8 @@ Priority levels chosen for optimal responsiveness:
    - Disconnect BLE
    - Receive LoRa messages (should buffer to NVS)
    - Reconnect BLE
-   - Verify buffered messages forwarded after 500ms
+   - Check log: "Client enabled notifications - Android ready to receive!"
+   - Verify buffered messages forwarded immediately after notification enabled
 
 5. **Verify Timeouts:**
    - Leave advertising for 30s → should enter deep sleep
@@ -308,15 +309,26 @@ Priority levels chosen for optimal responsiveness:
    - Verify tasks wake on events, not periodic polling
    - Check CPU utilization (should be very low when idle)
 
+## Bugs Fixed During Refactoring
+
+1. **Watchdog Crash (10s reboot loop):**
+   - **Problem:** Main task registered with watchdog but slept forever
+   - **Fix:** Unregister main task from watchdog after creating FreeRTOS tasks
+   - **File:** `main.cpp:301`
+
+2. **Missing Buffered Messages:**
+   - **Problem:** Timer-based delay (500ms) sent messages before Android enabled notifications
+   - **Fix:** Event-based notification detection via `onSubscribe()` callback
+   - **Files:** `BLEManager.h/cpp`, `BleTask.cpp`
+   - **Result:** Messages sent exactly when Android is ready
+
 ## Future Improvements
 
 1. **Task Statistics:** Add FreeRTOS runtime stats logging
-2. **Watchdog per Task:** Separate watchdog for each task
-3. **Priority Tuning:** Adjust based on real-world usage
-4. **Stack Size Optimization:** Monitor actual stack usage
-5. **Message Prioritization:** Queue for critical messages
-6. **Event Groups:** For more complex synchronization
-7. **Sequence Numbers:** Track message delivery confirmation
+2. **Stack Size Optimization:** Monitor actual stack usage with `uxTaskGetStackHighWaterMark()`
+3. **Priority Tuning:** Adjust based on real-world usage patterns
+4. **Message Prioritization:** Separate queues for critical messages
+5. **Event Groups:** For more complex synchronization scenarios
 
 ## Conclusion
 
