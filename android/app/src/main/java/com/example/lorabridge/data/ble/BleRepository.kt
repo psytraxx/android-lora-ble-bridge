@@ -408,6 +408,16 @@ class BleRepository @Inject constructor(
                     Log.d(TAG, "Battery service found - reading battery level")
                     gatt.readCharacteristic(batteryCharacteristic)
                     gatt.setCharacteristicNotification(batteryCharacteristic, true)
+
+                    // Enable notifications on the server side by writing to CCCD descriptor
+                    val batteryDescriptor = batteryCharacteristic?.getDescriptor(BleConstants.CCCD_UUID)
+                    if (batteryDescriptor != null) {
+                        batteryDescriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        gatt.writeDescriptor(batteryDescriptor)
+                        Log.d(TAG, "Battery notifications enabled")
+                    } else {
+                        Log.w(TAG, "Battery CCCD descriptor not found - notifications may not work")
+                    }
                 }
             } else {
                 Log.d(TAG, "Battery service not available on this device")

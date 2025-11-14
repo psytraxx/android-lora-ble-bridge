@@ -98,6 +98,14 @@ namespace PowerTask
                          context->appController->getInactivityDuration(),
                          context->appController->getConnectionDuration());
             }
+
+            // Update battery level periodically (every 30 seconds)
+            static int batteryUpdateCount = 0;
+            if (++batteryUpdateCount >= 30)
+            {
+                batteryUpdateCount = 0;
+                context->bleManager->updateBatteryLevel();
+            }
         }
     }
 

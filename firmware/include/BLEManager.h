@@ -165,6 +165,10 @@ public:
     /// @param onDisconnect Callback when client disconnects
     void setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)());
 
+    /// Update and notify battery level to connected clients
+    /// Should be called periodically (e.g., every 30-60 seconds) from main loop
+    void updateBatteryLevel();
+
 private:
     static constexpr uint16_t kInvalidConnHandle = 0xFFFF;
 

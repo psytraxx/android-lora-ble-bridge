@@ -312,3 +312,23 @@ void BLEManager::setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect
     disconnectCallback = onDisconnect;
     ESP_LOGI(TAG_BLE, "Connection callbacks registered");
 }
+
+void BLEManager::updateBatteryLevel()
+{
+    // Only update if we have a connected client with a battery characteristic
+    if (!isConnected() || !pBatteryCharacteristic)
+    {
+        return;
+    }
+
+    // Read current battery level
+    uint8_t batteryLevel = PowerManager::readBatteryLevel();
+
+    // Update the characteristic value
+    pBatteryCharacteristic->setValue(&batteryLevel, 1);
+
+    // Notify connected clients (only if they've enabled notifications via CCCD)
+    pBatteryCharacteristic->notify();
+
+    ESP_LOGI(TAG_BLE, "Battery level updated and notified: %d%%", batteryLevel);
+}
