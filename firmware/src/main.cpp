@@ -135,8 +135,7 @@ void setup()
         .bandwidth = LORA_BANDWIDTH,
         .spreadingFactor = LORA_SPREADING_FACTOR,
         .codingRate = LORA_CODING_RATE,
-        .txPower = LORA_TX_POWER,
-        .syncWord = LoRaConstants::SYNC_WORD};
+        .txPower = LORA_TX_POWER};
 
     if (!loraManager->begin(loraConfig))
     {

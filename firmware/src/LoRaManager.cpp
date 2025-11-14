@@ -20,10 +20,6 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
       pinBusy(busy),
       radio(nullptr),
       state(STATE_UNINITIALIZED),
-      rxInterruptCount(0),
-      txInterruptCount(0),
-      rxProcessedCount(0),
-      txProcessedCount(0),
       receiveCallback(nullptr),
       transmitCallback(nullptr)
 {
@@ -56,7 +52,7 @@ bool LoRaManager::begin(const LoRaConfig &config)
             config.bandwidth,
             config.spreadingFactor,
             config.codingRate,
-            config.syncWord,
+            LoRaConstants::SYNC_WORD,
             config.txPower);
 
         if (state == RADIOLIB_ERR_NONE)
@@ -93,9 +89,23 @@ bool LoRaManager::startReceive()
         ESP_LOGE(TAG, "Cannot start receive - not initialized");
         return false;
     }
-    
+
     // SX1278 or duty cycle disabled: Standard continuous receive mode
     radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
+
+#if defined(RADIO_SX1262)
+    // SX1262: Use duty cycle RX for 93-95% power savings
+    // Auto-calculates optimal RX/sleep periods based on current SF/BW
+    // Average power: ~0.7 mA (vs ~15 mA continuous)
+    int rxState = radio->startReceiveDutyCycleAuto();
+    if (rxState != RADIOLIB_ERR_NONE)
+    {
+        ESP_LOGE(TAG, "Failed to start duty cycle RX mode, code %d", rxState);
+        return false;
+    }
+    ESP_LOGI(TAG, "Duty cycle RX mode started (auto-calculated periods, ~0.7mA avg)");
+#else
+    // SX1278: Standard continuous receive mode
     int rxState = radio->startReceive();
     if (rxState != RADIOLIB_ERR_NONE)
     {
@@ -103,7 +113,7 @@ bool LoRaManager::startReceive()
         return false;
     }
     ESP_LOGI(TAG, "Continuous receive mode started");
-
+#endif
     state = STATE_IDLE;
     return true;
 }
@@ -190,9 +200,7 @@ void LoRaManager::process()
     // Check for completed transmission
     if (state == STATE_PACKET_SENT)
     {
-        txProcessedCount++;
-        ESP_LOGI(TAG, "TX complete (ISR:%lu/Proc:%lu), restoring RX mode",
-                 (unsigned long)txInterruptCount, (unsigned long)txProcessedCount);
+        ESP_LOGI(TAG, "TX complete, restoring RX mode");
 
         // Return to receive mode
         startReceive();
@@ -216,16 +224,7 @@ void LoRaManager::process()
 
     rxProcessedCount++;
 
-    // Check if we're missing packets
-    if (rxInterruptCount > rxProcessedCount)
-    {
-        ESP_LOGW(TAG, "RX interrupt/process mismatch! ISR:%lu, Proc:%lu (missed %lu)",
-                 (unsigned long)rxInterruptCount, (unsigned long)rxProcessedCount,
-                 (unsigned long)(rxInterruptCount - rxProcessedCount));
-    }
-
-    ESP_LOGI(TAG, "RX packet detected (ISR:%lu/Proc:%lu)",
-             (unsigned long)rxInterruptCount, (unsigned long)rxProcessedCount);
+    ESP_LOGI(TAG, "RX packet detected, processing");
 
     // Immediately set to processing to avoid race condition
     state = STATE_IDLE;
@@ -280,18 +279,6 @@ void IRAM_ATTR LoRaManager::onReceiveISR()
 {
     if (instance)
     {
-        // Increment interrupt counter atomically
-        uint32_t count = instance->rxInterruptCount;
-        instance->rxInterruptCount = count + 1;
-
-        // Set state - do NOT read data in ISR
-        // Data reading happens in process() called from main loop
-        // If state is already PACKET_RECEIVED, we're missing packets!
-        if (instance->state == STATE_PACKET_RECEIVED)
-        {
-            // Packet not yet processed - this is a problem
-            // But we can't log here, so just note it happened
-        }
         instance->state = STATE_PACKET_RECEIVED;
     }
 }
@@ -300,10 +287,6 @@ void IRAM_ATTR LoRaManager::onTransmitISR()
 {
     if (instance)
     {
-        // Increment interrupt counter atomically
-        uint32_t count = instance->txInterruptCount;
-        instance->txInterruptCount = count + 1;
-
         // Set state - do NOT perform cleanup in ISR
         // Cleanup happens in process() called from main loop
         instance->state = STATE_PACKET_SENT;
