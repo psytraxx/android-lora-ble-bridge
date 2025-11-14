@@ -104,9 +104,10 @@ export class BleService {
     this.setState(ConnectionState.SCANNING);
 
     try {
-      // Request device with LoRa service filter
+      // Request device with LoRa service filter and optional Battery Service
       this.device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [SERVICE_UUID] }]
+        filters: [{ services: [SERVICE_UUID] }],
+        optionalServices: [BATTERY_SERVICE_UUID]
       });
 
       console.log('Device selected:', this.device.name);
