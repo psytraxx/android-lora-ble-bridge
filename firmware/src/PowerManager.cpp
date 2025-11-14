@@ -159,10 +159,9 @@ float PowerManager::readBatteryVoltage()
     ESP_LOGI(TAG, "Reading battery from GPIO %d (ADC channel %d)", BATTERY_ADC_PIN, adc_channel);
 
     adc_oneshot_unit_handle_t adc1_handle;
-    adc_oneshot_unit_init_cfg_t init_config1 = {
-        .unit_id = ADC_UNIT_1,
-        .ulp_mode = ADC_ULP_MODE_DISABLE,
-    };
+    adc_oneshot_unit_init_cfg_t init_config1 = {};
+    init_config1.unit_id = ADC_UNIT_1;
+    init_config1.ulp_mode = ADC_ULP_MODE_DISABLE;
     ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
 
     adc_oneshot_chan_cfg_t config = {
@@ -181,20 +180,20 @@ float PowerManager::readBatteryVoltage()
     int raw_value = 0;
     ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, adc_channel, &raw_value));
 
-    // Convert to voltage using calibration
+    // Convert to voltage using calibration (use curve fitting for ESP32-S3)
     adc_cali_handle_t adc1_cali_handle = NULL;
-    adc_cali_line_fitting_config_t cali_config = {
-        .unit_id = ADC_UNIT_1,
-        .atten = ADC_ATTEN_DB_12,
-        .bitwidth = ADC_BITWIDTH_12,
-    };
-    ESP_ERROR_CHECK(adc_cali_create_scheme_line_fitting(&cali_config, &adc1_cali_handle));
+    adc_cali_curve_fitting_config_t cali_config = {};
+    cali_config.unit_id = ADC_UNIT_1;
+    cali_config.chan = adc_channel;
+    cali_config.atten = ADC_ATTEN_DB_12;
+    cali_config.bitwidth = ADC_BITWIDTH_12;
+    ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(&cali_config, &adc1_cali_handle));
 
     int voltage_mv = 0;
     ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_handle, raw_value, &voltage_mv));
 
     // Cleanup
-    ESP_ERROR_CHECK(adc_cali_delete_scheme_line_fitting(adc1_cali_handle));
+    ESP_ERROR_CHECK(adc_cali_delete_scheme_curve_fitting(adc1_cali_handle));
     ESP_ERROR_CHECK(adc_oneshot_del_unit(adc1_handle));
 
 #ifdef BATTERY_ADC_CTRL
