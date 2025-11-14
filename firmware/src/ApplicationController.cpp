@@ -19,6 +19,20 @@ ApplicationController::ApplicationController()
     }
 }
 
+ApplicationController::~ApplicationController()
+{
+    ESP_LOGI(TAG, "ApplicationController destructor called - cleaning up mutex");
+
+    // Delete FreeRTOS mutex
+    if (stateMutex != nullptr)
+    {
+        vSemaphoreDelete(stateMutex);
+        stateMutex = nullptr;
+    }
+
+    ESP_LOGI(TAG, "ApplicationController cleanup complete");
+}
+
 void ApplicationController::begin()
 {
     xSemaphoreTake(stateMutex, portMAX_DELAY);
@@ -41,7 +55,7 @@ void ApplicationController::begin()
 AppState ApplicationController::getState() const
 {
     xSemaphoreTake(stateMutex, portMAX_DELAY);
-    AppState currentState = state;
+    auto currentState = state;
     xSemaphoreGive(stateMutex);
     return currentState;
 }

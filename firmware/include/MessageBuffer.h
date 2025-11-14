@@ -30,6 +30,26 @@ public:
     ~MessageBuffer();
 
     /**
+     * @brief Deleted copy constructor (NVS handle is not copyable)
+     */
+    MessageBuffer(const MessageBuffer&) = delete;
+
+    /**
+     * @brief Deleted copy assignment operator (NVS handle is not copyable)
+     */
+    MessageBuffer& operator=(const MessageBuffer&) = delete;
+
+    /**
+     * @brief Deleted move constructor (NVS handle tied to specific namespace)
+     */
+    MessageBuffer(MessageBuffer&&) = delete;
+
+    /**
+     * @brief Deleted move assignment operator (NVS handle tied to specific namespace)
+     */
+    MessageBuffer& operator=(MessageBuffer&&) = delete;
+
+    /**
      * @brief Initialize NVS and load persisted messages
      * Must be called once during setup() before using the buffer
      * @return true if initialization successful

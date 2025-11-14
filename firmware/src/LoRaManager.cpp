@@ -18,7 +18,6 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
       pinRST(rst),
       pinDIO0(dio0),
       pinBusy(busy),
-      radio(nullptr),
       state(STATE_UNINITIALIZED),
       receiveCallback(nullptr),
       transmitCallback(nullptr)
@@ -26,16 +25,31 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
     // Set singleton instance for ISR access
     instance = this;
 
-    EspS3Hal *hal = new EspS3Hal(pinSCK, pinMISO, pinMOSI);
+    // Create HAL instance (manages SPI communication)
+    hal = std::make_unique<EspS3Hal>(pinSCK, pinMISO, pinMOSI);
 
-    // Create RadioLib module instance (stored as base class pointer for polymorphism)
+    // Create RadioLib module and radio instances using smart pointers (RAII)
 #if defined(RADIO_SX1278)
-    radio = new SX1278(new Module(hal, pinSS, pinDIO0, pinRST));
+    module = std::make_unique<Module>(hal.get(), pinSS, pinDIO0, pinRST);
+    radio = std::make_unique<SX1278>(module.get());
 #elif defined(RADIO_SX1262)
-    radio = new SX1262(new Module(hal, pinSS, pinDIO0, pinRST, pinBusy));
+    module = std::make_unique<Module>(hal.get(), pinSS, pinDIO0, pinRST, pinBusy);
+    radio = std::make_unique<SX1262>(module.get());
 #else
 #error "No supported RADIO defined! Please define RADIO_SX1278 or RADIO_SX1262 in platformio.ini"
 #endif
+}
+
+LoRaManager::~LoRaManager()
+{
+    ESP_LOGI(TAG, "LoRaManager destructor called - cleaning up radio resources");
+
+    // Clear singleton instance pointer
+    instance = nullptr;
+
+    // Smart pointers (radio, module, hal) are automatically cleaned up
+    // in reverse order of declaration: radio -> module -> hal
+    ESP_LOGI(TAG, "LoRaManager cleanup complete");
 }
 
 bool LoRaManager::begin(const LoRaConfig &config)

@@ -69,21 +69,22 @@ namespace LoraTask
         {
         case MessageType::Text:
         {
-            ESP_LOGI(TAG, "Text - seq: %d, text: \"%s\"", msg.textData.seq, msg.textData.text);
+            const auto& text = msg.textData();
+            ESP_LOGI(TAG, "Text - seq: %d, text: \"%s\"", text.seq, text.text);
 
-            if (msg.textData.hasGps)
+            if (text.hasGps)
             {
-                ESP_LOGI(TAG, "GPS: %f°, %f°", msg.textData.lat / 1000000.0, msg.textData.lon / 1000000.0);
+                ESP_LOGI(TAG, "GPS: %f°, %f°", text.lat / 1000000.0, text.lon / 1000000.0);
             }
 
             // Send ACK
-            Message ack = Message::createAck(msg.textData.seq);
+            auto ack = Message::createAck(text.seq);
             uint8_t ackBuf[64];
-            int ackLen = ack.serialize(ackBuf, sizeof(ackBuf));
+            auto ackLen = ack.serialize(ackBuf, sizeof(ackBuf));
 
             if (ackLen > 0)
             {
-                ESP_LOGI(TAG, "Sending ACK for seq: %d", msg.textData.seq);
+                ESP_LOGI(TAG, "Sending ACK for seq: %d", text.seq);
 
                 // Wait before sending ACK to ensure sender has switched to RX mode
                 vTaskDelay(pdMS_TO_TICKS(LoRaConstants::ACK_DELAY_MS));
@@ -106,7 +107,8 @@ namespace LoraTask
 
         case MessageType::Ack:
         {
-            ESP_LOGI(TAG, "ACK - seq: %d", msg.ackData.seq);
+            const auto& ack = msg.ackData();
+            ESP_LOGI(TAG, "ACK - seq: %d", ack.seq);
 
             // Queue or buffer ACK for BLE delivery
             queueOrBufferMessage(msg, "ACK");

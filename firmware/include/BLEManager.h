@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include <NimBLEDevice.h>
 #include <freertos/queue.h>
+#include <memory>
 #include "Protocol.h"
 #include "FirmwareConfig.h"
 
@@ -33,7 +34,7 @@ public:
      * @param pServer NimBLE server instance.
      * @param connInfo Connection metadata.
      */
-    void onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo);
+    void onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo) override;
 
     /**
      * @brief Called by NimBLE when a client disconnects.
@@ -41,7 +42,7 @@ public:
      * @param connInfo Connection metadata.
      * @param reason Disconnect reason code (implementation defined).
      */
-    void onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo, int reason);
+    void onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo, int reason) override;
 
 private:
     BLEManager *bleManager;
@@ -62,7 +63,7 @@ public:
      * @param pCharacteristic The characteristic object that was written.
      * @param connInfo Connection metadata.
      */
-    void onWrite(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo);
+    void onWrite(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo) override;
 
 private:
     BLEManager *bleManager;
@@ -83,7 +84,7 @@ public:
      * @param connInfo Connection metadata
      * @param subValue Subscription value (0x0001 = notifications enabled)
      */
-    void onSubscribe(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo, uint16_t subValue);
+    void onSubscribe(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo, uint16_t subValue) override;
 
 private:
     BLEManager *bleManager;
@@ -100,7 +101,7 @@ public:
      * @param pCharacteristic The characteristic being read
      * @param connInfo Connection metadata
      */
-    void onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo);
+    void onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo) override;
 };
 
 /**
@@ -157,6 +158,26 @@ public:
      *  - Preventing memory leak warnings from static analysis tools
      */
     ~BLEManager();
+
+    /**
+     * @brief Deleted copy constructor (singleton pattern)
+     */
+    BLEManager(const BLEManager&) = delete;
+
+    /**
+     * @brief Deleted copy assignment operator (singleton pattern)
+     */
+    BLEManager& operator=(const BLEManager&) = delete;
+
+    /**
+     * @brief Deleted move constructor (singleton pattern)
+     */
+    BLEManager(BLEManager&&) = delete;
+
+    /**
+     * @brief Deleted move assignment operator (singleton pattern)
+     */
+    BLEManager& operator=(BLEManager&&) = delete;
 
     /// Initialize BLE stack and create service/characteristics.
     /// @param deviceName The BLE device name to advertise (defined in platformio.ini)
@@ -218,14 +239,16 @@ private:
     QueueHandle_t bleToLoraQueue;
     std::string deviceNameStr; // Store device name for debugging/logs
 
-    MyServerCallbacks *serverCallbacks{nullptr};
-    MyCharacteristicCallbacks *rxCallbacks{nullptr};
-    TxCharacteristicCallbacks *txCallbacks{nullptr};
+    // Callback objects managed by smart pointers (RAII)
+    std::unique_ptr<MyServerCallbacks> serverCallbacks;
+    std::unique_ptr<MyCharacteristicCallbacks> rxCallbacks;
+    std::unique_ptr<TxCharacteristicCallbacks> txCallbacks;
+    std::unique_ptr<BatteryCharacteristicCallbacks> batteryCallbacks;
 
     uint16_t currentConnHandle{kInvalidConnHandle};
     bool notificationsEnabled{false};
 
-    // Connection state callbacks
+    // Connection state callbacks (C-style function pointers for compatibility)
     void (*connectCallback)(){nullptr};
     void (*disconnectCallback)(){nullptr};
 };

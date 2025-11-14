@@ -3,8 +3,13 @@
 
 #include <RadioLib.h>
 #include <functional>
+#include <memory>
 #include "Protocol.h"
 #include "esp_attr.h"
+
+// Forward declarations for RadioLib types
+class EspS3Hal;
+class Module;
 
 /**
  * @file LoRaManager.h
@@ -53,6 +58,17 @@ using LoRaTransmitCallback = std::function<void(bool success)>;
 /**
  * @brief High-level manager for LoRa radio operations
  *
+ * DESIGN NOTE - SINGLETON PATTERN:
+ * This class is designed as an APPLICATION SINGLETON (similar to BLEManager).
+ * Only ONE instance should exist because:
+ *  - Hardware constraint: ESP32 has only one LoRa radio
+ *  - ISR callbacks require static access to instance
+ *
+ * MEMORY MANAGEMENT:
+ *  - Uses smart pointers (std::unique_ptr) for owned resources
+ *  - Destructor properly cleans up radio hardware
+ *  - Copy/move operations are explicitly deleted (singleton pattern)
+ *
  * Responsibilities:
  *  - Initialize and configure LoRa radio with specified parameters
  *  - Transmit messages via LoRa with interrupt-driven approach
@@ -74,6 +90,34 @@ public:
      * @param busy Busy pin (for SX126x radios)
      */
     LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy);
+
+    /**
+     * @brief Destructor - cleans up radio hardware and HAL resources
+     *
+     * Properly releases all dynamically allocated resources (radio, module, HAL).
+     * Clears the singleton instance pointer.
+     */
+    ~LoRaManager();
+
+    /**
+     * @brief Deleted copy constructor (singleton pattern)
+     */
+    LoRaManager(const LoRaManager&) = delete;
+
+    /**
+     * @brief Deleted copy assignment operator (singleton pattern)
+     */
+    LoRaManager& operator=(const LoRaManager&) = delete;
+
+    /**
+     * @brief Deleted move constructor (singleton pattern)
+     */
+    LoRaManager(LoRaManager&&) = delete;
+
+    /**
+     * @brief Deleted move assignment operator (singleton pattern)
+     */
+    LoRaManager& operator=(LoRaManager&&) = delete;
 
     /**
      * @brief Initialize LoRa radio with configuration
@@ -181,11 +225,15 @@ private:
     int pinDIO0;
     int pinBusy; // For SX126x radios
 
+    // RadioLib instances managed by smart pointers (RAII)
+    std::unique_ptr<EspS3Hal> hal;      // SPI HAL implementation
+    std::unique_ptr<Module> module;      // RadioLib module (manages pins)
+
     // RadioLib radio instance (type depends on RADIO_ definition)
 #if defined(RADIO_SX1278)
-    SX1278 *radio;
+    std::unique_ptr<SX1278> radio;
 #elif defined(RADIO_SX1262)
-    SX1262 *radio;
+    std::unique_ptr<SX1262> radio;
 #else
 #error "No supported RADIO defined! Please define RADIO_SX1278 or RADIO_SX1262"
 #endif

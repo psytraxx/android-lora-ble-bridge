@@ -57,6 +57,31 @@ public:
     ApplicationController();
 
     /**
+     * @brief Destructor - cleans up FreeRTOS mutex
+     */
+    ~ApplicationController();
+
+    /**
+     * @brief Deleted copy constructor (state machine should not be copied)
+     */
+    ApplicationController(const ApplicationController&) = delete;
+
+    /**
+     * @brief Deleted copy assignment operator (state machine should not be copied)
+     */
+    ApplicationController& operator=(const ApplicationController&) = delete;
+
+    /**
+     * @brief Deleted move constructor (state machine should not be moved)
+     */
+    ApplicationController(ApplicationController&&) = delete;
+
+    /**
+     * @brief Deleted move assignment operator (state machine should not be moved)
+     */
+    ApplicationController& operator=(ApplicationController&&) = delete;
+
+    /**
      * @brief Initialize state machine
      */
     void begin();

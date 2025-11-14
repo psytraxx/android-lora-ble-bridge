@@ -149,7 +149,7 @@ float PowerManager::readBatteryVoltage()
     // Map GPIO pin to ADC channel
     // LilyGo S3: GPIO4 = ADC1_CHANNEL_3
     // Heltec: GPIO1 = ADC1_CHANNEL_0
-    adc_channel_t adc_channel;
+    auto adc_channel = ADC_CHANNEL_0;  // Default, overridden below
 
 #if BATTERY_ADC_PIN == 1
     adc_channel = ADC_CHANNEL_0; // GPIO1
@@ -216,7 +216,7 @@ float PowerManager::readBatteryVoltage()
 
 uint8_t PowerManager::readBatteryLevel()
 {
-    float voltage = readBatteryVoltage();
+    auto voltage = readBatteryVoltage();
 
     if (voltage <= 0.0f)
     {
@@ -230,9 +230,9 @@ uint8_t PowerManager::readBatteryLevel()
         voltage = BATTERY_MAX_VOLTAGE;
 
     // Convert to percentage (0-100)
-    float percentage = ((voltage - BATTERY_MIN_VOLTAGE) / (BATTERY_MAX_VOLTAGE - BATTERY_MIN_VOLTAGE)) * 100.0f;
+    auto percentage = ((voltage - BATTERY_MIN_VOLTAGE) / (BATTERY_MAX_VOLTAGE - BATTERY_MIN_VOLTAGE)) * 100.0f;
 
-    uint8_t level = (uint8_t)percentage;
+    auto level = static_cast<uint8_t>(percentage);
     ESP_LOGI(TAG, "Battery level: %d%%", level);
 
     return level;

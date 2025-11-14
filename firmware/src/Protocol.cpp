@@ -4,13 +4,15 @@
 /// Automatically converts lowercase to uppercase
 int char_to_6bit(char ch)
 {
-    char upper_ch = std::toupper(static_cast<unsigned char>(ch));
-    for (int i = 0; i < 64; i++)
+    auto upper_ch = std::toupper(static_cast<unsigned char>(ch));
+    int index = 0;
+    for (auto charset_char : CHARSET)
     {
-        if (CHARSET[i] == upper_ch)
+        if (charset_char == upper_ch)
         {
-            return i;
+            return index;
         }
+        ++index;
     }
     return -1; // Character not in supported charset
 }
@@ -143,18 +145,20 @@ Message Message::createText(uint8_t seq, const char *text)
 {
     Message msg;
     msg.type = MessageType::Text;
-    msg.textData.seq = seq;
+    msg.data = TextMessage{};  // Initialize variant with TextMessage
+    auto& textData = msg.textData();
+    textData.seq = seq;
     // Copy text to fixed-size buffer, ensure null-termination
-    size_t len = std::strlen(text);
+    auto len = std::strlen(text);
     if (len > MAX_TEXT_LENGTH)
     {
         len = MAX_TEXT_LENGTH; // Truncate if too long
     }
-    std::memcpy(msg.textData.text, text, len);
-    msg.textData.text[len] = '\0';
-    msg.textData.hasGps = false;
-    msg.textData.lat = 0;
-    msg.textData.lon = 0;
+    std::memcpy(textData.text, text, len);
+    textData.text[len] = '\0';
+    textData.hasGps = false;
+    textData.lat = 0;
+    textData.lon = 0;
     return msg;
 }
 
@@ -162,18 +166,20 @@ Message Message::createTextWithGps(uint8_t seq, const char *text, int32_t lat, i
 {
     Message msg;
     msg.type = MessageType::Text;
-    msg.textData.seq = seq;
+    msg.data = TextMessage{};  // Initialize variant with TextMessage
+    auto& textData = msg.textData();
+    textData.seq = seq;
     // Copy text to fixed-size buffer, ensure null-termination
-    size_t len = std::strlen(text);
+    auto len = std::strlen(text);
     if (len > MAX_TEXT_LENGTH)
     {
         len = MAX_TEXT_LENGTH; // Truncate if too long
     }
-    std::memcpy(msg.textData.text, text, len);
-    msg.textData.text[len] = '\0';
-    msg.textData.hasGps = true;
-    msg.textData.lat = lat;
-    msg.textData.lon = lon;
+    std::memcpy(textData.text, text, len);
+    textData.text[len] = '\0';
+    textData.hasGps = true;
+    textData.lat = lat;
+    textData.lon = lon;
     return msg;
 }
 
@@ -181,7 +187,8 @@ Message Message::createAck(uint8_t seq)
 {
     Message msg;
     msg.type = MessageType::Ack;
-    msg.ackData.seq = seq;
+    msg.data = AckMessage{};  // Initialize variant with AckMessage
+    msg.ackData().seq = seq;
     return msg;
 }
 
@@ -189,6 +196,7 @@ Message Message::createWakeUp()
 {
     Message msg;
     msg.type = MessageType::WakeUp;
+    msg.data = WakeUpMessage{};  // Initialize variant with WakeUpMessage
     return msg;
 }
 
@@ -200,7 +208,8 @@ int Message::serialize(uint8_t *buf, size_t bufSize) const
     {
     case MessageType::Text:
     {
-        size_t textLen = std::strlen(textData.text);
+        const auto& text = textData();
+        auto textLen = std::strlen(text.text);
         if (textLen > MAX_TEXT_LENGTH)
         {
             return -1; // Text too long
@@ -208,14 +217,14 @@ int Message::serialize(uint8_t *buf, size_t bufSize) const
 
         // Pack the text using 6-bit encoding
         uint8_t packedText[64];
-        int packedLen = pack_text(textData.text, packedText, sizeof(packedText));
+        auto packedLen = pack_text(text.text, packedText, sizeof(packedText));
         if (packedLen < 0)
         {
             return -1; // Packing failed
         }
 
-        size_t totalSize = 5 + packedLen; // type + seq + charCount + packedLen + hasGps + packed text
-        if (textData.hasGps)
+        auto totalSize = static_cast<size_t>(5 + packedLen); // type + seq + charCount + packedLen + hasGps + packed text
+        if (text.hasGps)
         {
             totalSize += 8; // lat + lon
         }
@@ -226,16 +235,16 @@ int Message::serialize(uint8_t *buf, size_t bufSize) const
         }
 
         buf[0] = static_cast<uint8_t>(MessageType::Text);
-        buf[1] = textData.seq;
+        buf[1] = text.seq;
         buf[2] = textLen;   // Store original character count
         buf[3] = packedLen; // Store packed byte count
         std::memcpy(buf + 4, packedText, packedLen);
-        buf[4 + packedLen] = textData.hasGps ? 1 : 0;
+        buf[4 + packedLen] = text.hasGps ? 1 : 0;
 
-        if (textData.hasGps)
+        if (text.hasGps)
         {
-            std::memcpy(buf + 5 + packedLen, &textData.lat, 4); // Little-endian
-            std::memcpy(buf + 9 + packedLen, &textData.lon, 4); // Little-endian
+            std::memcpy(buf + 5 + packedLen, &text.lat, 4); // Little-endian
+            std::memcpy(buf + 9 + packedLen, &text.lon, 4); // Little-endian
         }
 
         return totalSize;
@@ -247,8 +256,9 @@ int Message::serialize(uint8_t *buf, size_t bufSize) const
         {
             return -1; // Buffer too small
         }
+        const auto& ack = ackData();
         buf[0] = static_cast<uint8_t>(MessageType::Ack);
-        buf[1] = ackData.seq;
+        buf[1] = ack.seq;
         return 2;
     }
 
@@ -286,36 +296,39 @@ bool Message::deserialize(const uint8_t *buf, size_t len)
         }
 
         type = MessageType::Text;
-        textData.seq = buf[1];
-        uint8_t charCount = buf[2];
-        uint8_t packedLen = buf[3];
+        data = TextMessage{};  // Initialize variant with TextMessage
+        auto& text = textData();
+
+        text.seq = buf[1];
+        auto charCount = buf[2];
+        auto packedLen = buf[3];
 
         if (len < 5 + packedLen)
         {
             return false; // Buffer too small for packed text + hasGps flag
         }
 
-        const uint8_t *packedBytes = buf + 4;
-        if (!unpack_text(packedBytes, packedLen, charCount, textData.text, sizeof(textData.text)))
+        const auto* packedBytes = buf + 4;
+        if (!unpack_text(packedBytes, packedLen, charCount, text.text, sizeof(text.text)))
         {
             return false;
         }
 
-        textData.hasGps = (buf[4 + packedLen] != 0);
+        text.hasGps = (buf[4 + packedLen] != 0);
 
-        if (textData.hasGps)
+        if (text.hasGps)
         {
             if (len < 5 + packedLen + 8)
             {
                 return false; // Buffer too small for GPS data
             }
-            std::memcpy(&textData.lat, buf + 5 + packedLen, 4); // Little-endian
-            std::memcpy(&textData.lon, buf + 9 + packedLen, 4); // Little-endian
+            std::memcpy(&text.lat, buf + 5 + packedLen, 4); // Little-endian
+            std::memcpy(&text.lon, buf + 9 + packedLen, 4); // Little-endian
         }
         else
         {
-            textData.lat = 0;
-            textData.lon = 0;
+            text.lat = 0;
+            text.lon = 0;
         }
 
         return true;
@@ -329,7 +342,8 @@ bool Message::deserialize(const uint8_t *buf, size_t len)
         }
 
         type = MessageType::Ack;
-        ackData.seq = buf[1];
+        data = AckMessage{};  // Initialize variant with AckMessage
+        ackData().seq = buf[1];
 
         return true;
     }
@@ -342,6 +356,7 @@ bool Message::deserialize(const uint8_t *buf, size_t len)
         }
 
         type = MessageType::WakeUp;
+        data = WakeUpMessage{};  // Initialize variant with WakeUpMessage
         // No additional data to parse
 
         return true;

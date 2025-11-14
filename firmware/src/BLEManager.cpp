@@ -28,7 +28,7 @@ void MyServerCallbacks::onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &conn
 // RX Characteristic callbacks implementation
 void MyCharacteristicCallbacks::onWrite(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo)
 {
-    std::string value = pCharacteristic->getValue();
+    auto value = pCharacteristic->getValue();
     if (value.length() > 0)
     {
         ESP_LOGI(TAG_BLE, "BLE write received (%d bytes)", value.length());
@@ -54,7 +54,7 @@ void TxCharacteristicCallbacks::onSubscribe(NimBLECharacteristic *pCharacteristi
 // Battery Characteristic callbacks implementation
 void BatteryCharacteristicCallbacks::onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo)
 {
-    uint8_t batteryLevel = PowerManager::readBatteryLevel();
+    auto batteryLevel = PowerManager::readBatteryLevel();
     pCharacteristic->setValue(&batteryLevel, 1);
     ESP_LOGI(TAG_BLE, "Battery level read: %d%%", batteryLevel);
 }
@@ -66,10 +66,9 @@ BLEManager::BLEManager(QueueHandle_t queue)
       pRxCharacteristic(nullptr),
       pAdvertising(nullptr),
       bleToLoraQueue(queue),
-      deviceNameStr(""),
-      serverCallbacks(nullptr),
-      rxCallbacks(nullptr)
+      deviceNameStr("")
 {
+    // Smart pointers initialized to nullptr by default
 }
 
 BLEManager::~BLEManager()
@@ -82,28 +81,8 @@ BLEManager::~BLEManager()
     // because they are owned by the NimBLE singleton and cannot be safely destroyed
     // without calling NimBLEDevice::deinit(), which would break the entire BLE stack
 
-    if (serverCallbacks)
-    {
-        delete serverCallbacks;
-        serverCallbacks = nullptr;
-    }
-
-    if (rxCallbacks)
-    {
-        delete rxCallbacks;
-        rxCallbacks = nullptr;
-    }
-
-    if (txCallbacks)
-    {
-        delete txCallbacks;
-        txCallbacks = nullptr;
-    }
-
-    // Note: BatteryCharacteristicCallbacks is allocated in setup() but we don't
-    // have a pointer to it (it's passed directly to setCallbacks()), so we
-    // cannot delete it here. This is a minor memory leak if BLEManager is destroyed,
-    // but since this should NEVER happen, it's acceptable.
+    // Smart pointers automatically cleaned up (serverCallbacks, rxCallbacks,
+    // txCallbacks, batteryCallbacks) - no manual delete needed
 
     ESP_LOGW(TAG_BLE, "BLEManager destructor complete - device should be reset!");
 }
@@ -120,8 +99,8 @@ bool BLEManager::setup(const char *deviceName)
 
     // Create the BLE Server
     pServer = NimBLEDevice::createServer();
-    serverCallbacks = new MyServerCallbacks(this);
-    pServer->setCallbacks(serverCallbacks);
+    serverCallbacks = std::make_unique<MyServerCallbacks>(this);
+    pServer->setCallbacks(serverCallbacks.get());
 
     // Create the BLE Service
     NimBLEService *pService = pServer->createService(BLEConstants::SERVICE_UUID);
@@ -132,8 +111,8 @@ bool BLEManager::setup(const char *deviceName)
         NIMBLE_PROPERTY::READ |
             NIMBLE_PROPERTY::WRITE |
             NIMBLE_PROPERTY::NOTIFY);
-    txCallbacks = new TxCharacteristicCallbacks(this);
-    pTxCharacteristic->setCallbacks(txCallbacks);
+    txCallbacks = std::make_unique<TxCharacteristicCallbacks>(this);
+    pTxCharacteristic->setCallbacks(txCallbacks.get());
 
     // Create the RX Characteristic (for receiving data from phone)
     pRxCharacteristic = pService->createCharacteristic(
@@ -142,8 +121,8 @@ bool BLEManager::setup(const char *deviceName)
             NIMBLE_PROPERTY::WRITE |
             NIMBLE_PROPERTY::WRITE_NR | // Write without response for faster writes
             NIMBLE_PROPERTY::NOTIFY);
-    rxCallbacks = new MyCharacteristicCallbacks(this);
-    pRxCharacteristic->setCallbacks(rxCallbacks);
+    rxCallbacks = std::make_unique<MyCharacteristicCallbacks>(this);
+    pRxCharacteristic->setCallbacks(rxCallbacks.get());
 
     // Start the service
     pService->start();
@@ -158,10 +137,11 @@ bool BLEManager::setup(const char *deviceName)
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
 
     // Set callback to update battery level on read
-    pBatteryCharacteristic->setCallbacks(new BatteryCharacteristicCallbacks());
+    batteryCallbacks = std::make_unique<BatteryCharacteristicCallbacks>();
+    pBatteryCharacteristic->setCallbacks(batteryCallbacks.get());
 
     // Set initial battery level
-    uint8_t initialBattery = PowerManager::readBatteryLevel();
+    auto initialBattery = PowerManager::readBatteryLevel();
     pBatteryCharacteristic->setValue(&initialBattery, 1);
 
     // Start the battery service
@@ -229,7 +209,7 @@ bool BLEManager::sendMessage(const Message &msg)
 bool BLEManager::isConnected() const
 {
     // Query NimBLE server for active connections
-    NimBLEServer *srv = NimBLEDevice::getServer();
+    auto srv = NimBLEDevice::getServer();
     if (!srv)
         return false;
 
@@ -355,7 +335,7 @@ void BLEManager::updateBatteryLevel()
     }
 
     // Read current battery level
-    uint8_t batteryLevel = PowerManager::readBatteryLevel();
+    auto batteryLevel = PowerManager::readBatteryLevel();
 
     // Update the characteristic value
     pBatteryCharacteristic->setValue(&batteryLevel, 1);
