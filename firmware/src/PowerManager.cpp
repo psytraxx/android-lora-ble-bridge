@@ -9,6 +9,9 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
+#include <esp_wifi.h>
+#include <esp_task_wdt.h>
+#include <esp_bt.h>
 
 static const char *TAG = "PWR";
 
@@ -148,9 +151,9 @@ float PowerManager::readBatteryVoltage()
     adc_channel_t adc_channel;
 
 #if BATTERY_ADC_PIN == 1
-    adc_channel = ADC_CHANNEL_0;  // GPIO1
+    adc_channel = ADC_CHANNEL_0; // GPIO1
 #elif BATTERY_ADC_PIN == 4
-    adc_channel = ADC_CHANNEL_3;  // GPIO4
+    adc_channel = ADC_CHANNEL_3; // GPIO4
 #else
     ESP_LOGE(TAG, "Unsupported battery ADC pin: %d", BATTERY_ADC_PIN);
     return 0.0f;
@@ -232,4 +235,26 @@ uint8_t PowerManager::readBatteryLevel()
     ESP_LOGI(TAG, "Battery level: %d%%", level);
 
     return level;
+}
+
+void PowerManager::disableWiFi()
+{
+    // Disable WiFi completely (saves ~50-80 mA)
+    esp_err_t err = esp_wifi_stop();
+    if (err == ESP_OK || err == ESP_ERR_WIFI_NOT_INIT)
+    {
+        esp_wifi_deinit();
+        ESP_LOGI(TAG, "WiFi disabled successfully");
+    }
+    else
+    {
+        ESP_LOGE(TAG, "WiFi stop failed: %d", err);
+    }
+}
+
+void PowerManager::disableBluetoothClassic()
+{
+    // Disable Bluetooth Classic (we only use BLE via NimBLE)
+    esp_bt_mem_release(ESP_BT_MODE_CLASSIC_BT);
+    ESP_LOGI(TAG, "Bluetooth Classic memory released");
 }

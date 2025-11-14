@@ -33,10 +33,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
-#include <esp_task_wdt.h>
-#include <esp_wifi.h>
-#include <esp_bt.h>
 #include "esp_log.h"
+#include <esp_task_wdt.h>
 
 // RTC memory - persists across deep sleep
 RTC_DATA_ATTR int bootCount = 0;
@@ -99,21 +97,9 @@ void setup()
     // Configure power management (CPU frequency scaling)
     PowerManager::configurePowerManagement();
 
-    // Disable WiFi completely (saves ~50-80 mA)
-    esp_err_t err = esp_wifi_stop();
-    if (err == ESP_OK || err == ESP_ERR_WIFI_NOT_INIT)
-    {
-        esp_wifi_deinit();
-        ESP_LOGI(TAG, "WiFi disabled successfully");
-    }
-    else
-    {
-        ESP_LOGE(TAG, "WiFi stop failed: %d", err);
-    }
+    PowerManager::disableWiFi();
 
-    // Disable Bluetooth Classic (we only use BLE via NimBLE)
-    esp_bt_mem_release(ESP_BT_MODE_CLASSIC_BT);
-    ESP_LOGI(TAG, "Bluetooth Classic memory released");
+    PowerManager::disableBluetoothClassic();
 
     // Configure watchdog timer with sufficient timeout for LoRa operations
     esp_task_wdt_config_t wdtConfig = {

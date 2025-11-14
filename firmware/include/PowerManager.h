@@ -1,6 +1,6 @@
 #ifndef POWER_MANAGER_H
 #define POWER_MANAGER_H
-#include <cstdint> 
+#include <cstdint>
 #include <functional>
 
 /**
@@ -29,7 +29,7 @@ public:
      * @brief Configure ESP32 power management (CPU frequency scaling)
      *
      * Sets up dynamic frequency scaling with:
-     *  - Max frequency: Default CPU frequency (e.g., 160 MHz)  
+     *  - Max frequency: Default CPU frequency (e.g., 160 MHz)
      *  - Min frequency: 20 MHz
      *  - Light sleep: Disabled (manual sleep via enterDeepSleep)
      *
@@ -99,6 +99,17 @@ public:
      * @return Battery level percentage (0-100)
      */
     static uint8_t readBatteryLevel();
+
+    /**
+     * @brief Disable WiFi to save power
+     *
+     * Disables WiFi completely, including stopping the WiFi driver
+     * and deinitializing WiFi resources. This saves significant power
+     * when WiFi is not needed.
+     */
+    static void disableWiFi();
+
+    static void disableBluetoothClassic();
 };
 
 #endif // POWER_MANAGER_H
