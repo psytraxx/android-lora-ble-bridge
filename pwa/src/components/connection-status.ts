@@ -14,6 +14,7 @@ export class ConnectionStatus extends LitElement {
   @property({ type: String }) state: ConnectionState = ConnectionState.DISCONNECTED;
   @property({ type: String }) deviceName: string | null = null;
   @property({ type: String }) deviceId: string | null = null;
+  @property({ type: Number }) batteryLevel: number | null = null;
 
   static styles = [sharedStylesheet];
 
@@ -45,6 +46,16 @@ export class ConnectionStatus extends LitElement {
               ? html`<div class="flex flex-col text-left text-xs ml-2">
                 ${this.deviceName ? html`<div class="font-medium">${this.deviceName}</div>` : ''}
                 ${this.deviceId ? html`<div class="text-base-content/70 truncate max-w-xs">${this.deviceId}</div>` : ''}
+              </div>`
+              : ''
+          }
+          ${
+            this.batteryLevel !== null
+              ? html`<div class="badge badge-ghost gap-1 text-xs">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-4">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 10.5h.375c.621 0 1.125.504 1.125 1.125v2.25c0 .621-.504 1.125-1.125 1.125H21M3.75 18h15A2.25 2.25 0 0 0 21 15.75v-6a2.25 2.25 0 0 0-2.25-2.25h-15A2.25 2.25 0 0 0 1.5 9.75v6A2.25 2.25 0 0 0 3.75 18Z" />
+                </svg>
+                ${this.batteryLevel}%
               </div>`
               : ''
           }

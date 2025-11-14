@@ -142,7 +142,21 @@ float PowerManager::readBatteryVoltage()
     return 0.0f;
 #else
 
-    ESP_LOGI(TAG, "Initializing battery ADC (GPIO %d)", BATTERY_ADC_PIN);
+    // Map GPIO pin to ADC channel
+    // LilyGo S3: GPIO4 = ADC1_CHANNEL_3
+    // Heltec: GPIO1 = ADC1_CHANNEL_0
+    adc_channel_t adc_channel;
+
+#if BATTERY_ADC_PIN == 1
+    adc_channel = ADC_CHANNEL_0;  // GPIO1
+#elif BATTERY_ADC_PIN == 4
+    adc_channel = ADC_CHANNEL_3;  // GPIO4
+#else
+    ESP_LOGE(TAG, "Unsupported battery ADC pin: %d", BATTERY_ADC_PIN);
+    return 0.0f;
+#endif
+
+    ESP_LOGI(TAG, "Reading battery from GPIO %d (ADC channel %d)", BATTERY_ADC_PIN, adc_channel);
 
     adc_oneshot_unit_handle_t adc1_handle;
     adc_oneshot_unit_init_cfg_t init_config1 = {
@@ -156,7 +170,7 @@ float PowerManager::readBatteryVoltage()
         .bitwidth = ADC_BITWIDTH_12,
     };
 
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_3, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, adc_channel, &config));
 
 #ifdef BATTERY_ADC_CTRL
     // Enable ADC (Heltec boards)
@@ -165,17 +179,33 @@ float PowerManager::readBatteryVoltage()
     vTaskDelay(pdMS_TO_TICKS(10)); // Wait for ADC to stabilize
 #endif
     int raw_value = 0;
-    ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHANNEL_3, &raw_value));
-    int battery_voltage_mv = raw_value * 2; // Voltage divider of 2:1
+    ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, adc_channel, &raw_value));
+
+    // Convert to voltage using calibration
+    adc_cali_handle_t adc1_cali_handle = NULL;
+    adc_cali_line_fitting_config_t cali_config = {
+        .unit_id = ADC_UNIT_1,
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+    ESP_ERROR_CHECK(adc_cali_create_scheme_line_fitting(&cali_config, &adc1_cali_handle));
+
+    int voltage_mv = 0;
+    ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_handle, raw_value, &voltage_mv));
+
+    // Cleanup
+    ESP_ERROR_CHECK(adc_cali_delete_scheme_line_fitting(adc1_cali_handle));
+    ESP_ERROR_CHECK(adc_oneshot_del_unit(adc1_handle));
 
 #ifdef BATTERY_ADC_CTRL
     // Disable ADC (save power on Heltec boards)
     gpio_set_level((gpio_num_t)BATTERY_ADC_CTRL, 0);
 #endif
 
-    float battery_voltage = battery_voltage_mv / 1000.0f;
+    // Apply voltage divider ratio
+    float battery_voltage = (voltage_mv / 1000.0f) * BATTERY_VOLTAGE_DIVIDER;
 
-    ESP_LOGI(TAG, "Battery: %.0f mV (%d) -> %.2f V", battery_voltage_mv, raw_value, battery_voltage);
+    ESP_LOGI(TAG, "Battery: %d mV (raw: %d) -> %.2f V", voltage_mv, raw_value, battery_voltage);
 
     return battery_voltage;
 #endif

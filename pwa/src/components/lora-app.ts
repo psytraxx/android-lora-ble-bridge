@@ -21,6 +21,7 @@ export class LoraApp extends LitElement {
   @state() private messages: ChatMessage[] = [];
   @state() private hasGps = false;
   @state() private deviceName: string | null = null;
+  @state() private batteryLevel: number | null = null;
 
   private ackTimeouts = new Map<number, number>();
   private unsubscribers: (() => void)[] = [];
@@ -68,11 +69,19 @@ export class LoraApp extends LitElement {
       })
     );
 
+    // Subscribe to battery level updates
+    this.unsubscribers.push(
+      bleService.onBatteryChange((level) => {
+        this.batteryLevel = level;
+      })
+    );
+
     // Initial state
     this.connectionState = bleService.getState();
     this.messages = messageRepository.getMessages();
     const dev = bleService.getDevice();
     this.deviceName = dev?.name ?? null;
+    this.batteryLevel = bleService.getBatteryLevel();
 
     // Check if Web Bluetooth is supported
     if (!bleService.isSupported()) {
@@ -112,6 +121,7 @@ export class LoraApp extends LitElement {
             <connection-status
               .state=${this.connectionState}
               .deviceName=${this.deviceName}
+              .batteryLevel=${this.batteryLevel}
               @connect=${this.onConnect}
               @disconnect=${this.onDisconnect}
             ></connection-status>
