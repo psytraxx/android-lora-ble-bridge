@@ -90,6 +90,20 @@ private:
 };
 
 /**
+ * @brief Adapter for NimBLECharacteristicCallbacks to handle battery level reads
+ */
+class BatteryCharacteristicCallbacks : public NimBLECharacteristicCallbacks
+{
+public:
+    /**
+     * @brief Called when client reads battery level characteristic
+     * @param pCharacteristic The characteristic being read
+     * @param connInfo Connection metadata
+     */
+    void onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo);
+};
+
+/**
  * @brief High-level BLE manager used by the application.
  *
  * Responsibilities:
@@ -157,6 +171,7 @@ private:
     NimBLEServer *pServer{nullptr};
     NimBLECharacteristic *pTxCharacteristic{nullptr};
     NimBLECharacteristic *pRxCharacteristic{nullptr};
+    NimBLECharacteristic *pBatteryCharacteristic{nullptr};
     NimBLEAdvertising *pAdvertising{nullptr};
 
     QueueHandle_t bleToLoraQueue;

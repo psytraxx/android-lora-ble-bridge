@@ -74,6 +74,11 @@ class BleRepository @Inject constructor(
     private var bluetoothGatt: BluetoothGatt? = null
     private var txCharacteristic: BluetoothGattCharacteristic? = null  // Receive notifications
     private var rxCharacteristic: BluetoothGattCharacteristic? = null  // Send messages
+    private var batteryCharacteristic: BluetoothGattCharacteristic? = null  // Battery level
+
+    // Battery level state
+    private val _batteryLevel = MutableStateFlow<Int?>(null)
+    val batteryLevel: StateFlow<Int?> = _batteryLevel.asStateFlow()
 
     // Scanning
     private var currentScanCallback: ScanCallback? = null
@@ -395,6 +400,19 @@ class BleRepository @Inject constructor(
                 return
             }
 
+            // Get battery service (optional - don't fail if not present)
+            val batteryService = gatt.getService(BleConstants.BATTERY_SERVICE_UUID)
+            if (batteryService != null) {
+                batteryCharacteristic = batteryService.getCharacteristic(BleConstants.BATTERY_LEVEL_UUID)
+                if (batteryCharacteristic != null) {
+                    Log.d(TAG, "Battery service found - reading battery level")
+                    gatt.readCharacteristic(batteryCharacteristic)
+                    gatt.setCharacteristicNotification(batteryCharacteristic, true)
+                }
+            } else {
+                Log.d(TAG, "Battery service not available on this device")
+            }
+
             // Enable notifications
             _connectionState.value = BleConnectionState.EnablingNotifications
             gatt.setCharacteristicNotification(txCharacteristic, true)
@@ -431,8 +449,11 @@ class BleRepository @Inject constructor(
             characteristic: BluetoothGattCharacteristic
         ) {
             // Only handle in the deprecated callback for API < 33
-            if (android.os.Build.VERSION.SDK_INT < 33 && characteristic.uuid == BleConstants.TX_CHAR_UUID) {
-                handleReceivedData(characteristic.value)
+            if (android.os.Build.VERSION.SDK_INT < 33) {
+                when (characteristic.uuid) {
+                    BleConstants.TX_CHAR_UUID -> handleReceivedData(characteristic.value)
+                    BleConstants.BATTERY_LEVEL_UUID -> handleBatteryLevelUpdate(characteristic.value)
+                }
             }
         }
 
@@ -442,8 +463,22 @@ class BleRepository @Inject constructor(
             value: ByteArray
         ) {
             // Only handle in the new callback for API >= 33
-            if (android.os.Build.VERSION.SDK_INT >= 33 && characteristic.uuid == BleConstants.TX_CHAR_UUID) {
-                handleReceivedData(value)
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                when (characteristic.uuid) {
+                    BleConstants.TX_CHAR_UUID -> handleReceivedData(value)
+                    BleConstants.BATTERY_LEVEL_UUID -> handleBatteryLevelUpdate(value)
+                }
+            }
+        }
+
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
+            status: Int
+        ) {
+            if (status == BluetoothGatt.GATT_SUCCESS && characteristic.uuid == BleConstants.BATTERY_LEVEL_UUID) {
+                handleBatteryLevelUpdate(value)
             }
         }
     }
@@ -461,6 +496,17 @@ class BleRepository @Inject constructor(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to deserialize message", e)
+        }
+    }
+
+    /**
+     * Handle battery level update from BLE characteristic
+     */
+    private fun handleBatteryLevelUpdate(data: ByteArray) {
+        if (data.isNotEmpty()) {
+            val batteryLevel = data[0].toInt() and 0xFF  // Convert to unsigned int (0-100)
+            Log.d(TAG, "Battery level: $batteryLevel%")
+            _batteryLevel.value = batteryLevel
         }
     }
 
@@ -530,6 +576,8 @@ class BleRepository @Inject constructor(
         bluetoothGatt = null
         txCharacteristic = null
         rxCharacteristic = null
+        batteryCharacteristic = null
+        _batteryLevel.value = null
     }
 
     /**
