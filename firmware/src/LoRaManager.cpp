@@ -69,7 +69,7 @@ bool LoRaManager::begin(const LoRaConfig &config)
             config.codingRate,
             LoRaConstants::SYNC_WORD,
             config.txPower,
-            LoRaConstants::PREAMBLE_LENGTH, 0);
+            LoRaConstants::PREAMBLE_LENGTH);
 #elif defined(RADIO_SX1262)
         int state = radio->begin(
             config.frequency,
@@ -78,8 +78,7 @@ bool LoRaManager::begin(const LoRaConfig &config)
             config.codingRate,
             LoRaConstants::SYNC_WORD,
             config.txPower,
-            LoRaConstants::PREAMBLE_LENGTH,
-            0.0, /* TCXO voltage (0V for Heltec WiFi LoRa V3) */ true /* use LDO regulator */);
+            LoRaConstants::PREAMBLE_LENGTH);
 #else
 #error "No supported RADIO defined! Please define RADIO_SX1278 or RADIO_SX1262 in platformio.ini"
 #endif

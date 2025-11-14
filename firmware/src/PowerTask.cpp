@@ -8,7 +8,7 @@ namespace PowerTask
 {
     // Task configuration
     static constexpr int TASK_PRIORITY = 2; // Low priority
-    static constexpr int TASK_STACK_SIZE = 2048;
+    static constexpr int TASK_STACK_SIZE = 4096; // Increased for ADC operations and logging
     static constexpr TickType_t CHECK_INTERVAL = pdMS_TO_TICKS(1000); // 1 second
 
     // Task handle

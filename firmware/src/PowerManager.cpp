@@ -27,7 +27,7 @@ void PowerManager::configurePowerManagement()
     esp_pm_config_t pm_config = {
         .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
         .min_freq_mhz = PowerConstants::CPU_MIN_FREQ_MHZ,
-        .light_sleep_enable = true};
+        .light_sleep_enable = false}; // Disabled: incompatible with BLE on ESP32-S3
 
     esp_err_t rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
