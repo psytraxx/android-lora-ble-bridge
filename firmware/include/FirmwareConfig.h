@@ -60,6 +60,9 @@ namespace LoRaConstants
 
     /// Delay between LoRa initialization retries (milliseconds)
     constexpr int INIT_RETRY_DELAY_MS = 1000;
+
+    /// Default preamble length for all LoRa operations (symbols)
+    constexpr int PREAMBLE_LENGTH = 8; // Symbols
 }
 
 //==============================================================================

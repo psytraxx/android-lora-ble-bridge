@@ -12,6 +12,7 @@
 #include <esp_wifi.h>
 #include <esp_task_wdt.h>
 #include <esp_bt.h>
+#include <esp_private/periph_ctrl.h>
 
 static const char *TAG = "PWR";
 
@@ -250,6 +251,7 @@ void PowerManager::disableWiFi()
     {
         ESP_LOGE(TAG, "WiFi stop failed: %d", err);
     }
+    periph_module_disable(PERIPH_WIFI_MODULE);
 }
 
 void PowerManager::disableBluetoothClassic()
