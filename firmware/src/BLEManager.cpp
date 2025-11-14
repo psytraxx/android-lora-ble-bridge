@@ -72,6 +72,42 @@ BLEManager::BLEManager(QueueHandle_t queue)
 {
 }
 
+BLEManager::~BLEManager()
+{
+    ESP_LOGW(TAG_BLE, "BLEManager destructor called - this should NEVER happen in normal operation!");
+    ESP_LOGW(TAG_BLE, "If you see this message, there's a bug in your application lifecycle management.");
+
+    // Clean up dynamically allocated callback objects
+    // Note: We do NOT clean up NimBLE objects (pServer, pTxCharacteristic, etc.)
+    // because they are owned by the NimBLE singleton and cannot be safely destroyed
+    // without calling NimBLEDevice::deinit(), which would break the entire BLE stack
+
+    if (serverCallbacks)
+    {
+        delete serverCallbacks;
+        serverCallbacks = nullptr;
+    }
+
+    if (rxCallbacks)
+    {
+        delete rxCallbacks;
+        rxCallbacks = nullptr;
+    }
+
+    if (txCallbacks)
+    {
+        delete txCallbacks;
+        txCallbacks = nullptr;
+    }
+
+    // Note: BatteryCharacteristicCallbacks is allocated in setup() but we don't
+    // have a pointer to it (it's passed directly to setCallbacks()), so we
+    // cannot delete it here. This is a minor memory leak if BLEManager is destroyed,
+    // but since this should NEVER happen, it's acceptable.
+
+    ESP_LOGW(TAG_BLE, "BLEManager destructor complete - device should be reset!");
+}
+
 bool BLEManager::setup(const char *deviceName)
 {
     ESP_LOGI(TAG_BLE, "Initializing BLE");
@@ -190,8 +226,6 @@ bool BLEManager::sendMessage(const Message &msg)
     return true;
 }
 
-
-
 bool BLEManager::isConnected() const
 {
     // Query NimBLE server for active connections
@@ -202,7 +236,6 @@ bool BLEManager::isConnected() const
     // NimBLEServer::getConnectedCount() works in both Arduino and ESP-IDF
     return srv->getConnectedCount() > 0;
 }
-
 
 void BLEManager::stopAdvertising()
 {

@@ -106,6 +106,28 @@ public:
 /**
  * @brief High-level BLE manager used by the application.
  *
+ * DESIGN NOTE - SINGLETON PATTERN:
+ * This class is designed as an APPLICATION SINGLETON (not enforced at compile-time).
+ * Only ONE instance should be created per application lifetime because:
+ *
+ * 1. Hardware constraint: ESP32 has only one BLE radio peripheral
+ * 2. NimBLE stack limitation: NimBLEDevice is a singleton - calling init() multiple
+ *    times or creating multiple BLEManager instances will cause undefined behavior
+ * 3. Callback lifetime: The callback objects (MyServerCallbacks, etc.) are owned
+ *    by this instance and registered with NimBLE stack - they must remain valid
+ *    for the entire program lifetime
+ *
+ * USAGE:
+ *   - Create ONE instance in main.cpp during setup()
+ *   - Never delete or recreate the instance
+ *   - The instance should live until esp_deep_sleep() or device reset
+ *
+ * MEMORY MANAGEMENT:
+ *   - Destructor is provided for completeness but should NEVER be called in
+ *     normal operation (device resets on deep sleep, so cleanup is automatic)
+ *   - If you accidentally destroy a BLEManager, the NimBLE stack will be left
+ *     in an inconsistent state and the device should be reset
+ *
  * Responsibilities:
  *  - Initialize NimBLE and configure the service/characteristics used by the
  *    application
@@ -120,6 +142,21 @@ class BLEManager
 public:
     /// Construct with a FreeRTOS queue to post incoming BLE messages to (LoRa side)
     explicit BLEManager(QueueHandle_t bleToLoraQueue);
+
+    /**
+     * @brief Destructor - cleans up dynamically allocated callback objects
+     *
+     * WARNING: This destructor should NEVER be called during normal operation!
+     * BLEManager is designed as an application singleton that lives until device
+     * reset or deep sleep. Destroying this object will leave NimBLE in an
+     * inconsistent state.
+     *
+     * This destructor exists only for:
+     *  - Completeness (proper C++ RAII pattern)
+     *  - Unit testing scenarios (if BLEManager is ever mocked/tested in isolation)
+     *  - Preventing memory leak warnings from static analysis tools
+     */
+    ~BLEManager();
 
     /// Initialize BLE stack and create service/characteristics.
     /// @param deviceName The BLE device name to advertise (defined in platformio.ini)

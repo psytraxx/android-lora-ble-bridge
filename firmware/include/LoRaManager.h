@@ -193,12 +193,6 @@ private:
     // State machine
     volatile LoRaState state;
 
-    // ISR tracking
-    volatile uint32_t rxInterruptCount;
-    volatile uint32_t txInterruptCount;
-    uint32_t rxProcessedCount;
-    uint32_t txProcessedCount;
-
     // Callbacks
     LoRaReceiveCallback receiveCallback;
     LoRaTransmitCallback transmitCallback;

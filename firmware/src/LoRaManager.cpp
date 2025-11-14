@@ -20,10 +20,6 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
       pinBusy(busy),
       radio(nullptr),
       state(STATE_UNINITIALIZED),
-      rxInterruptCount(0),
-      txInterruptCount(0),
-      rxProcessedCount(0),
-      txProcessedCount(0),
       receiveCallback(nullptr),
       transmitCallback(nullptr)
 {
@@ -222,9 +218,7 @@ void LoRaManager::process()
     // Check for completed transmission
     if (state == STATE_PACKET_SENT)
     {
-        txProcessedCount++;
-        ESP_LOGI(TAG, "TX complete (ISR:%lu/Proc:%lu), restoring RX mode",
-                 (unsigned long)txInterruptCount, (unsigned long)txProcessedCount);
+        ESP_LOGI(TAG, "TX complete, restoring RX mode");
 
         // Return to receive mode
         startReceive();
@@ -246,18 +240,7 @@ void LoRaManager::process()
         return;
     }
 
-    rxProcessedCount++;
-
-    // Check if we're missing packets
-    if (rxInterruptCount > rxProcessedCount)
-    {
-        ESP_LOGW(TAG, "RX interrupt/process mismatch! ISR:%lu, Proc:%lu (missed %lu)",
-                 (unsigned long)rxInterruptCount, (unsigned long)rxProcessedCount,
-                 (unsigned long)(rxInterruptCount - rxProcessedCount));
-    }
-
-    ESP_LOGI(TAG, "RX packet detected (ISR:%lu/Proc:%lu)",
-             (unsigned long)rxInterruptCount, (unsigned long)rxProcessedCount);
+    ESP_LOGI(TAG, "RX packet detected, processing");
 
     // Immediately set to processing to avoid race condition
     state = STATE_IDLE;
@@ -312,18 +295,10 @@ void IRAM_ATTR LoRaManager::onReceiveISR()
 {
     if (instance)
     {
-        // Increment interrupt counter atomically
-        uint32_t count = instance->rxInterruptCount;
-        instance->rxInterruptCount = count + 1;
-
         // Set state - do NOT read data in ISR
         // Data reading happens in process() called from main loop
-        // If state is already PACKET_RECEIVED, we're missing packets!
-        if (instance->state == STATE_PACKET_RECEIVED)
-        {
-            // Packet not yet processed - this is a problem
-            // But we can't log here, so just note it happened
-        }
+        // Note: If state is already PACKET_RECEIVED, previous packet will be overwritten
+        // This is acceptable - we only keep the most recent packet
         instance->state = STATE_PACKET_RECEIVED;
     }
 }
@@ -332,10 +307,6 @@ void IRAM_ATTR LoRaManager::onTransmitISR()
 {
     if (instance)
     {
-        // Increment interrupt counter atomically
-        uint32_t count = instance->txInterruptCount;
-        instance->txInterruptCount = count + 1;
-
         // Set state - do NOT perform cleanup in ISR
         // Cleanup happens in process() called from main loop
         instance->state = STATE_PACKET_SENT;

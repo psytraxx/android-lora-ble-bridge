@@ -169,54 +169,69 @@ bool MessageBuffer::peek(Message &msg)
         return false;
     }
 
-    // Generate key for message at head (oldest)
-    char key[16];
-    getMessageKey(m_head, key, sizeof(key));
+    // Iteratively skip corrupted messages (avoid recursion/stack overflow)
+    // Worst case: skip all MAX_MESSAGES if all corrupted
+    int skippedCount = 0;
+    const int maxSkips = MAX_MESSAGES; // Safety limit
 
-    // Read serialized message from NVS
-    uint8_t buffer[MAX_MESSAGE_SIZE];
-    size_t len = sizeof(buffer);
-
-    esp_err_t err = nvs_get_blob(m_nvsHandle, key, buffer, &len);
-    if (err != ESP_OK)
+    while (!isEmpty() && skippedCount < maxSkips)
     {
-        ESP_LOGE(TAG, "Failed to read message from NVS: %s (corrupted entry, skipping)", esp_err_to_name(err));
+        // Generate key for message at head (oldest)
+        char key[16];
+        getMessageKey(m_head, key, sizeof(key));
 
-        // Message data is missing or corrupted, but state says it exists
-        // Skip this entry by removing it from the buffer
-        popFront();
+        // Read serialized message from NVS
+        uint8_t buffer[MAX_MESSAGE_SIZE];
+        size_t len = sizeof(buffer);
 
-        // Try to peek the next message (recursive call)
-        if (!isEmpty())
+        esp_err_t err = nvs_get_blob(m_nvsHandle, key, buffer, &len);
+        if (err != ESP_OK)
         {
-            ESP_LOGW(TAG, "Skipped corrupted message, trying next (count=%d)", m_count);
-            return peek(msg);  // Recursive: try next message
+            ESP_LOGE(TAG, "Failed to read message from NVS: %s (corrupted entry, skipping)", esp_err_to_name(err));
+
+            // Message data is missing or corrupted, but state says it exists
+            // Skip this entry by removing it from the buffer
+            popFront();
+            skippedCount++;
+
+            if (!isEmpty())
+            {
+                ESP_LOGW(TAG, "Skipped corrupted message, trying next (count=%d, skipped=%d)", m_count, skippedCount);
+            }
+            continue; // Try next message
         }
 
-        // No more messages after skipping corrupted entry
-        return false;
-    }
-
-    // Deserialize message
-    if (!msg.deserialize(buffer, len))
-    {
-        ESP_LOGE(TAG, "Failed to deserialize message from NVS (corrupted data, skipping)");
-
-        // Deserialization failed, skip this corrupted entry
-        popFront();
-
-        // Try to peek the next message (recursive call)
-        if (!isEmpty())
+        // Deserialize message
+        if (!msg.deserialize(buffer, len))
         {
-            ESP_LOGW(TAG, "Skipped corrupted message, trying next (count=%d)", m_count);
-            return peek(msg);  // Recursive: try next message
+            ESP_LOGE(TAG, "Failed to deserialize message from NVS (corrupted data, skipping)");
+
+            // Deserialization failed, skip this corrupted entry
+            popFront();
+            skippedCount++;
+
+            if (!isEmpty())
+            {
+                ESP_LOGW(TAG, "Skipped corrupted message, trying next (count=%d, skipped=%d)", m_count, skippedCount);
+            }
+            continue; // Try next message
         }
 
-        // No more messages after skipping corrupted entry
-        return false;
+        // Success! Found valid message
+        if (skippedCount > 0)
+        {
+            ESP_LOGI(TAG, "Successfully recovered after skipping %d corrupted message(s)", skippedCount);
+        }
+        return true;
     }
 
-    return true;
+    // No valid messages found after skipping corrupted entries
+    if (skippedCount >= maxSkips)
+    {
+        ESP_LOGE(TAG, "Reached maximum skip limit (%d), buffer may be heavily corrupted", maxSkips);
+    }
+
+    return false;
 }
 
 bool MessageBuffer::popFront()
