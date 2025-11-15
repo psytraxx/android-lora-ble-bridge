@@ -53,7 +53,17 @@ bool LoRaManager::begin(const LoRaConfig &config)
             config.spreadingFactor,
             config.codingRate,
             LoRaConstants::SYNC_WORD,
-            config.txPower, LoRaConstants::PREAMBLE_LENGTH);
+            config.txPower,
+            LoRaConstants::PREAMBLE_LENGTH,
+            1.8,
+            false);
+
+        int res = radio->setCurrentLimit(140);
+        if (res != RADIOLIB_ERR_NONE)
+        {
+            ESP_LOGE(TAG, "Failed to set current limit, code %d", res);
+            return false;
+        }
 
         if (state == RADIOLIB_ERR_NONE)
         {
@@ -99,7 +109,7 @@ bool LoRaManager::startReceive(bool dutyCycle)
     if (dutyCycle)
     {
         ESP_LOGI(TAG, "Starting duty cycle RX mode");
-        int rxState = radio->startReceiveDutyCycleAuto();
+        int rxState = radio->startReceiveDutyCycleAuto(LoRaConstants::PREAMBLE_LENGTH, 8, (RADIOLIB_IRQ_RX_DEFAULT_FLAGS | (1 << RADIOLIB_IRQ_PREAMBLE_DETECTED)));
         if (rxState != RADIOLIB_ERR_NONE)
         {
             ESP_LOGE(TAG, "Failed to start duty cycle RX mode, code %d", rxState);

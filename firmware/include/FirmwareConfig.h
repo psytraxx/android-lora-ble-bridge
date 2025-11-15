@@ -64,7 +64,7 @@ namespace LoRaConstants
     constexpr int INIT_RETRY_DELAY_MS = 1000;
 
     /// Preamble length for WakeUp messages to wake duty-cycled receivers
-    constexpr int PREAMBLE_LENGTH = 24;
+    constexpr int PREAMBLE_LENGTH = 16;
 }
 
 //==============================================================================
