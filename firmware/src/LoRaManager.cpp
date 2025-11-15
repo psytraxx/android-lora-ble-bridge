@@ -47,6 +47,16 @@ bool LoRaManager::begin(const LoRaConfig &config)
 
         ESP_LOGI(TAG, "Setup attempt %d/%d", attempt, LoRaConstants::INIT_RETRY_COUNT);
 
+#if defined(RADIO_SX1278)
+        int state = radio->begin(
+            config.frequency,
+            config.bandwidth,
+            config.spreadingFactor,
+            config.codingRate,
+            LoRaConstants::SYNC_WORD,
+            config.txPower,
+            LoRaConstants::PREAMBLE_LENGTH);
+#elif defined(RADIO_SX1262)
         int state = radio->begin(
             config.frequency,
             config.bandwidth,
@@ -57,7 +67,9 @@ bool LoRaManager::begin(const LoRaConfig &config)
             LoRaConstants::PREAMBLE_LENGTH,
             1.8,
             false);
-
+#else
+#error "No supported RADIO defined! Please define RADIO_SX1278 or RADIO_SX1262 in platformio.ini"
+#endif
         int res = radio->setCurrentLimit(140);
         if (res != RADIOLIB_ERR_NONE)
         {
