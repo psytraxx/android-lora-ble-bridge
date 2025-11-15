@@ -15,6 +15,8 @@
 //! - Thread-safe state management (mutex-protected ApplicationController)
 //! - Simple, testable components (single responsibility per task)
 //! - Power optimization (deep sleep, light sleep, adaptive delays)
+//!
+//!  Inpired by https://github.com/ropg/heltec_esp32_lora_v3
 
 #include "BLEManager.h"
 #include "LoRaManager.h"

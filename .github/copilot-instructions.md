@@ -131,7 +131,6 @@ switch(reason) {
 - BT Classic released: `esp_bt_mem_release(ESP_BT_MODE_CLASSIC_BT)`
 - **LoRa:** BW250 kHz @ SF11 for fast airtime (~0.8s) + good range
 - **Autonomous Duty Cycle (SX1262):** ~1.5-2mA average (vs 12mA continuous RX)
-- **512-Symbol Preamble:** Ensures detection by duty-cycled receivers (~2.5s)
 - Deep sleep: ~52 days on 2500 mAh with SX1262 duty cycle (vs ~9 days continuous)
 
 ## Regulatory Compliance

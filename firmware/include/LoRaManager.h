@@ -33,7 +33,6 @@ struct LoRaConfig
     uint8_t spreadingFactor; // SF (7-12)
     uint8_t codingRate;      // CR (5-8 for 4/5 to 4/8)
     int8_t txPower;          // dBm (e.g., 20)
-    uint8_t syncWord;        // Sync word (default: 0x12)
 };
 
 /// LoRa packet with metadata (RSSI, SNR)

@@ -93,18 +93,6 @@ bool LoRaManager::startReceive()
     // SX1278 or duty cycle disabled: Standard continuous receive mode
     radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
 
-#if defined(RADIO_SX1262)
-    // SX1262: Use duty cycle RX for 93-95% power savings
-    // Auto-calculates optimal RX/sleep periods based on current SF/BW
-    // Average power: ~0.7 mA (vs ~15 mA continuous)
-    int rxState = radio->startReceiveDutyCycleAuto();
-    if (rxState != RADIOLIB_ERR_NONE)
-    {
-        ESP_LOGE(TAG, "Failed to start duty cycle RX mode, code %d", rxState);
-        return false;
-    }
-    ESP_LOGI(TAG, "Duty cycle RX mode started (auto-calculated periods, ~0.7mA avg)");
-#else
     // SX1278: Standard continuous receive mode
     int rxState = radio->startReceive();
     if (rxState != RADIOLIB_ERR_NONE)
@@ -113,7 +101,7 @@ bool LoRaManager::startReceive()
         return false;
     }
     ESP_LOGI(TAG, "Continuous receive mode started");
-#endif
+
     state = STATE_IDLE;
     return true;
 }

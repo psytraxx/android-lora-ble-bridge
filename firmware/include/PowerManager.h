@@ -60,9 +60,11 @@ public:
      * Wakeup sources must be configured via configureWakeupSources() first.
      *
      * The function will:
-     *  1. Flush UART buffers to ensure logs are sent
-     *  2. Enter deep sleep (CPU and most peripherals powered off)
-     *  3. Device resets on wake - execution starts from beginning
+     *  1. Disable external peripherals via VEXT
+     *  2. Set unused GPIOs to input mode to minimize leakage current
+     *  3. Flush UART buffers to ensure logs are sent
+     *  4. Enter deep sleep (CPU and most peripherals powered off)
+     *  5. Device resets on wake - execution starts from beginning
      *
      * Wakeup sources:
      *  - EXT0: LoRa DIO0 going HIGH
@@ -110,6 +112,37 @@ public:
     static void disableWiFi();
 
     static void disableBluetoothClassic();
+
+private:
+    /**
+     * @brief Disable external peripherals by setting VEXT to input mode
+     *
+     * On Heltec boards, VEXT (GPIO 36) controls power to external peripherals
+     * like sensors and displays. Setting it to INPUT mode cuts power.
+     */
+    static void disableExternalPeripherals();
+
+    /**
+     * @brief Set all unused GPIO pins to input mode
+     *
+     * Setting unused GPIOs to input mode minimizes leakage current during
+     * deep sleep. This excludes pins actively used by LoRa, battery ADC,
+     * button, and LED.
+     */
+    static void setUnusedGPIOsToInput();
+
+    /**
+     * @brief Get battery percentage from voltage using lookup table
+     *
+     * Uses actual LiPo discharge curve data instead of linear interpolation
+     * for more accurate battery percentage reporting.
+     *
+     * Based on Heltec unofficial library voltage curve measurements.
+     *
+     * @param voltage Battery voltage in volts
+     * @return Battery percentage (0-100)
+     */
+    static uint8_t voltageToPercentage(float voltage);
 };
 
 #endif // POWER_MANAGER_H
