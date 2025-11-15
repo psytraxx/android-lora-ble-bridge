@@ -48,18 +48,23 @@ namespace LoRaConstants
     constexpr int RX_SETTLE_TIME_MS = 50;
 
     /// Delay before sending ACK to ensure sender has switched to RX mode
-    /// Timing: TX complete + mode switch + settle time = ~200ms minimum
-    /// 500ms provides safe margin
-    constexpr int ACK_DELAY_MS = 500;
+    /// Timing (SF11, BW125, CR4/8, 8-symbol preamble): Message TX (~1300ms) + TX→RX switch (~50ms) + margin (~650ms)
+    /// 2000ms ensures sender is ready to receive ACK
+    constexpr int ACK_DELAY_MS = 2000;
 
     /// Delay after sending WakeUp message before sending actual message
-    constexpr int WAKEUP_TO_MESSAGE_DELAY_MS = 1000;
+    /// Allows receiver time to: receive WakeUp (~800ms at 125kHz) + process (~100ms) + mode switch (~50ms) + margin
+    /// 2000ms ensures reliable reception at 125 kHz bandwidth
+    constexpr int WAKEUP_TO_MESSAGE_DELAY_MS = 2000;
 
     /// Number of retry attempts for LoRa initialization
     constexpr int INIT_RETRY_COUNT = 3;
 
     /// Delay between LoRa initialization retries (milliseconds)
     constexpr int INIT_RETRY_DELAY_MS = 1000;
+
+    /// Preamble length for WakeUp messages to wake duty-cycled receivers
+    constexpr int PREAMBLE_LENGTH = 24;
 }
 
 //==============================================================================
@@ -170,21 +175,6 @@ namespace PowerConstants
     /// 60 seconds allows for casual message reading without premature disconnection
     /// Note: Android app expects 30s timeout (see BleConstants.AUTO_DISCONNECT_DELAY_MS)
     constexpr unsigned long INACTIVITY_TIMEOUT_MS = 60000UL;
-}
-
-//==============================================================================
-// Main Loop Timing Configuration
-//==============================================================================
-
-namespace LoopConstants
-{
-    /// Loop delay when activity detected (short for responsiveness)
-    constexpr int ACTIVE_DELAY_MS = 10;
-
-    /// Loop delay when idle (long to enable light sleep for power savings)
-    /// 500ms provides good balance: responsive enough for messaging (~0.5s max latency)
-    /// yet long enough to enter light sleep for power savings
-    constexpr int IDLE_DELAY_MS = 500;
 }
 
 //==============================================================================

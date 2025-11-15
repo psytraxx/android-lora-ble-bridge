@@ -83,7 +83,7 @@ public:
     bool begin(const LoRaConfig &config);
 
     /**
-     * @brief Start continuous receive mode
+     * @brief Start continuous receive mode or duty-cycled receive mode
      *
      * For SX1262 Uses hardware-based duty cycle mode
      * where the radio autonomously sleeps between RX windows to save power.
@@ -91,7 +91,7 @@ public:
      *
      * @return true on success, false on failure
      */
-    bool startReceive();
+    bool startReceive(bool dutyCycle = false);
 
     /**
      * @brief Start non-blocking interrupt-driven transmission
