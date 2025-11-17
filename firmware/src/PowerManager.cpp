@@ -6,36 +6,119 @@
 #include <driver/uart.h>
 #include <driver/rtc_io.h>
 #include <esp_log.h>
-#include "esp_adc/adc_oneshot.h"
-#include "esp_adc/adc_cali.h"
-#include "esp_adc/adc_cali_scheme.h"
+#include <esp_adc/adc_oneshot.h>
 #include <esp_wifi.h>
 #include <esp_task_wdt.h>
 #include <esp_bt.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 static const char *TAG = "PWR";
 
-// Battery voltage constants (Li-ion)
-static const float BATTERY_MIN_VOLTAGE = 3.0f; // 0%
-static const float BATTERY_MAX_VOLTAGE = 4.2f; // 100%
-
-// Battery voltage curve lookup table (based on Heltec unofficial library)
-// Maps voltage (3.04V - 4.26V) to percentage using actual LiPo discharge curve
-// Each entry represents 1% increment (100 values for 0-100%)
-static const float BATTERY_CURVE_MIN_VOLTAGE = 3.04f;
-static const float BATTERY_CURVE_MAX_VOLTAGE = 4.26f;
-static const uint8_t BATTERY_VOLTAGE_CURVE[100] = {
-    254, 242, 230, 227, 223, 219, 215, 213, 210, 207,
-    206, 202, 202, 200, 200, 199, 198, 198, 196, 196,
-    195, 194, 194, 193, 193, 192, 192, 191, 191, 190,
-    190, 189, 189, 188, 188, 188, 187, 187, 186, 186,
-    186, 185, 185, 184, 184, 184, 183, 183, 183, 182,
-    182, 182, 181, 181, 181, 180, 180, 180, 179, 179,
-    179, 178, 178, 178, 178, 177, 177, 177, 176, 176,
-    176, 176, 175, 175, 175, 175, 174, 174, 174, 174,
-    173, 173, 173, 173, 172, 172, 172, 172, 171, 171,
-    171, 171, 170, 170, 170, 170, 169, 169, 169, 168};
-
+const float MIN_VOLTAGE = 3.04;
+const float MAX_VOLTAGE = 4.26;
+const uint8_t SCALED_VOLTAGE[100] = {
+    254,
+    242,
+    230,
+    227,
+    223,
+    219,
+    215,
+    213,
+    210,
+    207,
+    206,
+    202,
+    202,
+    200,
+    200,
+    199,
+    198,
+    198,
+    196,
+    196,
+    195,
+    195,
+    194,
+    192,
+    191,
+    188,
+    187,
+    185,
+    185,
+    185,
+    183,
+    182,
+    180,
+    179,
+    178,
+    175,
+    175,
+    174,
+    172,
+    171,
+    170,
+    169,
+    168,
+    166,
+    166,
+    165,
+    165,
+    164,
+    161,
+    161,
+    159,
+    158,
+    158,
+    157,
+    156,
+    155,
+    151,
+    148,
+    147,
+    145,
+    143,
+    142,
+    140,
+    140,
+    136,
+    132,
+    130,
+    130,
+    129,
+    126,
+    125,
+    124,
+    121,
+    120,
+    118,
+    116,
+    115,
+    114,
+    112,
+    112,
+    110,
+    110,
+    108,
+    106,
+    106,
+    104,
+    102,
+    101,
+    99,
+    97,
+    94,
+    90,
+    81,
+    80,
+    76,
+    73,
+    66,
+    52,
+    32,
+    7,
+};
 void PowerManager::configurePowerManagement()
 {
     ESP_LOGI(TAG, "Configuring power management");
@@ -182,58 +265,44 @@ float PowerManager::readBatteryVoltage()
     return 0.0f;
 #endif
 
-    gpio_set_direction((gpio_num_t)BATTERY_ADC_PIN, GPIO_MODE_INPUT);
-    gpio_set_level((gpio_num_t)BATTERY_ADC_PIN, 1);
+#ifdef BATTERY_ADC_CTRL
+    // Enable ADC (Heltec boards) - set LOW per Heltec example
+    gpio_set_direction((gpio_num_t)BATTERY_ADC_CTRL, GPIO_MODE_OUTPUT);
+    gpio_set_level((gpio_num_t)BATTERY_ADC_CTRL, 0);
+    vTaskDelay(pdMS_TO_TICKS(5));
+#endif
 
-    ESP_LOGI(TAG, "Reading battery from GPIO %d (ADC channel %d)", BATTERY_ADC_PIN, adc_channel);
+    // Initialize ADC oneshot
+    adc_oneshot_unit_handle_t adc_handle;
+    adc_oneshot_unit_init_cfg_t init_config = {
+        .unit_id = ADC_UNIT_1,
+        .clk_src = ADC_RTC_CLK_SRC_DEFAULT,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config, &adc_handle));
 
-    adc_oneshot_unit_handle_t adc1_handle;
-    adc_oneshot_unit_init_cfg_t init_config1 = {};
-    init_config1.unit_id = ADC_UNIT_1;
-    init_config1.ulp_mode = ADC_ULP_MODE_DISABLE;
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config1, &adc1_handle));
-
-    adc_oneshot_chan_cfg_t config = {
+    // Configure channel: 12-bit width, 12dB attenuation (0-3.3V range)
+    adc_oneshot_chan_cfg_t chan_config = {
         .atten = ADC_ATTEN_DB_12,
         .bitwidth = ADC_BITWIDTH_12,
     };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc_handle, adc_channel, &chan_config));
 
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, adc_channel, &config));
-
-#ifdef BATTERY_ADC_CTRL
-    // Enable ADC (Heltec boards)
-    gpio_set_direction((gpio_num_t)BATTERY_ADC_CTRL, GPIO_MODE_OUTPUT);
-    gpio_set_level((gpio_num_t)BATTERY_ADC_CTRL, 1);
-    vTaskDelay(pdMS_TO_TICKS(10)); // Wait for ADC to stabilize
-#endif
+    // Read and convert directly (Heltec style: raw / 238.7)
+    // Calibration factor accounts for 12-bit ADC range and voltage divider
     int raw_value = 0;
-    ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, adc_channel, &raw_value));
-
-    // Convert to voltage using calibration (use curve fitting for ESP32-S3)
-    adc_cali_handle_t adc1_cali_handle = NULL;
-    adc_cali_curve_fitting_config_t cali_config = {};
-    cali_config.unit_id = ADC_UNIT_1;
-    cali_config.chan = adc_channel;
-    cali_config.atten = ADC_ATTEN_DB_12;
-    cali_config.bitwidth = ADC_BITWIDTH_12;
-    ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(&cali_config, &adc1_cali_handle));
-
-    int voltage_mv = 0;
-    ESP_ERROR_CHECK(adc_cali_raw_to_voltage(adc1_cali_handle, raw_value, &voltage_mv));
+    ESP_ERROR_CHECK(adc_oneshot_read(adc_handle, adc_channel, &raw_value));
+    float battery_voltage = raw_value / 238.7f;
 
     // Cleanup
-    ESP_ERROR_CHECK(adc_cali_delete_scheme_curve_fitting(adc1_cali_handle));
-    ESP_ERROR_CHECK(adc_oneshot_del_unit(adc1_handle));
+    ESP_ERROR_CHECK(adc_oneshot_del_unit(adc_handle));
 
 #ifdef BATTERY_ADC_CTRL
-    // Disable ADC (save power on Heltec boards)
-    gpio_set_level((gpio_num_t)BATTERY_ADC_CTRL, 0);
+    // Disable ADC (save power on Heltec boards) - set to INPUT, pulled up
+    gpio_set_direction((gpio_num_t)BATTERY_ADC_CTRL, GPIO_MODE_INPUT);
 #endif
 
-    // Apply voltage divider ratio
-    float battery_voltage = (voltage_mv / 1000.0f) * BATTERY_VOLTAGE_DIVIDER;
-
-    ESP_LOGI(TAG, "Battery: %d mV (raw: %d) -> %.2f V", voltage_mv, raw_value, battery_voltage);
+    ESP_LOGI(TAG, "Battery: raw %d -> %.2f V", raw_value, battery_voltage);
 
     return battery_voltage;
 #endif
@@ -359,36 +428,22 @@ void PowerManager::setUnusedGPIOsToInput()
 uint8_t PowerManager::voltageToPercentage(float voltage)
 {
     // Handle out-of-range voltages
-    if (voltage <= BATTERY_CURVE_MIN_VOLTAGE)
+    if (voltage <= MIN_VOLTAGE)
     {
         return 0;
     }
-    if (voltage >= BATTERY_CURVE_MAX_VOLTAGE)
+    if (voltage >= MAX_VOLTAGE)
     {
         return 100;
     }
 
-    // Map voltage to lookup table index
-    // The table has 100 entries representing 0-100%
-    // Voltage range: 3.04V - 4.26V (1.22V range)
-    float voltage_range = BATTERY_CURVE_MAX_VOLTAGE - BATTERY_CURVE_MIN_VOLTAGE;
-    float normalized = (voltage - BATTERY_CURVE_MIN_VOLTAGE) / voltage_range;
-    int index = (int)(normalized * 99.0f); // 0-99 index
-
-    // Clamp index to valid range
-    if (index < 0)
-        index = 0;
-    if (index > 99)
-        index = 99;
-
-    // The lookup table stores scaled voltage values (not percentages)
-    // We need to reverse-engineer percentage from the table
-    // For simplicity, we'll use the index as a rough percentage estimate
-    // since the table is designed for 1% increments
-
-    // More accurate: interpolate between adjacent entries
-    float fraction = (normalized * 99.0f) - index;
-    uint8_t percentage = index + (uint8_t)fraction;
-
-    return percentage;
+    for (int n = 0; n < sizeof(SCALED_VOLTAGE); n++)
+    {
+        float step = (MAX_VOLTAGE - MIN_VOLTAGE) / 256;
+        if (voltage > MIN_VOLTAGE + (step * SCALED_VOLTAGE[n]))
+        {
+            return 100 - n;
+        }
+    }
+    return 0;
 }
