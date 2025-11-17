@@ -65,6 +65,9 @@ namespace LoRaConstants
 
     /// Preamble length for WakeUp messages to wake duty-cycled receivers
     constexpr int PREAMBLE_LENGTH = 16;
+
+    /// tcxoVoltage for SX1262 radios (1.6V, 1.7V, 1.8V, 2.2V, 2.4V, 2.7V, 3.0V, 3.3V)
+    constexpr float TCXO_VOLTAGE = 1.8;
 }
 
 //==============================================================================

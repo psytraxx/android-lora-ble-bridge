@@ -34,8 +34,7 @@ static const uint8_t BATTERY_VOLTAGE_CURVE[100] = {
     179, 178, 178, 178, 178, 177, 177, 177, 176, 176,
     176, 176, 175, 175, 175, 175, 174, 174, 174, 174,
     173, 173, 173, 173, 172, 172, 172, 172, 171, 171,
-    171, 171, 170, 170, 170, 170, 169, 169, 169, 168
-};
+    171, 171, 170, 170, 170, 170, 169, 169, 169, 168};
 
 void PowerManager::configurePowerManagement()
 {
@@ -182,6 +181,9 @@ float PowerManager::readBatteryVoltage()
     ESP_LOGE(TAG, "Unsupported battery ADC pin: %d", BATTERY_ADC_PIN);
     return 0.0f;
 #endif
+
+    gpio_set_direction((gpio_num_t)BATTERY_ADC_PIN, GPIO_MODE_INPUT);
+    gpio_set_level((gpio_num_t)BATTERY_ADC_PIN, 1);
 
     ESP_LOGI(TAG, "Reading battery from GPIO %d (ADC channel %d)", BATTERY_ADC_PIN, adc_channel);
 
@@ -374,8 +376,10 @@ uint8_t PowerManager::voltageToPercentage(float voltage)
     int index = (int)(normalized * 99.0f); // 0-99 index
 
     // Clamp index to valid range
-    if (index < 0) index = 0;
-    if (index > 99) index = 99;
+    if (index < 0)
+        index = 0;
+    if (index > 99)
+        index = 99;
 
     // The lookup table stores scaled voltage values (not percentages)
     // We need to reverse-engineer percentage from the table

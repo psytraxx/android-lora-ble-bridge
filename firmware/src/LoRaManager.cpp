@@ -65,7 +65,7 @@ bool LoRaManager::begin(const LoRaConfig &config)
             LoRaConstants::SYNC_WORD,
             config.txPower,
             LoRaConstants::PREAMBLE_LENGTH,
-            1.8,
+            LoRaConstants::TCXO_VOLTAGE,
             false);
 #else
 #error "No supported RADIO defined! Please define RADIO_SX1278 or RADIO_SX1262 in platformio.ini"
