@@ -2,6 +2,7 @@
 #define FIRMWARE_CONFIG_H
 
 #include <cstdint>
+#include "LoRaTimeOnAir.h"
 
 /**
  * @file FirmwareConfig.h
@@ -47,15 +48,42 @@ namespace LoRaConstants
     /// Time to wait for radio hardware to settle after mode change (TX/RX switch)
     constexpr int RX_SETTLE_TIME_MS = 50;
 
-    /// Delay before sending ACK to ensure sender has switched to RX mode
-    /// Timing (SF11, BW125, CR4/8, 8-symbol preamble): Message TX (~1300ms) + TX→RX switch (~50ms) + margin (~650ms)
-    /// 2000ms ensures sender is ready to receive ACK
-    constexpr int ACK_DELAY_MS = 2000;
+    /// Safety margin added to Time-on-Air calculations to ensure reliability
+    constexpr int TIMING_MARGIN_MS = 500;
 
-    /// Delay after sending WakeUp message before sending actual message
-    /// Allows receiver time to: receive WakeUp (~800ms at 125kHz) + process (~100ms) + mode switch (~50ms) + margin
-    /// 2000ms ensures reliable reception at 125 kHz bandwidth
-    constexpr int WAKEUP_TO_MESSAGE_DELAY_MS = 2000;
+    /// WakeUp message payload size (bytes)
+    constexpr int WAKEUP_PAYLOAD_SIZE = 1;
+
+    /// ACK message payload size (bytes)
+    constexpr int ACK_PAYLOAD_SIZE = 2; // MessageType + Seq
+
+    /// Delay after sending WakeUp message before sending actual message.
+    /// Calculated as: ToA(WakeUp) + Deep Sleep Wake Time + RX Settle Time + Margin
+    /// This ensures the receiver has ample time to wake up and switch to RX mode.
+    constexpr int WAKEUP_TO_MESSAGE_DELAY_MS =
+        static_cast<int>(LoRaTimeOnAir::calculateToA_ms(
+            LORA_SPREADING_FACTOR,
+            LORA_BANDWIDTH * 1000,
+            LORA_CODING_RATE,
+            LoRaConstants::PREAMBLE_LENGTH, // Use LoRaConstants::PREAMBLE_LENGTH
+            WAKEUP_PAYLOAD_SIZE)) +
+        600 + // Estimated deep sleep wake time
+        RX_SETTLE_TIME_MS +
+        TIMING_MARGIN_MS;
+
+    /// Delay before sending an ACK to ensure the original sender has switched to RX mode.
+    /// Calculated as: ToA(Max_Message) + TX->RX Switch Time + Margin
+    /// Using max payload ensures this works for any valid message.
+    constexpr int ACK_DELAY_MS =
+        static_cast<int>(LoRaTimeOnAir::calculateToA_ms(
+            LORA_SPREADING_FACTOR,
+            LORA_BANDWIDTH * 1000,
+            LORA_CODING_RATE,
+            LoRaConstants::PREAMBLE_LENGTH, // Use LoRaConstants::PREAMBLE_LENGTH
+            64 // Max expected payload
+            )) +
+        RX_SETTLE_TIME_MS +
+        TIMING_MARGIN_MS;
 
     /// Number of retry attempts for LoRa initialization
     constexpr int INIT_RETRY_COUNT = 3;
