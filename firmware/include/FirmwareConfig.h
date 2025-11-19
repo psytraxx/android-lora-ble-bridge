@@ -51,22 +51,19 @@ namespace LoRaConstants
     /// Safety margin added to Time-on-Air calculations to ensure reliability
     constexpr int TIMING_MARGIN_MS = 500;
 
-    /// WakeUp message payload size (bytes)
-    constexpr int WAKEUP_PAYLOAD_SIZE = 1;
-
-    /// ACK message payload size (bytes)
-    constexpr int ACK_PAYLOAD_SIZE = 2; // MessageType + Seq
+    /// Preamble length for WakeUp messages to wake duty-cycled receivers
+    constexpr int PREAMBLE_LENGTH = 16;
 
     /// Delay after sending WakeUp message before sending actual message.
     /// Calculated as: ToA(WakeUp) + Deep Sleep Wake Time + RX Settle Time + Margin
     /// This ensures the receiver has ample time to wake up and switch to RX mode.
-    constexpr int WAKEUP_TO_MESSAGE_DELAY_MS =
+    const int WAKEUP_TO_MESSAGE_DELAY_MS =
         static_cast<int>(LoRaTimeOnAir::calculateToA_ms(
             LORA_SPREADING_FACTOR,
             LORA_BANDWIDTH * 1000,
             LORA_CODING_RATE,
             LoRaConstants::PREAMBLE_LENGTH, // Use LoRaConstants::PREAMBLE_LENGTH
-            WAKEUP_PAYLOAD_SIZE)) +
+            1)) +
         600 + // Estimated deep sleep wake time
         RX_SETTLE_TIME_MS +
         TIMING_MARGIN_MS;
@@ -74,14 +71,13 @@ namespace LoRaConstants
     /// Delay before sending an ACK to ensure the original sender has switched to RX mode.
     /// Calculated as: ToA(Max_Message) + TX->RX Switch Time + Margin
     /// Using max payload ensures this works for any valid message.
-    constexpr int ACK_DELAY_MS =
+    const int ACK_DELAY_MS =
         static_cast<int>(LoRaTimeOnAir::calculateToA_ms(
             LORA_SPREADING_FACTOR,
             LORA_BANDWIDTH * 1000,
             LORA_CODING_RATE,
             LoRaConstants::PREAMBLE_LENGTH, // Use LoRaConstants::PREAMBLE_LENGTH
-            64 // Max expected payload
-            )) +
+            64)) +                          // Max expected payload
         RX_SETTLE_TIME_MS +
         TIMING_MARGIN_MS;
 
@@ -90,9 +86,6 @@ namespace LoRaConstants
 
     /// Delay between LoRa initialization retries (milliseconds)
     constexpr int INIT_RETRY_DELAY_MS = 1000;
-
-    /// Preamble length for WakeUp messages to wake duty-cycled receivers
-    constexpr int PREAMBLE_LENGTH = 16;
 
     /// tcxoVoltage for SX1262 radios (1.6V, 1.7V, 1.8V, 2.2V, 2.4V, 2.7V, 3.0V, 3.3V)
     constexpr float TCXO_VOLTAGE = 1.8;
