@@ -47,13 +47,35 @@ bool LoRaManager::begin(const LoRaConfig &config)
 
         ESP_LOGI(TAG, "Setup attempt %d/%d", attempt, LoRaConstants::INIT_RETRY_COUNT);
 
+#if defined(RADIO_SX1278)
         int state = radio->begin(
             config.frequency,
             config.bandwidth,
             config.spreadingFactor,
             config.codingRate,
             LoRaConstants::SYNC_WORD,
-            config.txPower);
+            config.txPower,
+            LoRaConstants::PREAMBLE_LENGTH);
+#elif defined(RADIO_SX1262)
+        int state = radio->begin(
+            config.frequency,
+            config.bandwidth,
+            config.spreadingFactor,
+            config.codingRate,
+            LoRaConstants::SYNC_WORD,
+            config.txPower,
+            LoRaConstants::PREAMBLE_LENGTH,
+            LoRaConstants::TCXO_VOLTAGE,
+            false);
+#else
+#error "No supported RADIO defined! Please define RADIO_SX1278 or RADIO_SX1262 in platformio.ini"
+#endif
+        int res = radio->setCurrentLimit(140);
+        if (res != RADIOLIB_ERR_NONE)
+        {
+            ESP_LOGE(TAG, "Failed to set current limit, code %d", res);
+            return false;
+        }
 
         if (state == RADIOLIB_ERR_NONE)
         {
@@ -66,6 +88,8 @@ bool LoRaManager::begin(const LoRaConfig &config)
             ESP_LOGI(TAG, "  Spreading Factor: %d", config.spreadingFactor);
             ESP_LOGI(TAG, "  Coding Rate: 4/%d", config.codingRate);
             ESP_LOGI(TAG, "  TX Power: %d dBm", config.txPower);
+            ESP_LOGI(TAG, "  Preamble Length: %d symbols", LoRaConstants::PREAMBLE_LENGTH);
+            ESP_LOGI(TAG, "  Sync Word: 0x%02X", LoRaConstants::SYNC_WORD);
             return true;
         }
 
@@ -82,7 +106,7 @@ bool LoRaManager::begin(const LoRaConfig &config)
     return false;
 }
 
-bool LoRaManager::startReceive()
+bool LoRaManager::startReceive(bool dutyCycle)
 {
     if (state == STATE_UNINITIALIZED)
     {
@@ -93,6 +117,30 @@ bool LoRaManager::startReceive()
     // SX1278 or duty cycle disabled: Standard continuous receive mode
     radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
 
+#if defined(RADIO_SX1262)
+    if (dutyCycle)
+    {
+        ESP_LOGI(TAG, "Starting duty cycle RX mode");
+        int rxState = radio->startReceiveDutyCycleAuto(LoRaConstants::PREAMBLE_LENGTH, 8, (RADIOLIB_IRQ_RX_DEFAULT_FLAGS | (1 << RADIOLIB_IRQ_PREAMBLE_DETECTED)));
+        if (rxState != RADIOLIB_ERR_NONE)
+        {
+            ESP_LOGE(TAG, "Failed to start duty cycle RX mode, code %d", rxState);
+            return false;
+        }
+        ESP_LOGI(TAG, "Duty cycle receive mode started");
+    }
+    else
+    {
+        int rxState = radio->startReceive();
+        if (rxState != RADIOLIB_ERR_NONE)
+        {
+            ESP_LOGE(TAG, "Failed to start continuous receive mode, code %d", rxState);
+            return false;
+        }
+        ESP_LOGI(TAG, "Continuous receive mode started");
+    }
+
+#else
     // SX1278: Standard continuous receive mode
     int rxState = radio->startReceive();
     if (rxState != RADIOLIB_ERR_NONE)
@@ -101,10 +149,11 @@ bool LoRaManager::startReceive()
         return false;
     }
     ESP_LOGI(TAG, "Continuous receive mode started");
-
+#endif
     state = STATE_IDLE;
     return true;
 }
+
 bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 {
     if (state == STATE_UNINITIALIZED)

@@ -3,6 +3,7 @@
 
 #include "ApplicationController.h"
 #include "BLEManager.h"
+#include "LoRaManager.h"
 #include "FirmwareConfig.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -33,17 +34,20 @@ namespace PowerTask
     {
         ApplicationController *appController;
         BLEManager *bleManager;
+        LoRaManager *loraManager;
     };
 
     /**
      * @brief Create and start Power task
      * @param appCtrl Application controller (state machine)
      * @param bleMgr BLE manager (for disconnect and advertising control)
+     * @param loraMgr LoRa manager (for RX mode control before sleep)
      * @return Task handle, or nullptr on failure
      */
     TaskHandle_t start(
         ApplicationController *appCtrl,
-        BLEManager *bleMgr);
+        BLEManager *bleMgr,
+        LoRaManager *loraMgr);
 
     /**
      * @brief Get Power task handle

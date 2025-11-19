@@ -266,7 +266,7 @@ void setup()
     }
 
     // Create Power task (priority 2 - lowest)
-    powerTaskHandle = PowerTask::start(&appController, bleManager);
+    powerTaskHandle = PowerTask::start(&appController, bleManager, loraManager);
     if (powerTaskHandle == nullptr)
     {
         ESP_LOGE(TAG, "Failed to create Power task!");

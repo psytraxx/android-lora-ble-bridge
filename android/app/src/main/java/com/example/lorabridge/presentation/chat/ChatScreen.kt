@@ -133,7 +133,21 @@ fun ChatScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("LoRa Chat", fontWeight = FontWeight.Bold) },
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("LoRa Chat", fontWeight = FontWeight.Bold)
+                        if (uiState.batteryLevel != null) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "${uiState.batteryLevel}%",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Normal
+                            )
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                 )
@@ -166,16 +180,6 @@ fun ChatScreen(
                         MaterialTheme.colorScheme.onSurface
                     }
                 )
-
-                // Battery level indicator
-                if (uiState.batteryLevel != null) {
-                    Text(
-                        text = "${uiState.batteryLevel}%",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
-                }
 
                 Text(
                     text = uiState.gpsText,

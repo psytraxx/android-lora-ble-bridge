@@ -38,6 +38,9 @@ namespace PowerTask
             // Stop advertising before sleep
             context->bleManager->stopAdvertising();
 
+            // Enable duty cycle RX for power savings during deep sleep
+            context->loraManager->startReceive(true);
+
             // Enter deep sleep (does not return - device will reset on wake)
             PowerManager::enterDeepSleep();
         }
@@ -107,12 +110,14 @@ namespace PowerTask
 
     TaskHandle_t start(
         ApplicationController *appCtrl,
-        BLEManager *bleMgr)
+        BLEManager *bleMgr,
+        LoRaManager *loraMgr)
     {
         // Allocate task context (never freed - lives for entire program lifetime)
         TaskContext *ctx = new TaskContext{
             .appController = appCtrl,
-            .bleManager = bleMgr};
+            .bleManager = bleMgr,
+            .loraManager = loraMgr};
 
         // Create task
         BaseType_t result = xTaskCreate(

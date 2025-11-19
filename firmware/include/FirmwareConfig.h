@@ -2,6 +2,7 @@
 #define FIRMWARE_CONFIG_H
 
 #include <cstdint>
+#include "LoRaTimeOnAir.h"
 
 /**
  * @file FirmwareConfig.h
@@ -47,19 +48,47 @@ namespace LoRaConstants
     /// Time to wait for radio hardware to settle after mode change (TX/RX switch)
     constexpr int RX_SETTLE_TIME_MS = 50;
 
-    /// Delay before sending ACK to ensure sender has switched to RX mode
-    /// Timing: TX complete + mode switch + settle time = ~200ms minimum
-    /// 500ms provides safe margin
-    constexpr int ACK_DELAY_MS = 500;
+    /// Safety margin added to Time-on-Air calculations to ensure reliability
+    constexpr int TIMING_MARGIN_MS = 500;
 
-    /// Delay after sending WakeUp message before sending actual message
-    constexpr int WAKEUP_TO_MESSAGE_DELAY_MS = 1000;
+    /// Preamble length for WakeUp messages to wake duty-cycled receivers
+    constexpr int PREAMBLE_LENGTH = 16;
+
+    /// Delay after sending WakeUp message before sending actual message.
+    /// Calculated as: ToA(WakeUp) + Deep Sleep Wake Time + RX Settle Time + Margin
+    /// This ensures the receiver has ample time to wake up and switch to RX mode.
+    const int WAKEUP_TO_MESSAGE_DELAY_MS =
+        static_cast<int>(LoRaTimeOnAir::calculateToA_ms(
+            LORA_SPREADING_FACTOR,
+            LORA_BANDWIDTH * 1000,
+            LORA_CODING_RATE,
+            LoRaConstants::PREAMBLE_LENGTH, // Use LoRaConstants::PREAMBLE_LENGTH
+            1)) +
+        600 + // Estimated deep sleep wake time
+        RX_SETTLE_TIME_MS +
+        TIMING_MARGIN_MS;
+
+    /// Delay before sending an ACK to ensure the original sender has switched to RX mode.
+    /// Calculated as: ToA(Max_Message) + TX->RX Switch Time + Margin
+    /// Using max payload ensures this works for any valid message.
+    const int ACK_DELAY_MS =
+        static_cast<int>(LoRaTimeOnAir::calculateToA_ms(
+            LORA_SPREADING_FACTOR,
+            LORA_BANDWIDTH * 1000,
+            LORA_CODING_RATE,
+            LoRaConstants::PREAMBLE_LENGTH, // Use LoRaConstants::PREAMBLE_LENGTH
+            64)) +                          // Max expected payload
+        RX_SETTLE_TIME_MS +
+        TIMING_MARGIN_MS;
 
     /// Number of retry attempts for LoRa initialization
     constexpr int INIT_RETRY_COUNT = 3;
 
     /// Delay between LoRa initialization retries (milliseconds)
     constexpr int INIT_RETRY_DELAY_MS = 1000;
+
+    /// tcxoVoltage for SX1262 radios (1.6V, 1.7V, 1.8V, 2.2V, 2.4V, 2.7V, 3.0V, 3.3V)
+    constexpr float TCXO_VOLTAGE = 1.8;
 }
 
 //==============================================================================
@@ -170,21 +199,6 @@ namespace PowerConstants
     /// 60 seconds allows for casual message reading without premature disconnection
     /// Note: Android app expects 30s timeout (see BleConstants.AUTO_DISCONNECT_DELAY_MS)
     constexpr unsigned long INACTIVITY_TIMEOUT_MS = 60000UL;
-}
-
-//==============================================================================
-// Main Loop Timing Configuration
-//==============================================================================
-
-namespace LoopConstants
-{
-    /// Loop delay when activity detected (short for responsiveness)
-    constexpr int ACTIVE_DELAY_MS = 10;
-
-    /// Loop delay when idle (long to enable light sleep for power savings)
-    /// 500ms provides good balance: responsive enough for messaging (~0.5s max latency)
-    /// yet long enough to enter light sleep for power savings
-    constexpr int IDLE_DELAY_MS = 500;
 }
 
 //==============================================================================
