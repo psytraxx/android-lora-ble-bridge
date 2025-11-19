@@ -406,44 +406,76 @@ class BleRepository @Inject constructor(
                 batteryCharacteristic = batteryService.getCharacteristic(BleConstants.BATTERY_LEVEL_UUID)
                 if (batteryCharacteristic != null) {
                     Log.d(TAG, "Battery service found - reading battery level")
+                    // Read battery level first - must serialize BLE operations!
+                    // onCharacteristicRead will trigger TX notification setup
                     gatt.readCharacteristic(batteryCharacteristic)
-                    gatt.setCharacteristicNotification(batteryCharacteristic, true)
+                    return
                 }
             } else {
                 Log.d(TAG, "Battery service not available on this device")
             }
 
-            // Enable notifications
-            _connectionState.value = BleConnectionState.EnablingNotifications
-            gatt.setCharacteristicNotification(txCharacteristic, true)
-
-            val descriptor = txCharacteristic?.getDescriptor(BleConstants.CCCD_UUID)
-            if (descriptor != null) {
-                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                gatt.writeDescriptor(descriptor)
-            } else {
-                Log.e(TAG, "CCCD descriptor not found")
-                disconnect()
-                _connectionState.value = BleConnectionState.Error("CCCD descriptor not found")
-            }
+            // If no battery service, start TX notifications immediately
+            enableTxNotifications(gatt)
         }
 
+        @SuppressLint("MissingPermission")
         override fun onDescriptorWrite(
             gatt: BluetoothGatt,
             descriptor: BluetoothGattDescriptor,
             status: Int
         ) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                Log.d(TAG, "Notifications enabled - connection complete!")
-                _connectionState.value = BleConnectionState.Connected
-            } else {
-                Log.e(TAG, "Failed to enable notifications")
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.e(TAG, "Failed to write descriptor for ${descriptor.characteristic.uuid}")
                 disconnect()
                 _connectionState.value = BleConnectionState.Error("Failed to enable notifications")
+                return
+            }
+
+            when (descriptor.characteristic.uuid) {
+                BleConstants.TX_CHAR_UUID -> {
+                    Log.d(TAG, "TX notifications enabled")
+
+                    // Now enable battery notifications if available
+                    val batteryChar = batteryCharacteristic
+                    if (batteryChar != null) {
+                        gatt.setCharacteristicNotification(batteryChar, true)
+                        val batteryDescriptor = batteryChar.getDescriptor(BleConstants.CCCD_UUID)
+                        if (batteryDescriptor != null) {
+                            // Use new API for Android 13+ (API 33+)
+                            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                                gatt.writeDescriptor(batteryDescriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                            } else {
+                                @Suppress("DEPRECATION")
+                                batteryDescriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                                @Suppress("DEPRECATION")
+                                gatt.writeDescriptor(batteryDescriptor)
+                            }
+                            Log.d(TAG, "Enabling battery notifications...")
+                        } else {
+                            Log.w(TAG, "Battery CCCD descriptor not found, connection complete without battery notifications")
+                            _connectionState.value = BleConnectionState.Connected
+                        }
+                    } else {
+                        // No battery characteristic, we're done
+                        Log.d(TAG, "Notifications enabled - connection complete!")
+                        _connectionState.value = BleConnectionState.Connected
+                    }
+                }
+
+                BleConstants.BATTERY_LEVEL_UUID -> {
+                    Log.d(TAG, "Battery notifications enabled - connection complete!")
+                    _connectionState.value = BleConnectionState.Connected
+                }
+
+                else -> {
+                    Log.d(TAG, "Descriptor write complete for ${descriptor.characteristic.uuid}")
+                }
             }
         }
 
         @Deprecated("Deprecated in API 33")
+        @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic
@@ -471,6 +503,7 @@ class BleRepository @Inject constructor(
             }
         }
 
+        @SuppressLint("MissingPermission")
         override fun onCharacteristicRead(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,
@@ -479,6 +512,43 @@ class BleRepository @Inject constructor(
         ) {
             if (status == BluetoothGatt.GATT_SUCCESS && characteristic.uuid == BleConstants.BATTERY_LEVEL_UUID) {
                 handleBatteryLevelUpdate(value)
+                // Battery read complete - now enable TX notifications
+                enableTxNotifications(gatt)
+            }
+        }
+
+        /**
+         * Enable TX characteristic notifications
+         * Must be called after all read operations are complete to avoid BLE operation queue conflicts
+         */
+        @SuppressLint("MissingPermission")
+        private fun enableTxNotifications(gatt: BluetoothGatt) {
+            _connectionState.value = BleConnectionState.EnablingNotifications
+            gatt.setCharacteristicNotification(txCharacteristic, true)
+
+            val descriptor = txCharacteristic?.getDescriptor(BleConstants.CCCD_UUID)
+            if (descriptor != null) {
+                // Use new API for Android 13+ (API 33+)
+                val writeResult = if (android.os.Build.VERSION.SDK_INT >= 33) {
+                    gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    @Suppress("DEPRECATION")
+                    gatt.writeDescriptor(descriptor)
+                }
+
+                Log.d(TAG, "TX writeDescriptor initiated, result: $writeResult")
+
+                if (writeResult == BluetoothGatt.GATT_WRITE_NOT_PERMITTED || writeResult == false) {
+                    Log.e(TAG, "Failed to initiate TX CCCD descriptor write")
+                    disconnect()
+                    _connectionState.value = BleConnectionState.Error("Failed to write TX CCCD descriptor")
+                }
+            } else {
+                Log.e(TAG, "TX CCCD descriptor not found")
+                disconnect()
+                _connectionState.value = BleConnectionState.Error("TX CCCD descriptor not found")
             }
         }
     }
@@ -526,8 +596,15 @@ class BleRepository @Inject constructor(
         val data = LoRaProtocol.serialize(message)
         Log.d(TAG, "Sending ${data.size} bytes")
 
-        rxChar.value = data
-        val success = gatt.writeCharacteristic(rxChar)
+        // Use new API for Android 13+ (API 33+)
+        val success = if (android.os.Build.VERSION.SDK_INT >= 33) {
+            gatt.writeCharacteristic(rxChar, data, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothGatt.GATT_SUCCESS
+        } else {
+            @Suppress("DEPRECATION")
+            rxChar.value = data
+            @Suppress("DEPRECATION")
+            gatt.writeCharacteristic(rxChar)
+        }
 
         if (success) {
             scheduleAutoDisconnect()
