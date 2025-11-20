@@ -149,7 +149,10 @@ export class BleService {
 
         // Enable notifications for battery updates
         await this.batteryCharacteristic.startNotifications();
-        this.batteryCharacteristic.addEventListener('characteristicvaluechanged', this.onBatteryNotification);
+        this.batteryCharacteristic.addEventListener(
+          'characteristicvaluechanged',
+          this.onBatteryNotification
+        );
         console.log('Battery service connected');
       } catch (error) {
         console.log('Battery service not available:', error);
@@ -286,7 +289,7 @@ export class BleService {
    */
   private handleBatteryUpdate(value: DataView): void {
     const level = value.getUint8(0); // Battery level is 0-100%
-    console.log('Battery level:', level + '%');
+    console.log('Battery level:', `${level}%`);
     this.batteryLevel = level;
     this.emitBatteryLevel(level);
   }

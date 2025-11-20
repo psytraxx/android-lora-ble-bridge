@@ -50,6 +50,9 @@ jobs:
       - name: Type check
         run: npm run type-check
 
+      - name: Run tests
+        run: npm test
+
       - name: Build PWA
         run: npm run build
         env:
