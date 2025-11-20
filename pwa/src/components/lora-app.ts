@@ -13,6 +13,9 @@ import { toastService } from '../services/ToastService';
 import './connection-status';
 import './message-list';
 import './message-input';
+import './empty-state';
+import './pairing-modal';
+import './success-toast';
 import { sharedStylesheet } from '../shared-styles';
 
 @customElement('lora-app')
@@ -22,6 +25,8 @@ export class LoraApp extends LitElement {
   @state() private hasGps = false;
   @state() private deviceName: string | null = null;
   @state() private batteryLevel: number | null = null;
+  @state() private showPairingModal = false;
+  @state() private showSuccessToast = false;
 
   private ackTimeouts = new Map<number, number>();
   private unsubscribers: (() => void)[] = [];
@@ -51,7 +56,8 @@ export class LoraApp extends LitElement {
     // Subscribe to BLE errors
     this.unsubscribers.push(
       bleService.onError((error) => {
-        toastService.show(`Error: ${error.message}`, 'error');
+        const friendlyError = this.getFriendlyErrorMessage(error);
+        toastService.show(friendlyError, 'error', 5000);
       })
     );
 
@@ -113,6 +119,7 @@ export class LoraApp extends LitElement {
       this.connectionState === ConnectionState.SCANNING ||
       this.connectionState === ConnectionState.CONNECTING;
     const showBleWarning = !bleService.isSupported();
+    const showEmptyState = !isConnected && this.messages.length === 0;
 
     return html`
       <div class="flex flex-col h-screen">
@@ -122,7 +129,7 @@ export class LoraApp extends LitElement {
               .state=${this.connectionState}
               .deviceName=${this.deviceName}
               .batteryLevel=${this.batteryLevel}
-              @connect=${this.onConnect}
+              @connect=${this.onConnectDirect}
               @disconnect=${this.onDisconnect}
             ></connection-status>
             ${isConnecting
@@ -144,7 +151,13 @@ export class LoraApp extends LitElement {
 
         <!-- Main content area -->
         <main class="flex-1 mt-20 mb-20 overflow-y-auto">
-          <message-list class="h-full" .messages=${this.messages}></message-list>
+          ${showEmptyState
+            ? html`<empty-state
+                class="h-full"
+                @connect-requested=${this.onConnectRequest}
+              ></empty-state>`
+            : html`<message-list class="h-full" .messages=${this.messages}></message-list>`
+          }
         </main>
 
         <!-- Fixed Footer -->
@@ -155,14 +168,85 @@ export class LoraApp extends LitElement {
             @send=${this.onSendMessage}
           ></message-input>
         </footer>
+
+        <!-- Pairing Modal -->
+        <pairing-modal
+          .open=${this.showPairingModal}
+          @modal-closed=${this.onModalClosed}
+          @proceed-to-pair=${this.onProceedToPair}
+        ></pairing-modal>
+
+        <!-- Success Toast -->
+        <success-toast
+          .show=${this.showSuccessToast}
+          @hide=${() => this.showSuccessToast = false}
+        ></success-toast>
       </div>
     `;
+  }
+
+  private onConnectRequest() {
+    // Show pairing instructions modal first (from empty state button)
+    this.showPairingModal = true;
+  }
+
+  private async onConnectDirect() {
+    // Direct connect without modal (from navbar button)
+    await this.onConnect();
+  }
+
+  private onModalClosed() {
+    this.showPairingModal = false;
+  }
+
+  private async onProceedToPair() {
+    this.showPairingModal = false;
+    await this.onConnect();
+  }
+
+  private getFriendlyErrorMessage(error: Error): string {
+    const message = error.message.toLowerCase();
+
+    // User cancelled the pairing dialog
+    if (message.includes('user cancel') || message.includes('cancelled')) {
+      return 'Pairing cancelled. Click "Connect Device" to try again.';
+    }
+
+    // Device not found or not in range
+    if (message.includes('no device') || message.includes('not found')) {
+      return 'Device not found. Make sure your ESP32 is powered on and nearby, then try again.';
+    }
+
+    // Connection timeout
+    if (message.includes('timeout') || message.includes('timed out')) {
+      return 'Connection timed out. Move closer to your device and try again.';
+    }
+
+    // Device already connected elsewhere
+    if (message.includes('in use') || message.includes('already connected')) {
+      return 'Device is already connected. Disconnect from other apps first.';
+    }
+
+    // Bluetooth not available
+    if (message.includes('not supported') || message.includes('not available')) {
+      return 'Bluetooth not available. Please use Chrome on desktop or Android.';
+    }
+
+    // GATT errors
+    if (message.includes('gatt')) {
+      return 'Connection lost. Make sure your device is nearby and try reconnecting.';
+    }
+
+    // Generic fallback with retry hint
+    return `Connection failed: ${error.message}. Please try again.`;
   }
 
   private async onConnect() {
     try {
       await bleService.connect();
-      toastService.show('Connected successfully!', 'success');
+
+      // Show success celebration
+      this.showSuccessToast = true;
 
       // Update device info for UI
       const dev = bleService.getDevice();
