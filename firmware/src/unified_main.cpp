@@ -1,0 +1,348 @@
+//! Unified Firmware for LoRa-BLE Bridge (Trait-Based Architecture)
+//!
+//! This single main.cpp works on both ESP32 and nRF52 by using platform traits.
+//! Platform-specific behavior is selected at compile-time via PlatformTraits.
+//!
+//! Architecture:
+//! - Single main.cpp for all platforms
+//! - Platform traits provide types, constants, and platform-specific operations
+//! - No virtual functions, no runtime overhead
+//! - Clean separation of platform-specific vs common code
+
+#include <Arduino.h>
+#include "Protocol.h"
+#include "common/MessageQueue.h"
+
+// Select platform traits based on build target
+#if defined(ARDUINO_ARCH_ESP32)
+    #include "esp32/PlatformTraits.h"
+    using Platform = ESP32PlatformTraits;
+    #define PLATFORM_NAME "ESP32"
+#elif defined(ARDUINO_ARCH_NRF52)
+    #include "nrf52/PlatformTraits.h"
+    using Platform = NRF52PlatformTraits;
+    #define PLATFORM_NAME "nRF52"
+#else
+    #error "Unsupported platform"
+#endif
+
+// ============================================================================
+// Global Managers (using platform-specific types)
+// ============================================================================
+
+static typename Platform::BLEManager *bleManager = nullptr;
+static typename Platform::LoRaManager *loraManager = nullptr;
+static typename Platform::StorageManager *storageManager = nullptr;
+static typename Platform::ActivityManager *activityManager = nullptr;
+
+// nRF52 needs PowerManager instance, ESP32 uses static methods
+#if defined(ARDUINO_ARCH_NRF52)
+static typename Platform::PowerManager *powerManager = nullptr;
+#endif
+
+// Message queues
+static MessageQueue bleToLoraQueue;
+static MessageQueue loraToBleQueue;
+
+// Timing
+static unsigned long lastBatteryUpdate = 0;
+static constexpr unsigned long BATTERY_UPDATE_INTERVAL = 60000; // 1 minute
+
+// ============================================================================
+// Forward Declarations
+// ============================================================================
+
+void onBleConnected();
+void onBleDisconnected();
+void onLoRaReceived(const LoRaPacket &packet);
+void onLoRaTransmitted(bool success);
+void handleBleMessage(const Message &msg);
+
+// ============================================================================
+// Setup
+// ============================================================================
+
+void setup()
+{
+    // Initialize Serial
+    Serial.begin(115200);
+    while (!Serial && millis() < 3000)
+        ;
+    delay(500);
+
+    Serial.println("\n\n=== LoRa-BLE Bridge (Trait-Based) ===");
+    Serial.print("Platform: ");
+    Serial.println(PLATFORM_NAME);
+    Serial.print("Device: ");
+    Serial.println(DEVICE_NAME);
+
+    // Platform-specific initialization
+    Platform::initializeWatchdog();
+    Platform::initializePower();
+    Platform::initializeLED();
+    Platform::ledOn();
+
+    // Create activity manager
+    activityManager = new typename Platform::ActivityManager();
+
+    // Create storage manager
+    storageManager = new typename Platform::StorageManager();
+    if (!storageManager->begin())
+    {
+        Serial.println("Storage initialization failed!");
+    }
+
+    // Create power manager (nRF52 only)
+#if defined(ARDUINO_ARCH_NRF52)
+    powerManager = new typename Platform::PowerManager();
+    if (!powerManager->begin())
+    {
+        Serial.println("Power manager initialization failed!");
+    }
+#endif
+
+    // Create BLE manager
+#if defined(ARDUINO_ARCH_NRF52)
+    // nRF52: BLEManager needs queue pointer
+    bleManager = new typename Platform::BLEManager(&bleToLoraQueue);
+#else
+    // ESP32: BLEManager uses callbacks
+    bleManager = new typename Platform::BLEManager();
+#endif
+
+    if (!bleManager->setup(DEVICE_NAME))
+    {
+        Serial.println("BLE initialization failed!");
+        while (1)
+            ;
+    }
+    bleManager->setConnectionCallbacks(onBleConnected, onBleDisconnected);
+
+#if !defined(ARDUINO_ARCH_NRF52)
+    // ESP32: Set message callback
+    bleManager->setMessageCallback(handleBleMessage);
+#endif
+
+    bleManager->startAdvertising();
+
+    // Create LoRa manager
+    loraManager = new typename Platform::LoRaManager(
+        LORA_SCK,
+        LORA_MISO,
+        LORA_MOSI,
+        LORA_SS,
+        LORA_RST,
+        LORA_DIO0,
+        LORA_BUSY);
+
+    LoRaConfig loraConfig = {
+        .frequency = LORA_FREQUENCY,
+        .bandwidth = LORA_BANDWIDTH,
+        .spreadingFactor = LORA_SPREADING_FACTOR,
+        .codingRate = LORA_CODING_RATE,
+        .txPower = LORA_TX_POWER};
+
+    if (!loraManager->begin(loraConfig))
+    {
+        Serial.println("LoRa initialization failed!");
+        while (1)
+            ;
+    }
+
+    loraManager->setReceiveCallback(onLoRaReceived);
+    loraManager->setTransmitCallback(onLoRaTransmitted);
+
+    if (!loraManager->startReceive(true))
+    {
+        Serial.println("Failed to start LoRa receive mode!");
+    }
+
+    Platform::ledOff();
+    Serial.println("Setup complete!");
+}
+
+// ============================================================================
+// Main Loop
+// ============================================================================
+
+void loop()
+{
+    // Reset watchdog
+    Platform::resetWatchdog();
+
+    // Process LoRa events
+    loraManager->process();
+
+    // Message variable for queue operations
+    Message msg;
+
+    // Process BLE incoming messages (nRF52 only - polls queue)
+#if defined(ARDUINO_ARCH_NRF52)
+    while (bleToLoraQueue.pop(msg))
+    {
+        handleBleMessage(msg);
+    }
+#endif
+
+    // Forward LoRa → BLE
+    if (!loraToBleQueue.isEmpty())
+    {
+        if (loraToBleQueue.pop(msg))
+        {
+            if (bleManager->isConnected())
+            {
+                if (bleManager->sendMessage(msg))
+                {
+                    Platform::markActivity(*activityManager);
+                }
+                else
+                {
+                    Serial.println("Failed to send message to BLE");
+                }
+            }
+            else
+            {
+                Serial.println("BLE not connected, buffering message");
+                storageManager->add(msg);
+            }
+        }
+    }
+
+    // Send buffered messages
+    if (bleManager->isConnected() && !storageManager->isEmpty())
+    {
+        Message bufferedMsg;
+        if (storageManager->peek(bufferedMsg))
+        {
+            if (bleManager->sendMessage(bufferedMsg))
+            {
+                storageManager->popFront();
+                Serial.print("Sent buffered message, ");
+                Serial.print(storageManager->getCount());
+                Serial.println(" remaining");
+                Platform::markActivity(*activityManager);
+            }
+        }
+    }
+
+    // Battery monitoring
+    unsigned long now = millis();
+    if (now - lastBatteryUpdate >= BATTERY_UPDATE_INTERVAL)
+    {
+#if defined(ARDUINO_ARCH_ESP32)
+        uint8_t batteryLevel = Platform::readBatteryLevel();
+#else
+        uint8_t batteryLevel = Platform::readBatteryLevel(*powerManager);
+#endif
+        bleManager->updateBatteryLevel(batteryLevel);
+
+        Serial.print("Battery: ");
+        Serial.print(batteryLevel);
+        Serial.println("%");
+
+        lastBatteryUpdate = now;
+    }
+
+    // Inactivity timeout
+    if (Platform::isBleConnected(*activityManager))
+    {
+        unsigned long inactiveTime = Platform::getInactivityDuration(*activityManager);
+        if (inactiveTime > Platform::INACTIVITY_TIMEOUT_MS)
+        {
+            Serial.println("Inactivity timeout - disconnecting BLE");
+            bleManager->disconnect();
+        }
+    }
+
+    delay(10);
+}
+
+// ============================================================================
+// Callbacks
+// ============================================================================
+
+void onBleConnected()
+{
+    Serial.println("BLE connected");
+    Platform::onBleConnected(*activityManager);
+    Platform::markActivity(*activityManager);
+    Platform::ledOn();
+}
+
+void onBleDisconnected()
+{
+    Serial.println("BLE disconnected");
+    Platform::onBleDisconnected(*activityManager);
+    Platform::ledOff();
+}
+
+void onLoRaReceived(const LoRaPacket &packet)
+{
+    Serial.print("LoRa packet received: ");
+    Serial.print(packet.len);
+    Serial.print(" bytes, RSSI: ");
+    Serial.print(packet.rssi);
+    Serial.print(" dBm, SNR: ");
+    Serial.print(packet.snr);
+    Serial.println(" dB");
+
+    Message msg;
+    if (msg.deserialize(packet.buffer, packet.len))
+    {
+        Serial.print("Message type: ");
+        Serial.println((int)msg.type);
+
+        if (loraToBleQueue.push(msg))
+        {
+            Platform::markActivity(*activityManager);
+        }
+        else
+        {
+            Serial.println("LoRa->BLE queue full!");
+        }
+    }
+    else
+    {
+        Serial.println("Failed to deserialize LoRa message");
+    }
+
+    Platform::ledBlink(Platform::LED_RX_BLINKS);
+}
+
+void onLoRaTransmitted(bool success)
+{
+    if (success)
+    {
+        Serial.println("LoRa transmission successful");
+        Platform::ledBlink(Platform::LED_TX_BLINKS);
+    }
+    else
+    {
+        Serial.println("LoRa transmission failed");
+    }
+}
+
+void handleBleMessage(const Message &msg)
+{
+    Serial.print("BLE message queued for LoRa, type: ");
+    Serial.println((int)msg.type);
+
+    uint8_t buffer[256];
+    int length = msg.serialize(buffer, sizeof(buffer));
+
+    if (length > 0)
+    {
+        if (loraManager->startTransmit(buffer, (size_t)length))
+        {
+            Platform::markActivity(*activityManager);
+        }
+        else
+        {
+            Serial.println("Failed to start LoRa transmission");
+        }
+    }
+    else
+    {
+        Serial.println("Failed to serialize message");
+    }
+}
