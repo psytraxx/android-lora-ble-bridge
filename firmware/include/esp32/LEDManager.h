@@ -2,8 +2,6 @@
 #define LED_MANAGER_H
 
 #include "driver/gpio.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
 /**
  * @file LEDManager.h
@@ -48,11 +46,11 @@ public:
         for (int i = 0; i < times; i++)
         {
             setOn();
-            vTaskDelay(pdMS_TO_TICKS(duration));
+            delay(duration);
             setOff();
             if (i < times - 1)
             {
-                vTaskDelay(pdMS_TO_TICKS(delayBetween));
+                delay(delayBetween);
             }
         }
     }

@@ -283,19 +283,24 @@ lorabridge/
 
 ## 🛠️ Hardware Requirements
 
-### ESP32-S3 Firmware
-- **Firmware:** C++/Arduino/PlatformIO
+### Firmware (ESP32/nRF52)
+- **Firmware:** C++/Arduino/PlatformIO (Unified multi-platform)
 - **Location:** `../firmware/`
+- **Supported Platforms:**
+  - ESP32: LilyGo T-Display S3, Heltec WiFi LoRa V3
+  - nRF52: Seeed XIAO nRF52840
 - **BLE Service UUID:** 0x1234
 - **TX Characteristic:** 0x5678 (notifications)
 - **RX Characteristic:** 0x5679 (writes)
 
 ### LoRa Configuration
-- **Frequency:** 433 MHz
-- **Bandwidth:** 31 kHz
-- **Spreading Factor:** 11
+- **Frequency:** 433.92 MHz
+- **Bandwidth:** 250 kHz (fast airtime)
+- **Spreading Factor:** 9 (balanced range/speed)
+- **Coding Rate:** 4/5
 - **TX Power:** 20 dBm (check regional limits)
-- **Range:** 5-15 km (line of sight)
+- **Range:** 3-10 km typical (SF9), up to 15 km (SF11 option)
+- **Radios:** SX1262 (autonomous duty cycle), SX1278 (continuous RX)
 
 ---
 

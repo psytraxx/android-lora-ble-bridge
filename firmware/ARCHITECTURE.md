@@ -1,6 +1,90 @@
-# FreeRTOS Multi-Task Architecture
+# Firmware Architecture
 
-## Task Communication Diagram
+**Version:** 3.0 (Unified Multi-Platform)
+**Last Updated:** November 2025
+
+## Overview
+
+The firmware uses a **trait-based architecture** that supports multiple hardware platforms from a single codebase:
+
+- **Single `unified_main.cpp`** - One entry point for all platforms
+- **Platform traits** - Compile-time polymorphism (no virtual functions)
+- **Zero runtime overhead** - All platform selection done at compile-time
+- **Supported platforms:** ESP32, nRF52
+- **Supported radios:** SX1262 (autonomous duty cycle), SX1278 (continuous RX)
+
+## Platform Support
+
+| Platform | Architecture | Task Model | BLE Stack | Power Management |
+|----------|--------------|-----------|-----------|------------------|
+| ESP32 | Xtensa/RISC-V | FreeRTOS Tasks | NimBLE | Deep sleep, light sleep |
+| nRF52 | ARM Cortex-M4 | Loop-based | Arduino BLE | SoftDevice power modes |
+
+## Unified Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    unified_main.cpp                          │
+│              (Single entry point for all platforms)          │
+└────────────────┬────────────────────────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   PlatformTraits.h                           │
+│     (Compile-time platform selection via #ifdef)             │
+└─────┬─────────────────────────────────────┬─────────────────┘
+      │                                     │
+      ▼                                     ▼
+┌──────────────────┐              ┌──────────────────┐
+│ ESP32 Platform   │              │ nRF52 Platform   │
+│                  │              │                  │
+│ • FreeRTOS Tasks │              │ • Loop-based     │
+│ • NimBLE         │              │ • Arduino BLE    │
+│ • SX1262/SX1278  │              │ • SX1262         │
+└──────────────────┘              └──────────────────┘
+```
+
+## Platform-Specific Architectures
+
+### nRF52 Loop-Based Architecture
+
+The nRF52 implementation uses a traditional Arduino loop pattern with non-blocking state machines:
+
+**Main Loop Flow:**
+```
+setup()
+  ├─ Initialize serial, LED, power
+  ├─ Create managers (BLE, LoRa, Storage, Activity)
+  ├─ Initialize BLE advertising
+  └─ Initialize LoRa receiver
+
+loop()
+  ├─ Feed watchdog
+  ├─ Process LoRa events (non-blocking)
+  ├─ Process BLE→LoRa queue
+  ├─ Process LoRa→BLE queue
+  ├─ Update battery level (periodic)
+  └─ Check power/activity timeouts
+```
+
+**Characteristics:**
+- **Non-blocking:** All operations use polling, no blocking calls
+- **Single-threaded:** No task switching overhead
+- **Event-driven:** Managers maintain internal state machines
+- **Lower RAM usage:** No FreeRTOS task stacks
+- **Simpler debugging:** Sequential execution model
+
+### ESP32 Task-Based Architecture
+
+The ESP32 implementation uses FreeRTOS tasks for true concurrent operation:
+
+**Key Advantages:**
+- **Parallel processing:** BLE and LoRa operations run concurrently
+- **Efficient sleeping:** Tasks sleep on events, not polling
+- **Priority-based:** Time-critical LoRa operations get higher priority
+- **Scalable:** Easy to add new concurrent operations
+
+## ESP32 Task Communication Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -276,7 +360,52 @@ if (xQueueReceive(bleToLoraQueue, &msg, 0) == pdTRUE) {
 }
 ```
 
-## Task Stack Sizes
+## Platform Traits System
+
+The platform traits provide compile-time polymorphism without runtime overhead:
+
+```cpp
+// In unified_main.cpp
+#if defined(ARDUINO_ARCH_ESP32)
+#include "esp32/PlatformTraits.h"
+using Platform = ESP32PlatformTraits;
+#elif defined(ARDUINO_ARCH_NRF52)
+#include "nrf52/PlatformTraits.h"
+using Platform = NRF52PlatformTraits;
+#endif
+
+// Platform-specific types resolved at compile-time
+static typename Platform::BLEManager *bleManager = nullptr;
+static typename Platform::LoRaManager *loraManager = nullptr;
+```
+
+**Trait Types:**
+
+| Trait | ESP32 Type | nRF52 Type |
+|-------|-----------|-----------|
+| BLEManager | ESP32 NimBLE impl | nRF52 Arduino BLE impl |
+| LoRaManager | FreeRTOS task-based | Loop-based polling |
+| PowerManager | Deep sleep capable | SoftDevice power modes |
+| StorageManager | Preferences | Flash storage |
+| ActivityManager | State tracking | State tracking |
+
+**Static Methods (no object instance required):**
+```cpp
+Platform::initializeWatchdog();
+Platform::initializePower();
+Platform::initializeLED();
+Platform::ledOn();
+Platform::ledOff();
+```
+
+**Benefits:**
+- ✅ **Zero overhead:** No virtual function calls
+- ✅ **Compile-time selection:** Wrong platform code never compiled
+- ✅ **Type safety:** Compiler catches platform mismatches
+- ✅ **Code reuse:** Single main.cpp for all platforms
+- ✅ **Maintainability:** Platform differences isolated to trait files
+
+## ESP32 Task Stack Sizes
 
 Chosen based on worst-case usage analysis:
 
@@ -324,16 +453,33 @@ AppState ApplicationController::getState() const {
 
 ## Resource Usage
 
-### Flash Memory
-- **Base firmware:** ~705 KB
-- **Task overhead:** ~3 KB (0.4%)
-- **Total:** ~708 KB (67.6% of 1MB)
+### ESP32 Resources
 
-### RAM
+**Flash Memory:**
+- **Firmware:** ~400-500 KB
+- **Available:** 8 MB (typical board)
+- **Usage:** ~6-7% of available flash
+
+**RAM:**
 - **Static allocations:** ~36 KB
 - **Task stacks:** ~10 KB (3 tasks)
-- **Queues:** ~5 KB (25 messages × 160 bytes)
+- **Queues:** ~5 KB (message queues)
 - **Total:** ~51 KB (15.6% of 327 KB)
+- **Available heap:** ~250+ KB
+
+### nRF52 Resources
+
+**Flash Memory:**
+- **Firmware:** ~300-400 KB
+- **Available:** 1 MB
+- **Usage:** ~30-40% of available flash
+
+**RAM:**
+- **Static allocations:** ~20-30 KB
+- **No task stacks:** Loop-based (lower overhead)
+- **Message queues:** ~3 KB
+- **Total:** ~30-40 KB (12-16% of 256 KB)
+- **Available heap:** ~200+ KB
 
 ### CPU Usage (Estimated)
 - **Idle:** <1% (tasks sleep on events)
@@ -372,5 +518,35 @@ UBaseType_t highWater = uxTaskGetStackHighWaterMark(NULL);
 Serial.println( "Stack high water mark: %d bytes", highWater)
 ```
 
-**Last Updated:** 2025-11-13
-**Architecture Version:** 2.0 (FreeRTOS Multi-Task)
+## Platform Selection Guide
+
+**Choose ESP32 if you need:**
+- ✅ Maximum concurrent performance
+- ✅ Deep sleep with wake-on-LoRa
+- ✅ More available RAM/Flash
+- ✅ Built-in WiFi capability (future use)
+- ✅ Support for both SX1262 and SX1278 radios
+
+**Choose nRF52 if you need:**
+- ✅ Simpler debugging (single-threaded)
+- ✅ Lower power consumption in active mode
+- ✅ Smaller form factor (XIAO board)
+- ✅ Lower cost
+- ✅ USB HID/Serial support
+
+## Migration from Previous Versions
+
+**From v2.0 (ESP32-only FreeRTOS):**
+- ✅ Code still works - now in `esp32/` directory
+- ✅ Added nRF52 support via platform traits
+- ✅ Single `unified_main.cpp` replaces separate main files
+- ✅ No breaking changes to ESP32 implementation
+
+**Key Changes:**
+- Moved platform-specific code to `esp32/` and `nrf52/` directories
+- Added `PlatformTraits.h` for compile-time platform selection
+- Unified main entry point supports both platforms
+- Protocol implementation shared across platforms
+
+**Last Updated:** 2025-11-21
+**Architecture Version:** 3.0 (Unified Multi-Platform)

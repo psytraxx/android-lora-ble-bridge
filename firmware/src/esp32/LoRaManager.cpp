@@ -1,7 +1,6 @@
 #include "esp32/LoRaManager.h"
 #include "esp32/FirmwareConfig.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
 // Static instance for ISR access
 LoRaManager *LoRaManager::instance = nullptr;
@@ -93,7 +92,7 @@ bool LoRaManager::begin(const LoRaConfig &config)
         if (attempt < LoRaConstants::INIT_RETRY_COUNT)
         {
             Serial.println("Retrying in 1 second...");
-            vTaskDelay(pdMS_TO_TICKS(LoRaConstants::INIT_RETRY_DELAY_MS));
+            delay(LoRaConstants::INIT_RETRY_DELAY_MS);
         }
     }
 
@@ -140,9 +139,10 @@ bool LoRaManager::startReceive(bool dutyCycle)
     int rxState = radio->startReceive();
     if (rxState != RADIOLIB_ERR_NONE)
     {
-        Serial.println("Failed to start continuous receive mode, code %d", rxState) return false;
+        Serial.printf("Failed to start continuous receive mode, code %d\n", rxState);
+        return false;
     }
-    Serial.println("Continuous receive mode started")
+    Serial.println("Continuous receive mode started");
 #endif
     state = STATE_IDLE;
     return true;
@@ -186,7 +186,7 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
         }
 
         // Wait for receiver to wake up and switch to continuous RX
-        vTaskDelay(pdMS_TO_TICKS(LoRaConstants::WAKEUP_TO_MESSAGE_DELAY_MS));
+        delay(LoRaConstants::WAKEUP_TO_MESSAGE_DELAY_MS);
     }
     else
     {
