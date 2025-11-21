@@ -1,4 +1,4 @@
-#include "MessageBuffer.h"
+#include "nrf52/MessageBuffer.h"
 #include <Arduino.h>
 
 MessageBuffer::MessageBuffer()

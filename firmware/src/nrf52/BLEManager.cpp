@@ -1,4 +1,4 @@
-#include "BLEManager.h"
+#include "nrf52/BLEManager.h"
 
 // Static instance for callbacks
 BLEManager *BLEManager::instance = nullptr;

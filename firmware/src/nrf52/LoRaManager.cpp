@@ -1,5 +1,5 @@
-#include "LoRaManager.h"
-#include "FirmwareConfig.h"
+#include "nrf52/LoRaManager.h"
+#include "nrf52/FirmwareConfig.h"
 #include <Arduino.h>
 #include <SPI.h>
 

@@ -1,5 +1,5 @@
-#include "BLEManager.h"
-#include "PowerManager.h"
+#include "esp32/BLEManager.h"
+#include "esp32/PowerManager.h"
 #include <string.h>
 
 static const char *TAG_BLE = "BLE";

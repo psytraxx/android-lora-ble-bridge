@@ -19,14 +19,14 @@
 #include <Arduino.h>
 #include <Adafruit_SleepyDog.h>
 
-#include "BLEManager.h"
-#include "LoRaManager.h"
+#include "esp32/BLEManager.h"
+#include "esp32/LoRaManager.h"
 #include "Protocol.h"
-#include "LEDManager.h"
-#include "MessageBuffer.h"
-#include "FirmwareConfig.h"
-#include "ApplicationController.h"
-#include "PowerManager.h"
+#include "esp32/LEDManager.h"
+#include "esp32/MessageBuffer.h"
+#include "esp32/FirmwareConfig.h"
+#include "esp32/ApplicationController.h"
+#include "esp32/PowerManager.h"
 
 // Global managers
 static LoRaManager *loraManager = nullptr;

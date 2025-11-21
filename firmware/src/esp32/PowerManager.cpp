@@ -1,5 +1,5 @@
-#include "PowerManager.h"
-#include "FirmwareConfig.h"
+#include "esp32/PowerManager.h"
+#include "esp32/FirmwareConfig.h"
 #include <Arduino.h>
 
 // Battery voltage to percentage lookup table

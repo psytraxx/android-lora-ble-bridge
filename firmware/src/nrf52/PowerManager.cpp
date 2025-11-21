@@ -1,5 +1,5 @@
-#include "PowerManager.h"
-#include "FirmwareConfig.h"
+#include "nrf52/PowerManager.h"
+#include "nrf52/FirmwareConfig.h"
 
 PowerManager::PowerManager()
     : lastBatteryLevel(100)

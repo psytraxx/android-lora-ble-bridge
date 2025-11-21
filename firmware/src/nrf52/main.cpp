@@ -1,11 +1,11 @@
 #include <Arduino.h>
 
-#include "BLEManager.h"
-#include "LoRaManager.h"
-#include "PowerManager.h"
-#include "ApplicationController.h"
-#include "MessageBuffer.h"
-#include "FirmwareConfig.h"
+#include "nrf52/BLEManager.h"
+#include "nrf52/LoRaManager.h"
+#include "nrf52/PowerManager.h"
+#include "nrf52/ApplicationController.h"
+#include "nrf52/MessageBuffer.h"
+#include "nrf52/FirmwareConfig.h"
 #include "Protocol.h"
 
 // Global managers

@@ -1,4 +1,4 @@
-#include "ApplicationController.h"
+#include "nrf52/ApplicationController.h"
 
 ApplicationController::ApplicationController()
     : bleConnected(false),

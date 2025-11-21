@@ -1,5 +1,5 @@
-#include "LoRaManager.h"
-#include "FirmwareConfig.h"
+#include "esp32/LoRaManager.h"
+#include "esp32/FirmwareConfig.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
