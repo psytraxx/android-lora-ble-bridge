@@ -94,11 +94,6 @@ namespace LoRaConstants
 //==============================================================================
 // BLE Configuration
 //==============================================================================
-
-// Note: DEVICE_NAME is defined in platformio.ini as a build flag:
-//   -DDEVICE_NAME='"ESP32-LoRa"'     (for esp32dev)
-//   -DDEVICE_NAME='"ESP32S3-LoRa"'   (for lilygo-t-display-s3)
-
 namespace BLEConstants
 {
     /// BLE service UUID (application-specific)

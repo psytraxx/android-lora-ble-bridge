@@ -15,15 +15,15 @@
 
 // Select platform traits based on build target
 #if defined(ARDUINO_ARCH_ESP32)
-    #include "esp32/PlatformTraits.h"
-    using Platform = ESP32PlatformTraits;
-    #define PLATFORM_NAME "ESP32"
+#include "esp32/PlatformTraits.h"
+using Platform = ESP32PlatformTraits;
+#define PLATFORM_NAME "ESP32"
 #elif defined(ARDUINO_ARCH_NRF52)
-    #include "nrf52/PlatformTraits.h"
-    using Platform = NRF52PlatformTraits;
-    #define PLATFORM_NAME "nRF52"
+#include "nrf52/PlatformTraits.h"
+using Platform = NRF52PlatformTraits;
+#define PLATFORM_NAME "nRF52"
 #else
-    #error "Unsupported platform"
+#error "Unsupported platform"
 #endif
 
 // ============================================================================

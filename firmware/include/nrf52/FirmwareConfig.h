@@ -3,7 +3,6 @@
 
 #include <cstdint>
 
-
 //==============================================================================
 // LoRa Radio Configuration (Must match ESP32 for interoperability)
 //==============================================================================
@@ -48,9 +47,6 @@ namespace LoRaConstants
 //==============================================================================
 // BLE Configuration (Must match ESP32 for protocol compatibility)
 //==============================================================================
-
-// Note: DEVICE_NAME is defined in platformio.ini as a build flag:
-//   -DDEVICE_NAME='"nRF52-LoRa (1)"'
 
 namespace BLEConstants
 {
