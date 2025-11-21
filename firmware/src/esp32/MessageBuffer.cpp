@@ -1,5 +1,6 @@
 #include "esp32/MessageBuffer.h"
 #include <cstring>
+#include <Arduino.h>
 
 const char *MessageBuffer::TAG = "MessageBuffer";
 
@@ -27,14 +28,14 @@ bool MessageBuffer::begin()
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {
         // NVS partition was truncated and needs to be erased
-        ESP_LOGW(TAG, "NVS partition needs erasing, erasing...");
+        Serial.println("NVS partition needs erasing, erasing...");
         ESP_ERROR_CHECK(nvs_flash_erase());
         err = nvs_flash_init();
     }
 
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to initialize NVS: %s", esp_err_to_name(err));
+        Serial.printf("Failed to initialize NVS: %s", esp_err_to_name(err));
         return false;
     }
 
@@ -42,7 +43,7 @@ bool MessageBuffer::begin()
     err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &m_nvsHandle);
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to open NVS namespace: %s", esp_err_to_name(err));
+        Serial.printf("Failed to open NVS namespace: %s", esp_err_to_name(err));
         return false;
     }
 
@@ -51,8 +52,7 @@ bool MessageBuffer::begin()
     // Load persisted state
     loadState();
 
-    ESP_LOGI(TAG, "MessageBuffer initialized: %d messages persisted", m_count);
-
+    Serial.printf("MessageBuffer initialized: %d messages persisted\n", m_count);
     return true;
 }
 
@@ -88,7 +88,7 @@ void MessageBuffer::loadState()
         m_count = 0;
     }
 
-    ESP_LOGI(TAG, "Loaded state: head=%d, tail=%d, count=%d", m_head, m_tail, m_count);
+    Serial.printf("Loaded state: head=%d, tail=%d, count=%d\n", m_head, m_tail, m_count);
 }
 
 void MessageBuffer::saveState()
@@ -108,7 +108,7 @@ bool MessageBuffer::add(const Message &msg)
 {
     if (!m_initialized)
     {
-        ESP_LOGE(TAG, "MessageBuffer not initialized");
+        Serial.println("MessageBuffer not initialized");
         return false;
     }
 
@@ -118,7 +118,7 @@ bool MessageBuffer::add(const Message &msg)
 
     if (len < 0)
     {
-        ESP_LOGE(TAG, "Failed to serialize message");
+        Serial.println("Failed to serialize message");
         return false;
     }
 
@@ -130,7 +130,7 @@ bool MessageBuffer::add(const Message &msg)
     esp_err_t err = nvs_set_blob(m_nvsHandle, key, buffer, len);
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to write message to NVS: %s", esp_err_to_name(err));
+        Serial.printf("Failed to write message to NVS: %s\n", esp_err_to_name(err));
         return false;
     }
 
@@ -139,7 +139,7 @@ bool MessageBuffer::add(const Message &msg)
     {
         // Buffer full - overwrite oldest message
         m_head = (m_head + 1) % MAX_MESSAGES;
-        ESP_LOGW(TAG, "Buffer full, dropping oldest message (head moved to %d)", m_head);
+        Serial.printf("Buffer full, dropping oldest message (head moved to %d)\n", m_head);
     }
     else
     {
@@ -151,7 +151,7 @@ bool MessageBuffer::add(const Message &msg)
     // Persist state
     saveState();
 
-    ESP_LOGI(TAG, "Message added to buffer (count=%d)", m_count);
+    Serial.printf("Message added to buffer (count=%d)\n", m_count);
 
     return true;
 }
@@ -160,7 +160,7 @@ bool MessageBuffer::peek(Message &msg)
 {
     if (!m_initialized)
     {
-        ESP_LOGE(TAG, "MessageBuffer not initialized");
+        Serial.println("MessageBuffer not initialized");
         return false;
     }
 
@@ -180,7 +180,7 @@ bool MessageBuffer::peek(Message &msg)
     esp_err_t err = nvs_get_blob(m_nvsHandle, key, buffer, &len);
     if (err != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to read message from NVS: %s (corrupted entry, skipping)", esp_err_to_name(err));
+        Serial.printf("Failed to read message from NVS: %s (corrupted entry, skipping)\n", esp_err_to_name(err));
 
         // Message data is missing or corrupted, but state says it exists
         // Skip this entry by removing it from the buffer
@@ -189,8 +189,8 @@ bool MessageBuffer::peek(Message &msg)
         // Try to peek the next message (recursive call)
         if (!isEmpty())
         {
-            ESP_LOGW(TAG, "Skipped corrupted message, trying next (count=%d)", m_count);
-            return peek(msg);  // Recursive: try next message
+            Serial.printf("Skipped corrupted message, trying next (count=%d)\n", m_count);
+            return peek(msg); // Recursive: try next message
         }
 
         // No more messages after skipping corrupted entry
@@ -200,7 +200,7 @@ bool MessageBuffer::peek(Message &msg)
     // Deserialize message
     if (!msg.deserialize(buffer, len))
     {
-        ESP_LOGE(TAG, "Failed to deserialize message from NVS (corrupted data, skipping)");
+        Serial.println("Failed to deserialize message from NVS (corrupted data, skipping)");
 
         // Deserialization failed, skip this corrupted entry
         popFront();
@@ -208,8 +208,8 @@ bool MessageBuffer::peek(Message &msg)
         // Try to peek the next message (recursive call)
         if (!isEmpty())
         {
-            ESP_LOGW(TAG, "Skipped corrupted message, trying next (count=%d)", m_count);
-            return peek(msg);  // Recursive: try next message
+            Serial.printf("Skipped corrupted message, trying next (count=%d)\n", m_count);
+            return peek(msg); // Recursive: try next message
         }
 
         // No more messages after skipping corrupted entry
@@ -223,7 +223,7 @@ bool MessageBuffer::popFront()
 {
     if (!m_initialized)
     {
-        ESP_LOGE(TAG, "MessageBuffer not initialized");
+        Serial.println("MessageBuffer not initialized");
         return false;
     }
 
@@ -240,7 +240,7 @@ bool MessageBuffer::popFront()
     esp_err_t err = nvs_erase_key(m_nvsHandle, key);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND)
     {
-        ESP_LOGW(TAG, "Failed to erase message from NVS: %s", esp_err_to_name(err));
+        Serial.printf("Failed to erase message from NVS: %s\n", esp_err_to_name(err));
         // Continue anyway to update state
     }
 
@@ -251,7 +251,7 @@ bool MessageBuffer::popFront()
     // Persist state
     saveState();
 
-    ESP_LOGI(TAG, "Message removed from buffer (count=%d)", m_count);
+    Serial.printf("Message removed from buffer (count=%d)\n", m_count);
 
     return true;
 }
@@ -260,7 +260,7 @@ void MessageBuffer::clear()
 {
     if (!m_initialized)
     {
-        ESP_LOGE(TAG, "MessageBuffer not initialized");
+        Serial.println("MessageBuffer not initialized");
         return;
     }
 
@@ -279,5 +279,5 @@ void MessageBuffer::clear()
 
     saveState();
 
-    ESP_LOGI(TAG, "MessageBuffer cleared");
+    Serial.println("MessageBuffer cleared");
 }

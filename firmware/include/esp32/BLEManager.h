@@ -1,7 +1,6 @@
 #ifndef BLE_MANAGER_H
 #define BLE_MANAGER_H
 
-#include "esp_log.h"
 #include <NimBLEDevice.h>
 #include "Protocol.h"
 #include "FirmwareConfig.h"

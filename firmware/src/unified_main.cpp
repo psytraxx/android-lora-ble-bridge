@@ -292,6 +292,34 @@ void onLoRaReceived(const LoRaPacket &packet)
         Serial.print("Message type: ");
         Serial.println((int)msg.type);
 
+        // Send ACK for Text messages
+        if (msg.type == MessageType::Text)
+        {
+            Serial.print("Sending ACK for seq ");
+            Serial.println(msg.textData.seq);
+
+            Message ackMsg = Message::createAck(msg.textData.seq);
+            uint8_t ackBuffer[64];
+            int ackLen = ackMsg.serialize(ackBuffer, sizeof(ackBuffer));
+
+            if (ackLen > 0)
+            {
+                // Send ACK (will be queued after current RX processing completes)
+                if (loraManager->startTransmit(ackBuffer, (size_t)ackLen))
+                {
+                    Serial.println("ACK transmission started");
+                }
+                else
+                {
+                    Serial.println("Failed to start ACK transmission");
+                }
+            }
+            else
+            {
+                Serial.println("Failed to serialize ACK");
+            }
+        }
+
         if (loraToBleQueue.push(msg))
         {
             Platform::markActivity(*activityManager);

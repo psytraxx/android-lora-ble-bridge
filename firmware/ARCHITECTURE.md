@@ -360,7 +360,7 @@ AppState ApplicationController::getState() const {
 // In main.cpp setup()
 #if CONFIG_FREERTOS_USE_TRACE_FACILITY
     vTaskGetRunTimeStats(buffer);
-    ESP_LOGI(TAG, "Task stats:\n%s", buffer);
+    Serial.println( "Task stats:\n%s", buffer)
 #endif
 ```
 
@@ -369,19 +369,8 @@ AppState ApplicationController::getState() const {
 ```cpp
 // In each task loop
 UBaseType_t highWater = uxTaskGetStackHighWaterMark(NULL);
-ESP_LOGD(TAG, "Stack high water mark: %d bytes", highWater);
+Serial.println( "Stack high water mark: %d bytes", highWater)
 ```
-
-### Log Task Notifications
-
-```cpp
-// Enable verbose logging
-esp_log_level_set("BleTask", ESP_LOG_VERBOSE);
-esp_log_level_set("LoraTask", ESP_LOG_VERBOSE);
-esp_log_level_set("PowerTask", ESP_LOG_VERBOSE);
-```
-
----
 
 **Last Updated:** 2025-11-13
 **Architecture Version:** 2.0 (FreeRTOS Multi-Task)

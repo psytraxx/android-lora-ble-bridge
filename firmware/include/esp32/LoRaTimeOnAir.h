@@ -3,7 +3,6 @@
 
 #include <cstdint>
 #include <cmath>
-#include <esp_log.h>
 #include <algorithm>
 
 namespace LoRaTimeOnAir
