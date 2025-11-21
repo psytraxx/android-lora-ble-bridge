@@ -3,7 +3,6 @@
 
 #include "esp_log.h"
 #include <NimBLEDevice.h>
-#include <freertos/queue.h>
 #include "Protocol.h"
 #include "FirmwareConfig.h"
 
@@ -109,17 +108,16 @@ public:
  * Responsibilities:
  *  - Initialize NimBLE and configure the service/characteristics used by the
  *    application
- *  - Accept writes to the RX characteristic and push messages into the
- *    provided FreeRTOS queue for forwarding to LoRa
+ *  - Accept writes to the RX characteristic and call message callback
  *  - Notify a connected client via the TX characteristic
  *  - Expose a small API used by the rest of the firmware (start/stop,
- *    sendMessage, process loop integration, activity callbacks)
+ *    sendMessage, activity callbacks)
  */
 class BLEManager
 {
 public:
-    /// Construct with a FreeRTOS queue to post incoming BLE messages to (LoRa side)
-    explicit BLEManager(QueueHandle_t bleToLoraQueue);
+    /// Construct BLE manager
+    BLEManager();
 
     /// Initialize BLE stack and create service/characteristics.
     /// @param deviceName The BLE device name to advertise (defined in platformio.ini)
@@ -165,6 +163,14 @@ public:
     /// @param onDisconnect Callback when client disconnects
     void setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)());
 
+    /// Set callback for when BLE message is received
+    /// @param callback Function to call with received message
+    void setMessageCallback(void (*callback)(const Message &msg));
+
+    /// Update battery level characteristic
+    /// @param level Battery percentage (0-100)
+    void updateBatteryLevel(uint8_t level);
+
 private:
     static constexpr uint16_t kInvalidConnHandle = 0xFFFF;
 
@@ -174,7 +180,6 @@ private:
     NimBLECharacteristic *pBatteryCharacteristic{nullptr};
     NimBLEAdvertising *pAdvertising{nullptr};
 
-    QueueHandle_t bleToLoraQueue;
     std::string deviceNameStr; // Store device name for debugging/logs
 
     MyServerCallbacks *serverCallbacks{nullptr};
@@ -184,9 +189,10 @@ private:
     uint16_t currentConnHandle{kInvalidConnHandle};
     bool notificationsEnabled{false};
 
-    // Connection state callbacks
+    // Callbacks
     void (*connectCallback)(){nullptr};
     void (*disconnectCallback)(){nullptr};
+    void (*messageCallback)(const Message &msg){nullptr};
 };
 
 #endif // BLE_MANAGER_H

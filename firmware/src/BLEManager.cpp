@@ -1,6 +1,4 @@
 #include "BLEManager.h"
-#include "LoraTask.h"
-#include "BleTask.h"
 #include "PowerManager.h"
 #include <string.h>
 
@@ -60,12 +58,11 @@ void BatteryCharacteristicCallbacks::onRead(NimBLECharacteristic *pCharacteristi
 }
 
 // BLEManager implementation
-BLEManager::BLEManager(QueueHandle_t queue)
+BLEManager::BLEManager()
     : pServer(nullptr),
       pTxCharacteristic(nullptr),
       pRxCharacteristic(nullptr),
       pAdvertising(nullptr),
-      bleToLoraQueue(queue),
       deviceNameStr(""),
       serverCallbacks(nullptr),
       rxCallbacks(nullptr)
@@ -248,17 +245,15 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
     if (msg.deserialize(data, length))
     {
         ESP_LOGI(TAG_BLE, "Deserialized message type: %d", (int)msg.type);
-        // Send to queue instead of storing internally
-        if (xQueueSend(bleToLoraQueue, &msg, 0) != pdTRUE)
+
+        // Call message callback if registered
+        if (messageCallback)
         {
-            ESP_LOGW(TAG_BLE, "Warning: BLE to LoRa queue full, message dropped");
+            messageCallback(msg);
         }
         else
         {
-            ESP_LOGI(TAG_BLE, "Message forwarded from BLE to LoRa queue");
-
-            // Notify LoRa task that a message is ready
-            LoraTask::notifyMessageQueued();
+            ESP_LOGW(TAG_BLE, "Warning: No message callback registered, message dropped");
         }
     }
     else
@@ -298,12 +293,6 @@ void BLEManager::onNotificationsEnabled(bool enabled)
 {
     notificationsEnabled = enabled;
     ESP_LOGI(TAG_BLE, "Notifications state changed: %s", enabled ? "ENABLED" : "DISABLED");
-
-    // Notify BLE task to immediately forward buffered messages
-    if (enabled)
-    {
-        BleTask::notifyMessageReceived();
-    }
 }
 
 void BLEManager::setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)())
@@ -311,4 +300,23 @@ void BLEManager::setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect
     connectCallback = onConnect;
     disconnectCallback = onDisconnect;
     ESP_LOGI(TAG_BLE, "Connection callbacks registered");
+}
+
+void BLEManager::setMessageCallback(void (*callback)(const Message &msg))
+{
+    messageCallback = callback;
+    ESP_LOGI(TAG_BLE, "Message callback registered");
+}
+
+void BLEManager::updateBatteryLevel(uint8_t level)
+{
+    if (pBatteryCharacteristic)
+    {
+        pBatteryCharacteristic->setValue(&level, 1);
+        if (isConnected())
+        {
+            pBatteryCharacteristic->notify();
+        }
+        ESP_LOGI(TAG_BLE, "Battery level updated: %d%%", level);
+    }
 }
