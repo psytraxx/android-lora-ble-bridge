@@ -24,11 +24,12 @@ Earlier entries refer to the legacy Java implementation.
   - Lower power consumption in active mode
   - Files: `firmware/include/nrf52/`, `firmware/src/nrf52/`
 
-#### ESP32 Platform Enhancements
-- **Maintained FreeRTOS Architecture**: Task-based concurrent operation
-  - BLE Task (priority 3): NimBLE integration, message forwarding
-  - LoRa Task (priority 4): RadioLib integration, ISR handling
-  - Power Task (priority 2): Timeout monitoring, deep sleep management
+#### ESP32 Implementation
+- **Loop-Based Architecture**: Arduino setup()/loop() pattern
+  - NimBLE integration with callback-based message handling
+  - RadioLib integration for SX1262/SX1278 support
+  - Non-blocking state machines for all operations
+  - Deep sleep support for power optimization
   - Files: `firmware/include/esp32/`, `firmware/src/esp32/`
 
 #### Hardware Support Matrix

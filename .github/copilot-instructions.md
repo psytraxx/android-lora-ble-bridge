@@ -87,37 +87,34 @@ switch(reason) {
 
 ## Firmware Architecture
 
-**Unified Multi-Platform Design:**
-- **Single `unified_main.cpp`** - One entry point for all platforms
+**Unified Loop-Based Design:**
+- **Single `unified_main.cpp`** with `setup()` and `loop()` for all platforms
 - **Platform traits** - Compile-time polymorphism (no virtual functions)
 - **Zero runtime overhead** - All platform selection done at compile-time
+- **Non-blocking architecture** - All operations polled in main loop
 
 **Platform-Specific Implementations:**
 
-**ESP32 (FreeRTOS Tasks):**
-- `BLE Task` (priority 3): NimBLE, message forwarding
-- `LoRa Task` (priority 4): RadioLib, ISR handling
-- `Power Task` (priority 2): Timeout monitoring, deep sleep
+**ESP32:**
+- Loop-based execution (Arduino framework)
+- NimBLE stack (callback-based)
+- Deep sleep capable
 - Files: `firmware/include/esp32/`, `firmware/src/esp32/`
 
-**nRF52 (Loop-based):**
-- Non-blocking state machines
-- Arduino BLE stack
-- Event-driven polling
+**nRF52:**
+- Loop-based execution (Arduino framework)
+- Arduino BLE stack (polling-based)
+- SoftDevice power modes
 - Files: `firmware/include/nrf52/`, `firmware/src/nrf52/`
 
-**State Machine:** `ApplicationController`
-- `DISCONNECTED_ADVERTISING` → `CONNECTED_ACTIVE` (via BLE events)
-- Handles advertising timeout (30s), inactivity timeout (60s)
-- Manages `MessageBuffer` (10 message queue when BLE disconnected)
-
-**Message Flow:**
-1. Android writes to BLE RX characteristic → `bleToLoraQueue`
+**Message Flow (Both Platforms):**
+1. Android writes to BLE RX characteristic
 2. Platform-specific handling:
-   - ESP32: LoRa Task dequeues → `LoRaManager::send()`
-   - nRF52: Loop processes queue → `LoRaManager::send()`
-3. LoRa RX callback → `loraToBleQueue`
-4. Platform forwards to BLE or `MessageBuffer`
+   - ESP32: NimBLE callback → `bleToLoraQueue.push()`
+   - nRF52: loop() polls BLE → `bleToLoraQueue.push()`
+3. loop() processes `bleToLoraQueue` → `LoRaManager::send()`
+4. LoRa RX interrupt → callback → `loraToBleQueue.push()`
+5. loop() processes `loraToBleQueue` → `BLEManager::sendMessage()`
 
 ## Android Clean Architecture
 
