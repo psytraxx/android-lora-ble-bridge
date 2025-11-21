@@ -5,34 +5,7 @@
 #include <Arduino.h>
 #include "Protocol.h"
 #include "FirmwareConfig.h"
-
-// Simple message queue without FreeRTOS
-struct MessageQueue {
-    Message messages[QueueConstants::BLE_TO_LORA_SIZE];
-    int head;
-    int tail;
-    int count;
-
-    MessageQueue() : head(0), tail(0), count(0) {}
-
-    bool push(const Message& msg) {
-        if (count >= QueueConstants::BLE_TO_LORA_SIZE) return false;
-        messages[tail] = msg;
-        tail = (tail + 1) % QueueConstants::BLE_TO_LORA_SIZE;
-        count++;
-        return true;
-    }
-
-    bool pop(Message& msg) {
-        if (count == 0) return false;
-        msg = messages[head];
-        head = (head + 1) % QueueConstants::BLE_TO_LORA_SIZE;
-        count--;
-        return true;
-    }
-
-    bool isEmpty() const { return count == 0; }
-};
+#include "common/MessageQueue.h"
 
 /**
  * @brief BLE manager for nRF52 using Bluefruit library

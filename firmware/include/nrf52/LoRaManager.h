@@ -25,6 +25,8 @@ enum LoRaState : uint8_t
 };
 
 /// Configuration for LoRa radio parameters
+#ifndef LORA_CONFIG_DEFINED
+#define LORA_CONFIG_DEFINED
 struct LoRaConfig
 {
     float frequency;         // MHz (e.g., 433.92)
@@ -42,6 +44,7 @@ struct LoRaPacket
     int rssi;            // Received Signal Strength Indicator (dBm)
     float snr;           // Signal-to-Noise Ratio (dB)
 };
+#endif
 
 /// Callback type for received packets
 using LoRaReceiveCallback = std::function<void(const LoRaPacket &packet)>;
