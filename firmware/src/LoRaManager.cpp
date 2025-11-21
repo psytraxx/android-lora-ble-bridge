@@ -1,7 +1,6 @@
 #include "LoRaManager.h"
 #include "FirmwareConfig.h"
 #include "esp_log.h"
-#include "Esp32S3Hal.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -25,14 +24,11 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
 {
     // Set singleton instance for ISR access
     instance = this;
-
-    EspS3Hal *hal = new EspS3Hal(pinSCK, pinMISO, pinMOSI);
-
     // Create RadioLib module instance (stored as base class pointer for polymorphism)
 #if defined(RADIO_SX1278)
-    radio = new SX1278(new Module(hal, pinSS, pinDIO0, pinRST));
+    radio = new SX1278(new Module(pinSS, pinDIO0, pinRST));
 #elif defined(RADIO_SX1262)
-    radio = new SX1262(new Module(hal, pinSS, pinDIO0, pinRST, pinBusy));
+    radio = new SX1262(new Module(pinSS, pinDIO0, pinRST, pinBusy));
 #else
 #error "No supported RADIO defined! Please define RADIO_SX1278 or RADIO_SX1262 in platformio.ini"
 #endif
@@ -41,6 +37,8 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
 bool LoRaManager::begin(const LoRaConfig &config)
 {
     ESP_LOGI(TAG, "Initializing radio");
+
+    SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
     // Attempt initialization with retries
     for (int attempt = 1; attempt <= LoRaConstants::INIT_RETRY_COUNT; attempt++)
     {

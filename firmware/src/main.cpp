@@ -1,10 +1,10 @@
-//! ESP32 Firmware for LoRa-BLE Bridge (Simplified Architecture)
+//! ESP32 Firmware for LoRa-BLE Bridge (Simplified Architecture - Arduino)
 //!
 //! This firmware implements a BLE peripheral that communicates with Android devices
 //! and bridges BLE messages to LoRa transmission and reception.
 //!
 //! SIMPLIFIED ARCHITECTURE (matches nRF52):
-//! - Single loop() - no FreeRTOS task complexity
+//! - Single loop() - Arduino framework
 //! - Event-driven: LoRaManager and BLEManager handle callbacks
 //! - Simple message queues (no FreeRTOS queues needed)
 //! - Same functionality, cleaner code
@@ -12,9 +12,12 @@
 //! Features:
 //! - BLE communication with Android app
 //! - LoRa radio TX/RX with interrupt handling
-//! - Persistent message buffering (NVS)
+//! - Persistent message buffering (Preferences)
 //! - Battery monitoring and power management
 //! - Protocol-compatible with nRF52 firmware
+
+#include <Arduino.h>
+#include <Adafruit_SleepyDog.h>
 
 #include "BLEManager.h"
 #include "LoRaManager.h"
@@ -24,13 +27,6 @@
 #include "FirmwareConfig.h"
 #include "ApplicationController.h"
 #include "PowerManager.h"
-
-#include "esp_log.h"
-#include <esp_task_wdt.h>
-#include <esp_timer.h>
-
-// RTC memory - persists across deep sleep
-RTC_DATA_ATTR int bootCount = 0;
 
 // Global managers
 static LoRaManager *loraManager = nullptr;
@@ -82,8 +78,6 @@ static MessageQueue loraToBleQueue;
 static unsigned long lastBatteryUpdate = 0;
 static const unsigned long BATTERY_UPDATE_INTERVAL = 60000; // 1 minute
 
-static const char *TAG = "Main";
-
 // Forward declarations
 void onBleConnected();
 void onBleDisconnected();
@@ -97,15 +91,15 @@ void handleBleMessage(const Message &msg);
 
 void setup()
 {
-    bootCount++;
+    // Initialize Serial
+    Serial.begin(115200);
+    while (!Serial && millis() < 3000)
+        ; // Wait up to 3s for Serial
+    delay(500);
 
-    ESP_LOGI(TAG, "=================================================================");
-    ESP_LOGI(TAG, "ESP32 LoRa-BLE Bridge - Simplified Architecture");
-    ESP_LOGI(TAG, "Device: %s", DEVICE_NAME);
-    ESP_LOGI(TAG, "Boot count: %d", bootCount);
-    ESP_LOGI(TAG, "=================================================================");
-
-    PowerManager::printWakeupReason();
+    Serial.println("\n\n=== ESP32 LoRa-BLE Bridge (Arduino) ===");
+    Serial.print("Device: ");
+    Serial.println(DEVICE_NAME);
 
     // Power management
     PowerManager::configurePowerManagement();
@@ -116,13 +110,11 @@ void setup()
     ledManager.setOn();
 #endif
 
-    // Configure watchdog (ESP-IDF requirement)
-    esp_task_wdt_config_t wdt_config = {
-        .timeout_ms = WatchdogConstants::TIMEOUT_SECONDS * 1000,
-        .idle_core_mask = 0,
-        .trigger_panic = true};
-    esp_task_wdt_init(&wdt_config);
-    esp_task_wdt_add(NULL); // Add current task
+    // Configure watchdog (Arduino SleepyDog)
+    int watchdogMS = Watchdog.enable(WatchdogConstants::TIMEOUT_SECONDS * 1000);
+    Serial.print("Watchdog enabled: ");
+    Serial.print(watchdogMS);
+    Serial.println(" ms");
 
     // Initialize application controller
     appController = new ApplicationController();
@@ -131,14 +123,14 @@ void setup()
     messageBuffer = new MessageBuffer();
     if (!messageBuffer->begin())
     {
-        ESP_LOGE(TAG, "Message buffer initialization failed!");
+        Serial.println("Message buffer initialization failed!");
     }
 
     // Initialize BLE manager
     bleManager = new BLEManager();
     if (!bleManager->setup(DEVICE_NAME))
     {
-        ESP_LOGE(TAG, "BLE initialization failed!");
+        Serial.println("BLE initialization failed!");
         while (1)
             ;
     }
@@ -165,7 +157,7 @@ void setup()
 
     if (!loraManager->begin(loraConfig))
     {
-        ESP_LOGE(TAG, "LoRa initialization failed!");
+        Serial.println("LoRa initialization failed!");
         while (1)
             ;
     }
@@ -176,14 +168,14 @@ void setup()
     // Start LoRa receive mode (duty cycle for power saving)
     if (!loraManager->startReceive(true))
     {
-        ESP_LOGE(TAG, "Failed to start LoRa receive mode!");
+        Serial.println("Failed to start LoRa receive mode!");
     }
 
 #ifdef LED_PIN
     ledManager.setOff();
 #endif
 
-    ESP_LOGI(TAG, "Setup complete!");
+    Serial.println("Setup complete!");
 }
 
 // ============================================================================
@@ -193,7 +185,7 @@ void setup()
 void loop()
 {
     // Reset watchdog
-    esp_task_wdt_reset();
+    Watchdog.reset();
 
     // Process LoRa events (RX/TX completion)
     loraManager->process();
@@ -212,13 +204,13 @@ void loop()
                 }
                 else
                 {
-                    ESP_LOGW(TAG, "Failed to send message to BLE");
+                    Serial.println("Failed to send message to BLE");
                 }
             }
             else
             {
                 // BLE not ready, buffer message for later
-                ESP_LOGI(TAG, "BLE not connected, buffering message");
+                Serial.println("BLE not connected, buffering message");
                 messageBuffer->add(msg);
             }
         }
@@ -233,7 +225,9 @@ void loop()
             if (bleManager->sendMessage(bufferedMsg))
             {
                 messageBuffer->popFront();
-                ESP_LOGI(TAG, "Sent buffered message, %d remaining", messageBuffer->getCount());
+                Serial.print("Sent buffered message, ");
+                Serial.print(messageBuffer->getCount());
+                Serial.println(" remaining");
                 appController->notifyActivity();
             }
         }
@@ -244,7 +238,7 @@ void loop()
     {
         if (bleToLoraQueue.pop(msg))
         {
-            ESP_LOGI(TAG, "Transmitting BLE message via LoRa");
+            Serial.println("Transmitting BLE message via LoRa");
 
             uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
             int length = msg.serialize(buffer, sizeof(buffer));
@@ -257,24 +251,26 @@ void loop()
                 }
                 else
                 {
-                    ESP_LOGW(TAG, "Failed to start LoRa transmission");
+                    Serial.println("Failed to start LoRa transmission");
                 }
             }
             else
             {
-                ESP_LOGE(TAG, "Failed to serialize message");
+                Serial.println("Failed to serialize message");
             }
         }
     }
 
     // Update battery level periodically
-    unsigned long now = esp_timer_get_time() / 1000; // Convert microseconds to milliseconds
+    unsigned long now = millis();
     if (now - lastBatteryUpdate >= BATTERY_UPDATE_INTERVAL)
     {
         uint8_t batteryLevel = PowerManager::readBatteryLevel();
         bleManager->updateBatteryLevel(batteryLevel);
 
-        ESP_LOGI(TAG, "Battery: %d%%", batteryLevel);
+        Serial.print("Battery: ");
+        Serial.print(batteryLevel);
+        Serial.println("%");
 
         lastBatteryUpdate = now;
     }
@@ -285,13 +281,13 @@ void loop()
         unsigned long inactiveTime = appController->getInactivityDuration();
         if (inactiveTime > PowerConstants::INACTIVITY_TIMEOUT_MS)
         {
-            ESP_LOGI(TAG, "Inactivity timeout - disconnecting BLE");
+            Serial.println("Inactivity timeout - disconnecting BLE");
             bleManager->disconnect();
         }
     }
 
     // Small delay to prevent busy-waiting
-    vTaskDelay(pdMS_TO_TICKS(10));
+    delay(10);
 }
 
 // ============================================================================
@@ -300,7 +296,7 @@ void loop()
 
 void onBleConnected()
 {
-    ESP_LOGI(TAG, "BLE connected");
+    Serial.println("BLE connected");
     appController->onBleConnected();
     appController->notifyActivity();
 
@@ -311,7 +307,7 @@ void onBleConnected()
 
 void onBleDisconnected()
 {
-    ESP_LOGI(TAG, "BLE disconnected");
+    Serial.println("BLE disconnected");
     appController->onBleDisconnected();
 
 #ifdef LED_PIN
@@ -321,14 +317,20 @@ void onBleDisconnected()
 
 void onLoRaReceived(const LoRaPacket &packet)
 {
-    ESP_LOGI(TAG, "LoRa packet received: %d bytes, RSSI: %d dBm, SNR: %.1f dB",
-             packet.len, packet.rssi, packet.snr);
+    Serial.print("LoRa packet received: ");
+    Serial.print(packet.len);
+    Serial.print(" bytes, RSSI: ");
+    Serial.print(packet.rssi);
+    Serial.print(" dBm, SNR: ");
+    Serial.print(packet.snr);
+    Serial.println(" dB");
 
     // Deserialize message
     Message msg;
     if (msg.deserialize(packet.buffer, packet.len))
     {
-        ESP_LOGI(TAG, "Message type: %d", (int)msg.type);
+        Serial.print("Message type: ");
+        Serial.println((int)msg.type);
 
         // Forward to BLE
         if (loraToBleQueue.push(msg))
@@ -337,12 +339,12 @@ void onLoRaReceived(const LoRaPacket &packet)
         }
         else
         {
-            ESP_LOGW(TAG, "LoRa->BLE queue full!");
+            Serial.println("LoRa->BLE queue full!");
         }
     }
     else
     {
-        ESP_LOGE(TAG, "Failed to deserialize LoRa message");
+        Serial.println("Failed to deserialize LoRa message");
     }
 
 #ifdef LED_PIN
@@ -354,7 +356,7 @@ void onLoRaTransmitted(bool success)
 {
     if (success)
     {
-        ESP_LOGI(TAG, "LoRa transmission successful");
+        Serial.println("LoRa transmission successful");
 
 #ifdef LED_PIN
         ledManager.blink(LEDConstants::TX_BLINKS);
@@ -362,7 +364,7 @@ void onLoRaTransmitted(bool success)
     }
     else
     {
-        ESP_LOGW(TAG, "LoRa transmission failed");
+        Serial.println("LoRa transmission failed");
     }
 }
 
@@ -370,31 +372,15 @@ void onLoRaTransmitted(bool success)
 // BLE Message Handler (called by BLEManager)
 // ============================================================================
 
-// BLEManager needs access to the queue
 void handleBleMessage(const Message &msg)
 {
     if (!bleToLoraQueue.push(msg))
     {
-        ESP_LOGW(TAG, "BLE->LoRa queue full");
+        Serial.println("BLE->LoRa queue full");
     }
     else
     {
-        ESP_LOGI(TAG, "BLE message queued for LoRa, type: %d", (int)msg.type);
-    }
-}
-
-// ============================================================================
-// ESP-IDF Entry Point
-// ============================================================================
-
-extern "C" void app_main(void)
-{
-    // Call setup once
-    setup();
-
-    // Run main loop forever
-    while (1)
-    {
-        loop();
+        Serial.print("BLE message queued for LoRa, type: ");
+        Serial.println((int)msg.type);
     }
 }
