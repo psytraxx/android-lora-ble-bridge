@@ -26,16 +26,13 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
     // Set singleton instance for ISR access
     instance = this;
 
-    // Create RadioLib module instance for SX1262
-    radio = new SX1262(new Module(pinSS, pinDIO0, pinRST, pinBusy));
+    // Create RadioLib module instance for SX1268
+    radio = new SX1268(new Module(pinSS, pinDIO0, pinRST, pinBusy));
 }
 
 bool LoRaManager::begin(const LoRaConfig &config)
 {
     Serial.println("Initializing LoRa radio");
-
-    // Configure SPI pins
-    SPI.begin();
 
     // Attempt initialization with retries
     for (int attempt = 1; attempt <= LoRaConstants::INIT_RETRY_COUNT; attempt++)

@@ -183,8 +183,8 @@ private:
     int pinBusy; // For SX1262 radios
 
     // RadioLib radio instance (SX1262 for nRF52)
-#if defined(RADIO_SX1262)
-    SX1262 *radio;
+#if defined(RADIO_SX1268)
+    SX1268 *radio;
 #else
 #error "Only SX1262 is supported for nRF52 firmware"
 #endif

@@ -59,7 +59,7 @@ struct NRF52PlatformTraits
         Watchdog.reset();
     }
 
-    static void initializePower() {}  // PowerManager initialized via begin()
+    static void initializePower() {} // PowerManager initialized via begin()
 
     static uint8_t readBatteryLevel(PowerManager &mgr)
     {
@@ -146,7 +146,11 @@ struct NRF52PlatformTraits
     static void onBleConnected(ActivityManager &mgr) { mgr.setBLEConnected(true); }
     static void onBleDisconnected(ActivityManager &mgr) { mgr.setBLEConnected(false); }
     static bool isBleConnected(ActivityManager &mgr) { return mgr.isBLEConnected(); }
-    static bool isAndroidReady(ActivityManager &mgr) { (void)mgr; return true; }
+    static bool isAndroidReady(ActivityManager &mgr)
+    {
+        (void)mgr;
+        return true;
+    }
 };
 
 // Define static LED state variables
