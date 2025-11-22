@@ -148,6 +148,34 @@ namespace PowerConstants
 }
 
 //==============================================================================
+// Battery Monitoring Configuration
+//==============================================================================
+
+/// Number of cells in battery pack (1 for single-cell Li-ion)
+constexpr int NUM_CELLS = 1;
+
+/// Number of points in OCV lookup table
+constexpr int NUM_OCV_POINTS = 11;
+
+/// OCV (Open Circuit Voltage) lookup table for Li-ion battery (millivolts per cell)
+/// Index 0 = 100% charged, Index 10 = 0% charged
+/// Based on typical single-cell Li-ion discharge curve
+/// Source: Meshtastic project (validated across many devices)
+const uint16_t OCV[NUM_OCV_POINTS] = {
+    4200, // 100% - Fully charged
+    4050, // 90%
+    3900, // 80%
+    3800, // 70%
+    3730, // 60%
+    3680, // 50%
+    3630, // 40%
+    3570, // 30%
+    3500, // 20%
+    3400, // 10%
+    3100  // 0% - Cut-off voltage
+};
+
+//==============================================================================
 // Watchdog Configuration
 //==============================================================================
 

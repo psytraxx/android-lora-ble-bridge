@@ -9,7 +9,10 @@
 #endif
 
 PowerManager::PowerManager()
-    : lastBatteryLevel(100)
+    : lastBatteryLevel(100),
+      initial_read_done(false),
+      last_read_value(3300.0),  // Start at reasonable 3.3V
+      last_read_time_ms(0)
 {
 }
 
@@ -37,42 +40,100 @@ bool PowerManager::begin()
     return true;
 }
 
-float PowerManager::readBatteryVoltage()
+uint8_t PowerManager::voltageToPercentage(uint16_t voltagePerCellMv)
 {
-    // Read battery voltage from ADC
-    // XIAO nRF52840: Battery voltage is divided by 2 on P0.31
-    int adcValue = analogRead(BATTERY_ADC_PIN);
+    // OCV lookup table from FirmwareConfig
+    extern const uint16_t OCV[];
+    extern const int NUM_OCV_POINTS;
 
-    // Convert ADC value to voltage
-    // nRF52840: 12-bit ADC with 0.6V internal reference
-    // With gain = 1/6, can measure up to 3.6V
-    float voltage = (adcValue / 4095.0) * PowerConstants::ADC_VREF * PowerConstants::BATTERY_DIVIDER;
+    float battery_SOC = 0.0;
 
-    return voltage;
+    // Find the OCV range and interpolate
+    for (int i = 0; i < NUM_OCV_POINTS; i++) {
+        if (OCV[i] <= voltagePerCellMv) {
+            if (i == 0) {
+                battery_SOC = 100.0; // Fully charged
+            } else {
+                // Linear interpolation between OCV[i] and OCV[i-1]
+                battery_SOC = (float)100.0 / (NUM_OCV_POINTS - 1.0) *
+                             (NUM_OCV_POINTS - 1.0 - i +
+                              ((float)voltagePerCellMv - OCV[i]) / (OCV[i - 1] - OCV[i]));
+            }
+            break;
+        }
+    }
+
+    // Clamp to 0-100 range
+    if (battery_SOC > 100.0) battery_SOC = 100.0;
+    if (battery_SOC < 0.0) battery_SOC = 0.0;
+
+    return (uint8_t)battery_SOC;
+}
+
+uint16_t PowerManager::readBatteryVoltage()
+{
+    // Throttle ADC reads to once per 5 seconds minimum
+    const uint32_t MIN_READ_INTERVAL_MS = 5000;
+    const uint32_t BATTERY_SENSE_SAMPLES = 10;
+
+    if (!initial_read_done || (millis() - last_read_time_ms >= MIN_READ_INTERVAL_MS)) {
+        last_read_time_ms = millis();
+
+        // Read battery voltage from ADC with averaging
+        // XIAO nRF52840: Battery voltage is divided by 2 on P0.31
+        uint32_t adcSum = 0;
+        for (uint32_t i = 0; i < BATTERY_SENSE_SAMPLES; i++) {
+            adcSum += analogRead(BATTERY_ADC_PIN);
+        }
+        int adcValue = adcSum / BATTERY_SENSE_SAMPLES;
+
+        // Convert ADC value to voltage in millivolts
+        // nRF52840: 12-bit ADC with 0.6V internal reference
+        // With gain = 1/6, can measure up to 3.6V
+        float voltage_mv = (adcValue / 4095.0) * PowerConstants::ADC_VREF *
+                          PowerConstants::BATTERY_DIVIDER * 1000.0;
+
+        if (!initial_read_done) {
+            // Initialize filter with first reading if plausible
+            if (voltage_mv > last_read_value) {
+                last_read_value = voltage_mv;
+            }
+            initial_read_done = true;
+        } else {
+            // Apply low-pass filter: output = output + alpha * (input - output)
+            // Alpha = 0.5 provides good balance between responsiveness and smoothing
+            last_read_value += (voltage_mv - last_read_value) * 0.5;
+        }
+
+        // Log debug info periodically
+        static uint32_t last_log = 0;
+        if (millis() - last_log > 30000) {
+            Serial.printf("Battery: adc=%d, voltage=%u mV, filtered=%u mV\n",
+                         adcValue, (uint16_t)voltage_mv, (uint16_t)last_read_value);
+            last_log = millis();
+        }
+    }
+
+    return (uint16_t)last_read_value;
 }
 
 uint8_t PowerManager::readBatteryLevel()
 {
-    float voltage = readBatteryVoltage();
+    uint16_t voltage = readBatteryVoltage();
 
-    // Convert voltage to percentage (assuming Li-Po battery)
-    // 4.2V = 100%, 3.0V = 0%
-    uint8_t level;
-    if (voltage >= 4.2)
-    {
-        level = 100;
-    }
-    else if (voltage <= 3.0)
-    {
-        level = 0;
-    }
-    else
-    {
-        level = (uint8_t)((voltage - 3.0) / (4.2 - 3.0) * 100.0);
+    // Check for no battery condition
+    extern const uint16_t OCV[];
+    extern const int NUM_OCV_POINTS;
+    const uint16_t MIN_BATTERY_VOLTAGE = OCV[NUM_OCV_POINTS - 1] - 500;
+
+    if (voltage < MIN_BATTERY_VOLTAGE) {
+        lastBatteryLevel = 0; // No battery or critically low
+        return 0;
     }
 
-    lastBatteryLevel = level;
-    return level;
+    // Convert voltage to percentage using OCV lookup table
+    lastBatteryLevel = voltageToPercentage(voltage);
+    return lastBatteryLevel;
 }
 
 void PowerManager::enterLowPowerMode()

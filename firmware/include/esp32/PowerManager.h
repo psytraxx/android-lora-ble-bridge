@@ -86,17 +86,24 @@ public:
      * Reads the battery voltage via ADC and applies the voltage divider ratio.
      * On Heltec boards, enables ADC control pin before reading.
      *
-     * @return Battery voltage in volts (e.g., 3.7V)
+     * Features:
+     *  - Multiple sample averaging to reduce noise
+     *  - Low-pass filtering for smooth readings
+     *  - ESP32 ADC calibration using eFuse data
+     *  - Minimum read interval throttling (5 seconds)
+     *
+     * @return Battery voltage in millivolts (e.g., 3700mV)
      */
-    static float readBatteryVoltage();
+    static uint16_t readBatteryVoltage();
 
     /**
      * @brief Read battery level as percentage
      *
-     * Reads battery voltage and converts to percentage (0-100%) based on
-     * typical Li-ion discharge curve (3.0V = 0%, 4.2V = 100%).
+     * Reads battery voltage and converts to percentage (0-100%) using
+     * OCV (Open Circuit Voltage) lookup table for accurate Li-ion readings.
      *
      * This follows the BLE Battery Service standard which uses uint8 (0-100%).
+     * Uses interpolation between OCV points for smooth percentage values.
      *
      * @return Battery level percentage (0-100)
      */
@@ -132,17 +139,43 @@ private:
     static void setUnusedGPIOsToInput();
 
     /**
-     * @brief Get battery percentage from voltage using lookup table
+     * @brief Get battery percentage from voltage using OCV lookup table
      *
-     * Uses actual LiPo discharge curve data instead of linear interpolation
+     * Uses actual LiPo discharge curve data with interpolation between points
      * for more accurate battery percentage reporting.
      *
-     * Based on Heltec unofficial library voltage curve measurements.
+     * Based on Meshtastic OCV lookup table for single-cell Li-ion batteries.
      *
-     * @param voltage Battery voltage in volts
+     * @param voltage Battery voltage in millivolts (per cell)
      * @return Battery percentage (0-100)
      */
-    static uint8_t voltageToPercentage(float voltage);
+    static uint8_t voltageToPercentage(uint16_t voltagePerCellMv);
+
+    /**
+     * @brief Enable ADC for battery voltage reading
+     *
+     * On Heltec boards with ADC_CTRL pin, this enables the voltage divider
+     * circuit. Waits for voltage to stabilize before reading.
+     */
+    static void battery_adcEnable();
+
+    /**
+     * @brief Disable ADC after battery voltage reading
+     *
+     * On Heltec boards with ADC_CTRL pin, this disables the voltage divider
+     * circuit to save power.
+     */
+    static void battery_adcDisable();
+
+    /**
+     * @brief Read calibrated ADC value with multiple samples
+     *
+     * Uses ESP32 ADC calibration from eFuse and averages multiple samples
+     * to reduce noise.
+     *
+     * @return Calibrated ADC value
+     */
+    static uint32_t espAdcRead();
 };
 
 #endif // POWER_MANAGER_H
