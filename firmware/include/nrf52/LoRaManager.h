@@ -21,7 +21,8 @@ enum LoRaState : uint8_t
     STATE_IDLE,            // Initialized and ready (in RX mode)
     STATE_TRANSMITTING,    // Transmission in progress
     STATE_PACKET_RECEIVED, // Packet ready to read in process()
-    STATE_PACKET_SENT      // Transmission completed, ready to process in process()
+    STATE_PACKET_SENT,     // Transmission completed, ready to process in process()
+    STATE_WAITING_FOR_RX_SETTLE // Non-blocking wait after TX before RX enable
 };
 
 /// Configuration for LoRa radio parameters
@@ -191,6 +192,7 @@ private:
 
     // State machine
     volatile LoRaState state;
+    unsigned long txCompleteTime;
 
     // ISR tracking
     volatile uint32_t rxInterruptCount;

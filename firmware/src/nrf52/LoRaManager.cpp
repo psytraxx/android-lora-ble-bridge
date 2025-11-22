@@ -16,10 +16,6 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
       pinBusy(busy),
       radio(nullptr),
       state(STATE_UNINITIALIZED),
-      rxInterruptCount(0),
-      txInterruptCount(0),
-      rxProcessedCount(0),
-      txProcessedCount(0),
       receiveCallback(nullptr),
       transmitCallback(nullptr)
 {
@@ -202,15 +198,14 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 
 void LoRaManager::process()
 {
-    // Process received packets
-    if (rxInterruptCount > rxProcessedCount)
+    // State: Packet received from ISR, now process it
+    if (state == STATE_PACKET_RECEIVED)
     {
         Serial.println("Processing received packet");
 
         // Read packet
         LoRaPacket packet;
         packet.len = radio->getPacketLength();
-
         int readState = radio->readData(packet.buffer, packet.len);
 
         if (readState == RADIOLIB_ERR_NONE)
@@ -230,9 +225,6 @@ void LoRaManager::process()
             {
                 receiveCallback(packet);
             }
-
-            // Restart receive mode
-            radio->startReceive();
         }
         else
         {
@@ -240,28 +232,36 @@ void LoRaManager::process()
             Serial.println(readState);
         }
 
-        rxProcessedCount = rxInterruptCount;
+        // Manually restart receive mode, as readData() doesn't do it
+        radio->startReceive();
         state = STATE_IDLE;
+        rxProcessedCount++;
     }
 
-    // Process transmission completion
-    if (txInterruptCount > txProcessedCount)
+    // State: Transmission completed in ISR, now handle cleanup
+    if (state == STATE_PACKET_SENT)
     {
-        Serial.println("Transmission completed");
-
-        bool success = true; // RadioLib ISR indicates success if called
+        Serial.println("Transmission completed, waiting for RX settle");
 
         if (transmitCallback)
         {
-            transmitCallback(success);
+            transmitCallback(true); // RadioLib ISR indicates success
         }
 
-        txProcessedCount = txInterruptCount;
-        state = STATE_IDLE;
+        txProcessedCount++;
+        state = STATE_WAITING_FOR_RX_SETTLE;
+        txCompleteTime = millis(); // Start non-blocking timer
+    }
 
-        // Restart receive mode after transmission
-        delay(LoRaConstants::RX_SETTLE_TIME_MS);
-        radio->startReceive();
+    // State: Waiting for radio to settle before re-enabling RX
+    if (state == STATE_WAITING_FOR_RX_SETTLE)
+    {
+        if (millis() - txCompleteTime >= LoRaConstants::RX_SETTLE_TIME_MS)
+        {
+            Serial.println("RX settle time elapsed, restarting receive mode");
+            radio->startReceive();
+            state = STATE_IDLE;
+        }
     }
 }
 
@@ -296,18 +296,20 @@ float LoRaManager::getSNR() const
 // ISR handlers
 void LoRaManager::onReceiveISR()
 {
+    // Set state to be processed in the main loop
+    // Avoid doing any heavy lifting in the ISR
     if (instance)
     {
-        instance->rxInterruptCount++;
         instance->state = STATE_PACKET_RECEIVED;
     }
 }
 
 void LoRaManager::onTransmitISR()
 {
+    // Set state to be processed in the main loop
+    // Avoid doing any heavy lifting in the ISR
     if (instance)
     {
-        instance->txInterruptCount++;
         instance->state = STATE_PACKET_SENT;
     }
 }
