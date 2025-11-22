@@ -5,24 +5,34 @@
 #include <functional>
 #include "Protocol.h"
 
+// Platform-specific includes and definitions
+#if defined(ARDUINO_ARCH_ESP32)
+#include <esp_attr.h>
+#define LORA_ISR_ATTR IRAM_ATTR
+#elif defined(ARDUINO_ARCH_NRF52)
+#define LORA_ISR_ATTR
+#else
+#error "Unsupported platform"
+#endif
+
 /**
  * @file LoRaManager.h
- * @brief Encapsulates LoRa radio operations and message handling for nRF52
+ * @brief Unified LoRa radio manager for ESP32 and nRF52 platforms
  *
  * This class provides a high-level interface for LoRa communication,
  * abstracting RadioLib details and providing event-driven packet handling.
- * Compatible with ESP32 version for protocol compatibility.
+ * Works on both ESP32 (SX1278/SX1262) and nRF52 (SX1268).
  */
 
 /// State machine states for LoRa manager
 enum LoRaState : uint8_t
 {
-    STATE_UNINITIALIZED,   // Radio not yet initialized
-    STATE_IDLE,            // Initialized and ready (in RX mode)
-    STATE_TRANSMITTING,    // Transmission in progress
-    STATE_PACKET_RECEIVED, // Packet ready to read in process()
-    STATE_PACKET_SENT,     // Transmission completed, ready to process in process()
-    STATE_WAITING_FOR_RX_SETTLE // Non-blocking wait after TX before RX enable
+    STATE_UNINITIALIZED,        // Radio not yet initialized
+    STATE_IDLE,                 // Initialized and ready (in RX mode)
+    STATE_TRANSMITTING,         // Transmission in progress
+    STATE_PACKET_RECEIVED,      // Packet ready to read in process()
+    STATE_PACKET_SENT,          // Transmission completed, ready to process in process()
+    STATE_WAITING_FOR_RX_SETTLE // Non-blocking wait after TX before RX enable (nRF52)
 };
 
 /// Configuration for LoRa radio parameters
@@ -54,7 +64,7 @@ using LoRaReceiveCallback = std::function<void(const LoRaPacket &packet)>;
 using LoRaTransmitCallback = std::function<void(bool success)>;
 
 /**
- * @brief High-level manager for LoRa radio operations on nRF52
+ * @brief High-level manager for LoRa radio operations
  *
  * Responsibilities:
  *  - Initialize and configure LoRa radio with specified parameters
@@ -74,7 +84,7 @@ public:
      * @param ss SPI slave select pin
      * @param rst Reset pin
      * @param dio0 DIO0 interrupt pin
-     * @param busy Busy pin (for SX1262 radios)
+     * @param busy Busy pin (for SX126x radios)
      */
     LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy);
 
@@ -88,8 +98,9 @@ public:
     /**
      * @brief Start continuous receive mode or duty-cycled receive mode
      *
-     * For SX1262: Uses hardware-based duty cycle mode
+     * For SX1262/SX1268: Uses hardware-based duty cycle mode
      * where the radio autonomously sleeps between RX windows to save power.
+     * For SX1278 or disabled: Uses standard continuous receive mode.
      *
      * @return true on success, false on failure
      */
@@ -165,13 +176,13 @@ public:
      * @brief Static ISR handler for LoRa DIO0 receive interrupt
      * Must be public to be registered as ISR callback
      */
-    static void onReceiveISR();
+    static void LORA_ISR_ATTR onReceiveISR();
 
     /**
      * @brief Static ISR handler for LoRa DIO0 transmit interrupt
      * Must be public to be registered as ISR callback
      */
-    static void onTransmitISR();
+    static void LORA_ISR_ATTR onTransmitISR();
 
 private:
     // GPIO pin configuration
@@ -181,18 +192,26 @@ private:
     int pinSS;
     int pinRST;
     int pinDIO0;
-    int pinBusy; // For SX1262 radios
+    int pinBusy; // For SX126x radios
 
-    // RadioLib radio instance (SX1262 for nRF52)
-#if defined(RADIO_SX1268)
+    // RadioLib radio instance (type depends on RADIO_ definition)
+#if defined(RADIO_SX1278)
+    SX1278 *radio;
+#elif defined(RADIO_SX1262)
+    SX1262 *radio;
+#elif defined(RADIO_SX1268)
     SX1268 *radio;
 #else
-#error "Only SX1262 is supported for nRF52 firmware"
+#error "No supported RADIO defined! Please define RADIO_SX1278, RADIO_SX1262, or RADIO_SX1268"
 #endif
 
     // State machine
     volatile LoRaState state;
-    unsigned long txCompleteTime;
+
+    // Platform-specific members
+#if defined(ARDUINO_ARCH_NRF52)
+    unsigned long txCompleteTime; // For RX settle delay
+#endif
 
     // ISR tracking
     volatile uint32_t rxInterruptCount;

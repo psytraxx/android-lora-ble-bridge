@@ -12,6 +12,7 @@
 #include <Arduino.h>
 #include "Protocol.h"
 #include "ApplicationController.h"
+#include "LoRaManager.h"
 #include "common/MessageQueue.h"
 
 // Select platform traits based on build target
@@ -33,7 +34,7 @@ using Platform = NRF52PlatformTraits;
 
 // Use pointers to allow conditional initialization, but allocate statically
 static typename Platform::BLEManager *bleManager = nullptr;
-static typename Platform::LoRaManager *loraManager = nullptr;
+static LoRaManager *loraManager = nullptr;
 static typename Platform::StorageManager *storageManager = nullptr;
 
 // Static storage for manager instances (avoids heap allocation)
@@ -137,7 +138,7 @@ void setup()
 
     // Initialize LoRa manager (heap allocation required due to runtime pin configuration)
     // TODO: Consider static allocation with placement new if memory is constrained
-    loraManager = new typename Platform::LoRaManager(
+    loraManager = new LoRaManager(
         LORA_SCK,
         LORA_MISO,
         LORA_MOSI,

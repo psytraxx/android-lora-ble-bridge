@@ -2,7 +2,6 @@
 #define ESP32_PLATFORM_TRAITS_H
 
 #include "esp32/BLEManager.h"
-#include "esp32/LoRaManager.h"
 #include "esp32/MessageBuffer.h"
 #include "esp32/PowerManager.h"
 #include "esp32/LEDManager.h"
@@ -21,7 +20,6 @@ struct ESP32PlatformTraits
     // ========================================================================
 
     using BLEManager = ::BLEManager;
-    using LoRaManager = ::LoRaManager;
     using StorageManager = ::MessageBuffer;
 
     // ========================================================================

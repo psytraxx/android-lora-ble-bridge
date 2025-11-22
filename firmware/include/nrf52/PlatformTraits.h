@@ -2,7 +2,6 @@
 #define NRF52_PLATFORM_TRAITS_H
 
 #include "nrf52/BLEManager.h"
-#include "nrf52/LoRaManager.h"
 #include "nrf52/MessageBuffer.h"
 #include "nrf52/PowerManager.h"
 #include "nrf52/FirmwareConfig.h"
@@ -20,7 +19,6 @@ struct NRF52PlatformTraits
     // ========================================================================
 
     using BLEManager = ::BLEManager;
-    using LoRaManager = ::LoRaManager;
     using StorageManager = ::MessageBuffer;
     using PowerManager = ::PowerManager;
 
