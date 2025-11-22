@@ -7,11 +7,13 @@
 #include <driver/rtc_io.h>
 #include <soc/rtc.h>
 #include <esp_pm.h>
-#include <driver/adc.h>
-#include <esp_adc_cal.h>
+#include <esp_adc/adc_oneshot.h>
+#include <esp_adc/adc_cali.h>
+#include <esp_adc/adc_cali_scheme.h>
 
 // Static variables for ADC calibration and filtering
-static esp_adc_cal_characteristics_t *adc_characs = nullptr;
+static adc_oneshot_unit_handle_t adc1_handle = nullptr;
+static adc_cali_handle_t adc_cali_handle = nullptr;
 static bool initial_read_done = false;
 static float last_read_value = 3300.0; // Start at reasonable 3.3V
 static uint32_t last_read_time_ms = 0;
@@ -38,50 +40,60 @@ void PowerManager::configurePowerManagement()
     }
 
 #ifdef BATTERY_ADC_PIN
-    // Initialize ADC calibration for battery voltage reading
-    adc_characs = (esp_adc_cal_characteristics_t *)calloc(1, sizeof(esp_adc_cal_characteristics_t));
-
-    // Configure ADC (channel is determined from BATTERY_ADC_PIN at runtime)
-    adc1_config_width(ADC_WIDTH_BIT_12);
+    // Initialize ADC oneshot mode
+    adc_oneshot_unit_init_cfg_t init_config = {
+        .unit_id = ADC_UNIT_1,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
+    };
+    esp_err_t err = adc_oneshot_new_unit(&init_config, &adc1_handle);
+    if (err != ESP_OK)
+    {
+        Serial.printf("Failed to initialize ADC unit (err=%d)\n", err);
+        return;
+    }
 
     // Determine ADC channel from GPIO pin number
-    adc1_channel_t adc_channel;
+    adc_channel_t adc_channel;
     if (BATTERY_ADC_PIN == 1)
     {
-        adc_channel = ADC1_CHANNEL_0; // GPIO1 = ADC1_CH0 on ESP32-S3
+        adc_channel = ADC_CHANNEL_0; // GPIO1 = ADC1_CH0 on ESP32-S3
     }
     else if (BATTERY_ADC_PIN == 4)
     {
-        adc_channel = ADC1_CHANNEL_3; // GPIO4 = ADC1_CH3 on ESP32-S3
+        adc_channel = ADC_CHANNEL_3; // GPIO4 = ADC1_CH3 on ESP32-S3
     }
     else
     {
         Serial.printf("WARNING: Unknown ADC channel for GPIO %d\n", BATTERY_ADC_PIN);
-        adc_channel = ADC1_CHANNEL_0; // Fallback
+        adc_channel = ADC_CHANNEL_0; // Fallback
     }
 
-    adc1_config_channel_atten(adc_channel, ADC_ATTEN_DB_2_5);
-
-    // Calibrate ADC using eFuse values
-    esp_adc_cal_value_t val_type = esp_adc_cal_characterize(
-        ADC_UNIT_1,
-        ADC_ATTEN_DB_2_5,
-        ADC_WIDTH_BIT_12,
-        1100, // Default Vref
-        adc_characs);
-
-    // Log calibration type
-    if (val_type == ESP_ADC_CAL_VAL_EFUSE_TP)
+    // Configure ADC channel
+    adc_oneshot_chan_cfg_t config = {
+        .atten = ADC_ATTEN_DB_2_5,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+    err = adc_oneshot_config_channel(adc1_handle, adc_channel, &config);
+    if (err != ESP_OK)
     {
-        Serial.println("ADC calibration: Two Point values from eFuse");
+        Serial.printf("Failed to configure ADC channel (err=%d)\n", err);
+        return;
     }
-    else if (val_type == ESP_ADC_CAL_VAL_EFUSE_VREF)
+
+    // Initialize ADC calibration
+    adc_cali_curve_fitting_config_t cali_config = {
+        .unit_id = ADC_UNIT_1,
+        .atten = ADC_ATTEN_DB_2_5,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+    err = adc_cali_create_scheme_curve_fitting(&cali_config, &adc_cali_handle);
+    if (err == ESP_OK)
     {
-        Serial.println("ADC calibration: Vref from eFuse");
+        Serial.println("ADC calibration: Curve Fitting scheme initialized");
     }
     else
     {
-        Serial.println("ADC calibration: Default Vref");
+        Serial.printf("ADC calibration failed (err=%d), readings will be uncalibrated\n", err);
     }
 #endif
 
@@ -111,32 +123,38 @@ void PowerManager::battery_adcDisable()
 uint32_t PowerManager::espAdcRead()
 {
 #ifdef BATTERY_ADC_PIN
+    if (adc1_handle == nullptr)
+    {
+        return 0;
+    }
+
     const uint32_t BATTERY_SENSE_SAMPLES = 15;
     uint32_t raw = 0;
     uint8_t raw_c = 0; // Valid reading counter
 
     // Determine ADC channel from GPIO pin
-    adc1_channel_t adc_channel;
+    adc_channel_t adc_channel;
     if (BATTERY_ADC_PIN == 1)
     {
-        adc_channel = ADC1_CHANNEL_0;
+        adc_channel = ADC_CHANNEL_0;
     }
     else if (BATTERY_ADC_PIN == 4)
     {
-        adc_channel = ADC1_CHANNEL_3;
+        adc_channel = ADC_CHANNEL_3;
     }
     else
     {
-        adc_channel = ADC1_CHANNEL_0;
+        adc_channel = ADC_CHANNEL_0;
     }
 
     // Take multiple samples and average
     for (uint32_t i = 0; i < BATTERY_SENSE_SAMPLES; i++)
     {
-        int val = adc1_get_raw(adc_channel);
-        if (val >= 0)
+        int adc_raw;
+        esp_err_t ret = adc_oneshot_read(adc1_handle, adc_channel, &adc_raw);
+        if (ret == ESP_OK)
         {
-            raw += val;
+            raw += adc_raw;
             raw_c++;
         }
     }
@@ -150,10 +168,10 @@ uint32_t PowerManager::espAdcRead()
 uint16_t PowerManager::readBatteryVoltage()
 {
 #ifdef BATTERY_ADC_PIN
-    // Check if ADC calibration is initialized
-    if (adc_characs == nullptr)
+    // Check if ADC is initialized
+    if (adc1_handle == nullptr)
     {
-        Serial.println("WARNING: ADC not calibrated, returning default voltage");
+        Serial.println("WARNING: ADC not initialized, returning default voltage");
         return 3700; // Default 3.7V
     }
 
@@ -171,7 +189,17 @@ uint16_t PowerManager::readBatteryVoltage()
         uint32_t raw = espAdcRead();
 
         // Convert to voltage using calibration
-        uint32_t voltage_mv = esp_adc_cal_raw_to_voltage(raw, adc_characs);
+        int voltage_mv;
+        if (adc_cali_handle != nullptr)
+        {
+            adc_cali_raw_to_voltage(adc_cali_handle, raw, &voltage_mv);
+        }
+        else
+        {
+            // Fallback if calibration is not available: rough linear conversion
+            // For 12-bit ADC with 2.5dB attenuation (max ~1.1V range), Vref ~1100mV
+            voltage_mv = (raw * 1100) / 4095;
+        }
 
         // Apply voltage divider ratio
         float scaled = voltage_mv * BATTERY_VOLTAGE_DIVIDER;
@@ -199,8 +227,8 @@ uint16_t PowerManager::readBatteryVoltage()
         static uint32_t last_log = 0;
         if (millis() - last_log > 30000)
         {
-            Serial.printf("Battery: raw=%u, cal=%u mV, scaled=%u mV, filtered=%u mV\n",
-                          raw, voltage_mv, (uint32_t)scaled, (uint32_t)last_read_value);
+            Serial.printf("Battery: raw=%lu, cal=%lu mV, scaled=%lu mV, filtered=%lu mV\n",
+                          (unsigned long)raw, (unsigned long)voltage_mv, (unsigned long)scaled, (unsigned long)last_read_value);
             last_log = millis();
         }
     }
