@@ -179,13 +179,6 @@ namespace BufferConstants
 
 namespace PowerConstants
 {
-    /// CPU frequency in MHz (set via platformio.ini CPU_FREQ_MHZ)
-    /// ESP32: 80 MHz for power savings vs 240 MHz max
-    /// ESP32-S3: 160 MHz for balance
-
-    /// Minimum CPU frequency for dynamic frequency scaling
-    constexpr int CPU_MIN_FREQ_MHZ = 20;
-
     /// BLE advertising duration before entering light sleep (milliseconds)
     /// 30 seconds provides good discoverability window while conserving power
     constexpr unsigned long ADVERTISE_DURATION_MS = 30000UL;

@@ -15,16 +15,23 @@ const float MAX_VOLTAGE = 4.2;
 void PowerManager::configurePowerManagement()
 {
 
-    esp_pm_config_esp32s3_t pm_config = {
+    esp_pm_config_t pm_config = {
         .max_freq_mhz = CONFIG_ESP32S3_DEFAULT_CPU_FREQ_MHZ,
-        .min_freq_mhz = PowerConstants::CPU_MIN_FREQ_MHZ,
+        .min_freq_mhz = 80,
         .light_sleep_enable = false}; // Disable light sleep to avoid issues with peripherals
 
     esp_err_t rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
     {
         Serial.printf("Failed to configure power management (err=%d)\n", rv);
+        setCpuFrequencyMhz(160); // Fallback to max frequency
         return;
+    }
+    else
+    {
+        Serial.printf("Power management configured: CPU freq %d-%d MHz\n",
+                      pm_config.min_freq_mhz,
+                      pm_config.max_freq_mhz);
     }
 
     // Configure battery ADC pin
@@ -39,8 +46,7 @@ void PowerManager::configurePowerManagement()
 #endif
 
     // Start with low power CPU frequency (will scale up for radio operations)
-    setCpuLowPower();
-    Serial.println("Power management configured (CPU: 80MHz low-power mode)");
+    Serial.println("Power management configured");
 }
 
 float PowerManager::readBatteryVoltage()
@@ -96,18 +102,6 @@ void PowerManager::disableBluetoothClassic()
     esp_bt_controller_disable();
     esp_bt_controller_deinit();
     Serial.println("Bluetooth Classic disabled");
-}
-
-void PowerManager::setCpuLowPower()
-{
-    // Reduce CPU frequency to 80MHz for power savings
-    setCpuFrequencyMhz(80);
-}
-
-void PowerManager::setCpuFullPower()
-{
-    // Restore full CPU frequency (240MHz) for radio operations
-    setCpuFrequencyMhz(240);
 }
 
 void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
