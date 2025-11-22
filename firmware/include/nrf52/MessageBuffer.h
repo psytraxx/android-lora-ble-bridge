@@ -1,8 +1,8 @@
 #ifndef MESSAGE_BUFFER_H
 #define MESSAGE_BUFFER_H
 
-#include "Protocol.h"
-#include "FirmwareConfig.h"
+#include <common/Protocol.h>
+#include <common/FirmwareConfig.h>
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
 

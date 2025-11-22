@@ -1,4 +1,4 @@
-#include "LoRaManager.h"
+#include <common/LoRaManager.h>
 #include <Arduino.h>
 #include <SPI.h>
 

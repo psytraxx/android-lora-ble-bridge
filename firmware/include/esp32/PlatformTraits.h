@@ -5,7 +5,7 @@
 #include "esp32/MessageBuffer.h"
 #include "esp32/PowerManager.h"
 #include "esp32/LEDManager.h"
-#include "esp32/FirmwareConfig.h"
+#include "common/FirmwareConfig.h"
 #include <Adafruit_SleepyDog.h>
 
 /**

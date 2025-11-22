@@ -3,7 +3,7 @@
 
 #include <RadioLib.h>
 #include <functional>
-#include "Protocol.h"
+#include <common/Protocol.h>
 #include "esp_attr.h"
 
 /**

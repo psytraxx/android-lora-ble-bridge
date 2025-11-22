@@ -2,8 +2,8 @@
 #define BLE_MANAGER_H
 
 #include <NimBLEDevice.h>
-#include "Protocol.h"
-#include "FirmwareConfig.h"
+#include <common/Protocol.h>
+#include <common/FirmwareConfig.h>
 
 /**
  * @file BLEManager.h

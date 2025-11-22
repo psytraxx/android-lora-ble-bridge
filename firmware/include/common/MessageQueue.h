@@ -1,7 +1,7 @@
 #ifndef MESSAGE_QUEUE_H
 #define MESSAGE_QUEUE_H
 
-#include "Protocol.h"
+#include <common/Protocol.h>
 
 // Platform-specific FreeRTOS includes
 #if defined(ARDUINO_ARCH_ESP32)

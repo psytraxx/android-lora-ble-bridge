@@ -10,9 +10,9 @@
 //! - Clean separation of platform-specific vs common code
 
 #include <Arduino.h>
-#include "Protocol.h"
-#include "ApplicationController.h"
-#include "LoRaManager.h"
+#include "common/Protocol.h"
+#include "common/ApplicationController.h"
+#include "common/LoRaManager.h"
 #include "common/MessageQueue.h"
 
 // Select platform traits based on build target

@@ -1,5 +1,5 @@
 #include "esp32/PowerManager.h"
-#include "esp32/FirmwareConfig.h"
+#include "common/FirmwareConfig.h"
 #include <Arduino.h>
 #include <esp_sleep.h>
 #include <esp_wifi.h>

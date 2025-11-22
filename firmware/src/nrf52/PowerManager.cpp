@@ -1,5 +1,5 @@
 #include "nrf52/PowerManager.h"
-#include "nrf52/FirmwareConfig.h"
+#include "common/FirmwareConfig.h"
 #include <Arduino.h>
 
 // nRF52 power management includes

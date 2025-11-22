@@ -3,9 +3,9 @@
 
 #include <bluefruit.h>
 #include <Arduino.h>
-#include "Protocol.h"
-#include "FirmwareConfig.h"
-#include "common/MessageQueue.h"
+#include <common/Protocol.h>
+#include <common/FirmwareConfig.h>
+#include <common/MessageQueue.h>
 
 /**
  * @brief BLE manager for nRF52 using Bluefruit library
@@ -17,7 +17,7 @@ class BLEManager
 {
 public:
     /// Construct with a message queue to post incoming BLE messages to (LoRa side)
-    explicit BLEManager(MessageQueue* bleToLoraQueue);
+    explicit BLEManager(MessageQueue *bleToLoraQueue);
 
     /// Initialize BLE stack and create service/characteristics.
     /// @param deviceName The BLE device name to advertise
@@ -53,21 +53,21 @@ public:
     // Bluefruit callbacks (public for callback registration)
     static void connectCallback(uint16_t conn_handle);
     static void disconnectCallback(uint16_t conn_handle, uint8_t reason);
-    static void rxWriteCallback(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len);
-    static void cccdCallback(uint16_t conn_hdl, BLECharacteristic* chr, uint16_t value);
+    static void rxWriteCallback(uint16_t conn_hdl, BLECharacteristic *chr, uint8_t *data, uint16_t len);
+    static void cccdCallback(uint16_t conn_hdl, BLECharacteristic *chr, uint16_t value);
 
 private:
     // BLE Services
-    BLEDis bledis;    // Device Information Service
-    BLEUart bleuart;  // UART Service (not used, but helpful for debugging)
-    BLEBas blebas;    // Battery Service
+    BLEDis bledis;   // Device Information Service
+    BLEUart bleuart; // UART Service (not used, but helpful for debugging)
+    BLEBas blebas;   // Battery Service
 
     // Custom LoRa service and characteristics
     BLEService loraService;
     BLECharacteristic txCharacteristic;
     BLECharacteristic rxCharacteristic;
 
-    MessageQueue* bleToLoraQueue;
+    MessageQueue *bleToLoraQueue;
     String deviceNameStr;
 
     bool notificationsEnabled{false};
@@ -79,10 +79,10 @@ private:
     void (*disconnectCallback_user)(){nullptr};
 
     // Singleton for callbacks
-    static BLEManager* instance;
+    static BLEManager *instance;
 
     // Internal handlers
-    void handleRxWrite(uint8_t* data, uint16_t len);
+    void handleRxWrite(uint8_t *data, uint16_t len);
     void handleCccdWrite(uint16_t value);
 };
 

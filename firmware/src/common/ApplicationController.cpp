@@ -1,4 +1,4 @@
-#include "ApplicationController.h"
+#include "common/ApplicationController.h"
 #include <Arduino.h>
 
 ApplicationController::ApplicationController()

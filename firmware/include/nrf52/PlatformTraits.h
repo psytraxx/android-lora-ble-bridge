@@ -4,7 +4,7 @@
 #include "nrf52/BLEManager.h"
 #include "nrf52/MessageBuffer.h"
 #include "nrf52/PowerManager.h"
-#include "nrf52/FirmwareConfig.h"
+#include "common/FirmwareConfig.h"
 #include <Adafruit_SleepyDog.h>
 
 /**
