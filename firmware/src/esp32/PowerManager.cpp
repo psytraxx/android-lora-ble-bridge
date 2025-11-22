@@ -34,34 +34,35 @@ void PowerManager::configurePowerManagement()
                       pm_config.max_freq_mhz);
     }
 
-    // Configure battery ADC pin
-#ifdef BATTERY_ADC_PIN
-    pinMode(BATTERY_ADC_PIN, INPUT);
-
-#ifdef BATTERY_ADC_CTRL
-    // Enable battery voltage reading (Heltec boards)
-    pinMode(BATTERY_ADC_CTRL, OUTPUT);
-    digitalWrite(BATTERY_ADC_CTRL, LOW); // Enable ADC reading
-#endif
-#endif
-
-    // Start with low power CPU frequency (will scale up for radio operations)
     Serial.println("Power management configured");
 }
 
 float PowerManager::readBatteryVoltage()
 {
 #ifdef BATTERY_ADC_PIN
+#ifdef BATTERY_ADC_CTRL
+    // Enable battery voltage reading (Heltec boards)
+    // Set control pin LOW to enable the voltage divider circuit
+    pinMode(BATTERY_ADC_CTRL, OUTPUT);
+    digitalWrite(BATTERY_ADC_CTRL, LOW);
+    delay(5); // Wait for voltage to stabilize
+#endif
+
     // Read ADC value
     int rawValue = analogRead(BATTERY_ADC_PIN);
 
-    // Convert to voltage (ESP32 ADC is 12-bit, 0-4095, reference ~3.3V)
-    float voltage = (rawValue / 4095.0) * 3.3;
-
-    // Apply voltage divider scaling
-#ifdef BATTERY_VOLTAGE_DIVIDER
-    voltage *= BATTERY_VOLTAGE_DIVIDER;
+#ifdef BATTERY_ADC_CTRL
+    // Disable battery voltage reading to save power
+    pinMode(BATTERY_ADC_CTRL, INPUT);
 #endif
+
+    // For Heltec boards with voltage divider: 390kΩ - GPIO1 - 100kΩ - GND
+    // The heltec_unofficial library uses: analogRead(VBAT_ADC) / 238.7
+    // This calibration constant accounts for the voltage divider ratio and ADC scaling
+
+    // Calculate voltage using calibrated divisor
+    // rawValue is 12-bit (0-4095), this formula converts to actual battery voltage
+    float voltage = rawValue / 238.7;
 
     return voltage;
 #else
