@@ -22,6 +22,14 @@ bool PowerManager::begin()
     analogReadResolution(PowerConstants::ADC_RESOLUTION_BITS);
     analogReference(AR_INTERNAL); // Use internal 0.6V reference
 
+#ifdef BATTERY_ADC_CTRL
+    // Initialize VBAT_ENABLE to HIGH (disabled state) to save power
+    // Enable only when reading battery voltage
+    pinMode(BATTERY_ADC_CTRL, OUTPUT);
+    digitalWrite(BATTERY_ADC_CTRL, HIGH);
+    Serial.printf("Battery ADC control pin (GPIO %d) initialized to disabled\n", BATTERY_ADC_CTRL);
+#endif
+
 #ifdef ARDUINO_ARCH_NRF52
     // Enable DC/DC converter for better power efficiency
     // This can reduce power consumption by 20-30%
@@ -38,6 +46,24 @@ bool PowerManager::begin()
 
     Serial.println("PowerManager initialized");
     return true;
+}
+
+void PowerManager::battery_adcEnable()
+{
+#ifdef BATTERY_ADC_CTRL
+    // Enable battery voltage divider (set VBAT_ENABLE LOW)
+    pinMode(BATTERY_ADC_CTRL, OUTPUT);
+    digitalWrite(BATTERY_ADC_CTRL, LOW);
+    delay(10); // Wait for voltage to stabilize
+#endif
+}
+
+void PowerManager::battery_adcDisable()
+{
+#ifdef BATTERY_ADC_CTRL
+    // Disable battery voltage divider to save power (set VBAT_ENABLE HIGH)
+    digitalWrite(BATTERY_ADC_CTRL, HIGH);
+#endif
 }
 
 uint8_t PowerManager::voltageToPercentage(uint16_t voltagePerCellMv)
@@ -87,8 +113,11 @@ uint16_t PowerManager::readBatteryVoltage()
     {
         last_read_time_ms = millis();
 
+        // Enable battery ADC (set VBAT_ENABLE LOW on Seeed XIAO)
+        battery_adcEnable();
+
         // Read battery voltage from ADC with averaging
-        // XIAO nRF52840: Battery voltage is divided by 2 on P0.31
+        // XIAO nRF52840: Battery voltage may be divided by hardware
         uint32_t adcSum = 0;
         for (uint32_t i = 0; i < BATTERY_SENSE_SAMPLES; i++)
         {
@@ -96,10 +125,14 @@ uint16_t PowerManager::readBatteryVoltage()
         }
         int adcValue = adcSum / BATTERY_SENSE_SAMPLES;
 
+        // Disable battery ADC to save power (set VBAT_ENABLE HIGH)
+        battery_adcDisable();
+
         // Convert ADC value to voltage in millivolts
-        // nRF52840: 12-bit ADC with 0.6V internal reference
-        // With gain = 1/6, can measure up to 3.6V
-        float voltage_mv = (adcValue / 4095.0) * PowerConstants::ADC_VREF *
+        // nRF52840: 12-bit ADC (0-4095) with 0.6V internal reference and 1/6 gain
+        // Max measurable voltage = 0.6V * 6 = 3.6V at ADC value 4095
+        // voltage_mv = (adcValue / 4095.0) * 3600.0 * BATTERY_DIVIDER
+        float voltage_mv = (adcValue / 4095.0) * PowerConstants::ADC_MAX_VOLTAGE *
                            PowerConstants::BATTERY_DIVIDER * 1000.0;
 
         if (!initial_read_done)
@@ -153,15 +186,17 @@ uint8_t PowerManager::readBatteryLevel()
 
 void PowerManager::enterLowPowerMode()
 {
-    // Serial.println("Entering System OFF mode...");
-
-    pinMode(LORA_RXEN, INPUT_SENSE_HIGH);
+    Serial.println("Entering System OFF mode...");
 
 #ifdef ARDUINO_ARCH_NRF52
+    // Configure LoRa RXEN pin mode before sense setup
+    pinMode(LORA_RXEN, INPUT_SENSE_HIGH);
     // Configure LoRa RXEN as wake-up source (wake on HIGH)
     nrf_gpio_cfg_sense_input(LORA_RXEN, NRF_GPIO_PIN_PULLDOWN, NRF_GPIO_PIN_SENSE_HIGH);
     Serial.printf("Wake source: LoRa RXEN (GPIO %d) - wake on HIGH\n", LORA_RXEN);
 
+    // Configure wake button pin mode before sense setup
+    pinMode(WAKE_BUTTON, INPUT_PULLUP);
     // Configure wake button as wake-up source (wake on LOW)
     nrf_gpio_cfg_sense_input(WAKE_BUTTON, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
     Serial.printf("Wake source: Wake button (GPIO %d) - wake on LOW\n", WAKE_BUTTON);
@@ -171,10 +206,11 @@ void PowerManager::enterLowPowerMode()
     delay(100); // Allow time for serial transmission
 
     // Enter System OFF mode (lowest power state)
-    // Current: ~0.002mA with RAM retention
-    // Device will reset on wake (execution starts from setup())
-    // sd_power_system_off();
-
+    // Current: ~0.2µA (all RAM and peripherals powered down)
+    // Device will perform full reset on wake (execution starts from setup())
+    //
+    // Note: Use sd_power_system_off() if SoftDevice (BLE stack) is active
+    // For now, we shut down BLE before entering sleep, so direct register access is safe
     NRF_POWER->SYSTEMOFF = 1;
 
     // This line should never be reached

@@ -27,6 +27,12 @@ public:
     void enterLowPowerMode();
 
 private:
+    /// Enable battery ADC (set VBAT_ENABLE low)
+    void battery_adcEnable();
+
+    /// Disable battery ADC to save power (set VBAT_ENABLE high)
+    void battery_adcDisable();
+
     /// Get battery percentage from voltage using OCV lookup table
     static uint8_t voltageToPercentage(uint16_t voltagePerCellMv);
 

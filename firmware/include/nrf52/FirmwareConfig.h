@@ -140,8 +140,9 @@ namespace PowerConstants
     /// BATTERY_VOLTAGE_DIVIDER
     constexpr float BATTERY_DIVIDER = BATTERY_VOLTAGE_DIVIDER;
 
-    /// ADC reference voltage for nRF52840 (internal reference)
-    constexpr float ADC_VREF = 3.6; // Volts
+    /// ADC maximum input voltage for nRF52840
+    /// Uses internal 0.6V reference with 1/6 gain = 0.6V * 6 = 3.6V max measurable range
+    constexpr float ADC_MAX_VOLTAGE = 3.6; // Volts
 
     /// ADC resolution bits (nRF52840 supports 8, 10, 12, 14-bit)
     constexpr int ADC_RESOLUTION_BITS = 12; // 12-bit = 0-4095

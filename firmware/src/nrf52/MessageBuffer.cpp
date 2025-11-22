@@ -103,6 +103,23 @@ bool MessageBuffer::peek(Message &msg)
     char filename[32];
     getMessageFilename(m_tail, filename, sizeof(filename));
 
+    // Check if file exists before trying to open
+    if (!InternalFS.exists(filename))
+    {
+        Serial.print("Message file missing (possible corruption): ");
+        Serial.println(filename);
+
+        // File is missing but state says it should exist - corruption detected
+        // Remove this entry from the queue and reset count
+        Serial.println("Auto-recovering: removing missing entry from queue");
+        m_tail = (m_tail + 1) % MAX_MESSAGES;
+        m_count--;
+        if (m_count < 0) m_count = 0;
+        saveState();
+
+        return false;
+    }
+
     File file = InternalFS.open(filename, FILE_O_READ);
     if (!file)
     {
@@ -118,14 +135,26 @@ bool MessageBuffer::peek(Message &msg)
 
     if (len == 0)
     {
-        Serial.println("Empty message file");
+        Serial.println("Empty message file - removing corrupt entry");
+        // Remove corrupt empty file
+        InternalFS.remove(filename);
+        m_tail = (m_tail + 1) % MAX_MESSAGES;
+        m_count--;
+        if (m_count < 0) m_count = 0;
+        saveState();
         return false;
     }
 
     // Deserialize
     if (!msg.deserialize(buffer, len))
     {
-        Serial.println("Failed to deserialize buffered message");
+        Serial.println("Failed to deserialize buffered message - removing corrupt entry");
+        // Remove corrupt unreadable file
+        InternalFS.remove(filename);
+        m_tail = (m_tail + 1) % MAX_MESSAGES;
+        m_count--;
+        if (m_count < 0) m_count = 0;
+        saveState();
         return false;
     }
 
@@ -231,10 +260,52 @@ void MessageBuffer::loadState()
         m_tail < 0 || m_tail >= (int)MAX_MESSAGES ||
         m_count < 0 || m_count > (int)MAX_MESSAGES)
     {
-        Serial.println("Corrupt buffer state, resetting");
+        Serial.println("Corrupt buffer state (invalid indices), resetting");
         m_head = 0;
         m_tail = 0;
         m_count = 0;
+        return;
+    }
+
+    // Verify that expected message files actually exist
+    // If files are missing, the state is corrupt (incomplete write/filesystem issue)
+    if (m_count > 0)
+    {
+        int missingFiles = 0;
+        int idx = m_tail;
+        for (int i = 0; i < m_count; i++)
+        {
+            char filename[32];
+            getMessageFilename(idx, filename, sizeof(filename));
+
+            if (!InternalFS.exists(filename))
+            {
+                Serial.print("Warning: Expected message file missing: ");
+                Serial.println(filename);
+                missingFiles++;
+            }
+
+            idx = (idx + 1) % MAX_MESSAGES;
+        }
+
+        if (missingFiles > 0)
+        {
+            Serial.print("Found ");
+            Serial.print(missingFiles);
+            Serial.println(" missing message files - clearing corrupt state");
+
+            // Clear all message files and reset state
+            clear();
+            m_head = 0;
+            m_tail = 0;
+            m_count = 0;
+            m_initialized = true; // Set before saveState
+            saveState();
+        }
+        else
+        {
+            Serial.println("All expected message files verified");
+        }
     }
 }
 
