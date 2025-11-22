@@ -54,7 +54,6 @@ static MessageQueue loraToBleQueue;
 static unsigned long lastBatteryUpdate = 0;
 static constexpr unsigned long BATTERY_UPDATE_INTERVAL = 60000; // 1 minute
 
-
 // ============================================================================
 // Forward Declarations
 // ============================================================================
@@ -219,8 +218,8 @@ void loop()
         }
     }
 
-    // Send buffered messages
-    if (bleManager->isConnected() && !storageManager->isEmpty())
+    // Send buffered messages only when client is connected and has enabled notifications
+    if (bleManager->isConnected() && bleManager->areNotificationsEnabled() && Platform::isAndroidReady(*activityManager) && !storageManager->isEmpty())
     {
         Message bufferedMsg;
         if (storageManager->peek(bufferedMsg))
@@ -232,6 +231,10 @@ void loop()
                 Serial.print(storageManager->getCount());
                 Serial.println(" remaining");
                 Platform::markActivity(*activityManager);
+            }
+            else
+            {
+                Serial.println("Failed to send buffered message (notify failed), will retry");
             }
         }
     }
@@ -266,11 +269,11 @@ void loop()
 
         Platform::ledOff();
 
-        #if defined(ARDUINO_ARCH_ESP32)
+#if defined(ARDUINO_ARCH_ESP32)
         PowerManager::enterDeepSleep();
-        #elif defined(ARDUINO_ARCH_NRF52)
+#elif defined(ARDUINO_ARCH_NRF52)
         powerManager->enterLowPowerMode();
-        #endif
+#endif
 
         // Should not reach here (device resets on wake)
     }

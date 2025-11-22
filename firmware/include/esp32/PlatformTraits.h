@@ -112,6 +112,7 @@ struct ESP32PlatformTraits
     static void onBleConnected(ActivityManager &mgr) { mgr.onBleConnected(); }
     static void onBleDisconnected(ActivityManager &mgr) { mgr.onBleDisconnected(); }
     static bool isBleConnected(ActivityManager &mgr) { return mgr.isConnected(); }
+    static bool isAndroidReady(ActivityManager &mgr) { return mgr.isAndroidReady(); }
 };
 
 #ifdef LED_PIN

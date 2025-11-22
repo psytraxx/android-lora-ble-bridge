@@ -146,6 +146,7 @@ struct NRF52PlatformTraits
     static void onBleConnected(ActivityManager &mgr) { mgr.setBLEConnected(true); }
     static void onBleDisconnected(ActivityManager &mgr) { mgr.setBLEConnected(false); }
     static bool isBleConnected(ActivityManager &mgr) { return mgr.isBLEConnected(); }
+    static bool isAndroidReady(ActivityManager &mgr) { (void)mgr; return true; }
 };
 
 // Define static LED state variables
