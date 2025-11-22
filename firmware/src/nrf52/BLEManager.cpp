@@ -42,14 +42,16 @@ bool BLEManager::setup(const char *deviceName)
     // Configure TX Characteristic (ESP32 -> Android)
     txCharacteristic.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY);
     txCharacteristic.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-    txCharacteristic.setFixedLen(BufferConstants::MAX_PROTOCOL_MESSAGE);
+    // Use variable-length characteristic (default) for efficient BLE bandwidth usage
+    // Removes fixed-length padding - matches ESP32 implementation
     txCharacteristic.setCccdWriteCallback(BLEManager::cccdCallback);
     txCharacteristic.begin();
 
     // Configure RX Characteristic (Android -> ESP32)
     rxCharacteristic.setProperties(CHR_PROPS_WRITE | CHR_PROPS_WRITE_WO_RESP);
     rxCharacteristic.setPermission(SECMODE_NO_ACCESS, SECMODE_OPEN);
-    rxCharacteristic.setFixedLen(BufferConstants::MAX_PROTOCOL_MESSAGE);
+    // Use variable-length characteristic (default) for efficient BLE bandwidth usage
+    // Allows messages of any size up to MTU - matches ESP32 implementation
     rxCharacteristic.setWriteCallback(BLEManager::rxWriteCallback);
     rxCharacteristic.begin();
 

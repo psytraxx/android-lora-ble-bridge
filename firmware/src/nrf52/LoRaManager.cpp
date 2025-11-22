@@ -151,6 +151,32 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
         return false;
     }
 
+    // Step 1: Send WakeUp message (blocking) to wake duty-cycled receivers
+    // This ensures ESP32 devices in duty-cycle RX mode wake up before the actual message
+    Serial.println("Sending WakeUp message...");
+    Message wakeUpMsg = Message::createWakeUp();
+    uint8_t wakeUpBuf[64];
+    int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
+
+    if (wakeUpLen > 0)
+    {
+        radio->clearPacketReceivedAction();
+        int wakeUpState = radio->transmit(wakeUpBuf, wakeUpLen); // Blocking transmission
+
+        if (wakeUpState == RADIOLIB_ERR_NONE)
+        {
+            Serial.println("WakeUp sent successfully");
+        }
+        else
+        {
+            Serial.printf("WakeUp failed, code %d - continuing anyway\n", wakeUpState);
+        }
+
+        // Wait for receiver to wake up and switch to continuous RX mode
+        delay(LoRaConstants::WAKEUP_TO_MESSAGE_DELAY_MS);
+    }
+
+    // Step 2: Send actual message (non-blocking)
     Serial.print("Starting transmission of ");
     Serial.print(len);
     Serial.println(" bytes");

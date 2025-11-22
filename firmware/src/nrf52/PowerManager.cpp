@@ -189,11 +189,11 @@ void PowerManager::enterLowPowerMode()
     Serial.println("Entering System OFF mode...");
 
 #ifdef ARDUINO_ARCH_NRF52
-    // Configure LoRa RXEN pin mode before sense setup
-    pinMode(LORA_RXEN, INPUT_SENSE_HIGH);
-    // Configure LoRa RXEN as wake-up source (wake on HIGH)
-    nrf_gpio_cfg_sense_input(LORA_RXEN, NRF_GPIO_PIN_PULLDOWN, NRF_GPIO_PIN_SENSE_HIGH);
-    Serial.printf("Wake source: LoRa RXEN (GPIO %d) - wake on HIGH\n", LORA_RXEN);
+    // Configure LoRa DIO0 interrupt pin as wake-up source
+    // DIO0 goes HIGH when packet is received (matches ESP32 configuration)
+    pinMode(LORA_DIO0, INPUT_SENSE_HIGH);
+    nrf_gpio_cfg_sense_input(LORA_DIO0, NRF_GPIO_PIN_PULLDOWN, NRF_GPIO_PIN_SENSE_HIGH);
+    Serial.printf("Wake source: LoRa DIO0 (GPIO %d) - wake on HIGH\n", LORA_DIO0);
 
     // Configure wake button pin mode before sense setup
     pinMode(WAKE_BUTTON, INPUT_PULLUP);
