@@ -133,12 +133,6 @@ namespace BLEConstants
     /// Allows NimBLE stack to clean up connection state
     constexpr int DISCONNECT_SETTLE_MS = 300;
 
-    /// Time to wait after new connection before sending buffered messages
-    /// Allows Android to: request MTU, discover services, enable notifications
-    /// Increased to 1000ms to ensure Android has enabled notifications before
-    /// sending buffered messages (500ms was too short in testing)
-    constexpr int CONNECTION_SETUP_DELAY_MS = 1000;
-
     /// Spacing between consecutive BLE message sends to avoid overwhelming stack
     constexpr int MESSAGE_SPACING_MS = 500;
 }

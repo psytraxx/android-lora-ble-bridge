@@ -1,9 +1,16 @@
 #ifndef APPLICATION_CONTROLLER_H
 #define APPLICATION_CONTROLLER_H
 
-#include "FirmwareConfig.h"
+// Platform-specific FreeRTOS includes
+#if defined(ARDUINO_ARCH_ESP32)
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#elif defined(ARDUINO_ARCH_NRF52)
+#include <FreeRTOS.h>
+#include <semphr.h>
+#else
+#error "Unsupported platform"
+#endif
 
 /**
  * @file ApplicationController.h

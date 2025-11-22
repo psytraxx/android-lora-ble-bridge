@@ -1,5 +1,4 @@
-#include "esp32/ApplicationController.h"
-#include <esp_timer.h>
+#include "ApplicationController.h"
 #include <Arduino.h>
 
 ApplicationController::ApplicationController()
@@ -132,7 +131,7 @@ unsigned long ApplicationController::getConnectionDuration() const
 
 bool ApplicationController::isAndroidReady() const
 {
-    return getConnectionDuration() >= BLEConstants::CONNECTION_SETUP_DELAY_MS;
+    return getConnectionDuration() >= 1000; // 1000ms delay for Android GATT setup
 }
 
 // ============================================================================
@@ -141,5 +140,5 @@ bool ApplicationController::isAndroidReady() const
 
 unsigned long ApplicationController::getCurrentTimeMillis() const
 {
-    return esp_timer_get_time() / 1000ULL;
+    return millis();
 }

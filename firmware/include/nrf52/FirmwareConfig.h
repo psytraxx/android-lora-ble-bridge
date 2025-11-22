@@ -85,9 +85,6 @@ namespace BLEConstants
     /// Time to wait after disconnect before restarting advertising
     constexpr int DISCONNECT_SETTLE_MS = 300;
 
-    /// Time to wait after new connection before sending buffered messages
-    constexpr int CONNECTION_SETUP_DELAY_MS = 1000;
-
     /// Spacing between consecutive BLE message sends to avoid overwhelming stack
     constexpr int MESSAGE_SPACING_MS = 500;
 }

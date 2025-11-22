@@ -5,7 +5,6 @@
 #include "esp32/LoRaManager.h"
 #include "esp32/MessageBuffer.h"
 #include "esp32/PowerManager.h"
-#include "esp32/ApplicationController.h"
 #include "esp32/LEDManager.h"
 #include "esp32/FirmwareConfig.h"
 #include <Adafruit_SleepyDog.h>
@@ -24,7 +23,6 @@ struct ESP32PlatformTraits
     using BLEManager = ::BLEManager;
     using LoRaManager = ::LoRaManager;
     using StorageManager = ::MessageBuffer;
-    using ActivityManager = ::ApplicationController;
 
     // ========================================================================
     // Platform Capabilities
@@ -102,17 +100,6 @@ struct ESP32PlatformTraits
     static void ledBlink(int count) { (void)count; }
     static void updateLED() {}
 #endif
-
-    // ========================================================================
-    // Activity Management Wrappers
-    // ========================================================================
-
-    static void markActivity(ActivityManager &mgr) { mgr.notifyActivity(); }
-    static unsigned long getInactivityDuration(ActivityManager &mgr) { return mgr.getInactivityDuration(); }
-    static void onBleConnected(ActivityManager &mgr) { mgr.onBleConnected(); }
-    static void onBleDisconnected(ActivityManager &mgr) { mgr.onBleDisconnected(); }
-    static bool isBleConnected(ActivityManager &mgr) { return mgr.isConnected(); }
-    static bool isAndroidReady(ActivityManager &mgr) { return mgr.isAndroidReady(); }
 };
 
 #ifdef LED_PIN

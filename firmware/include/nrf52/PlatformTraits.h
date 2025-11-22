@@ -5,7 +5,6 @@
 #include "nrf52/LoRaManager.h"
 #include "nrf52/MessageBuffer.h"
 #include "nrf52/PowerManager.h"
-#include "nrf52/ApplicationController.h"
 #include "nrf52/FirmwareConfig.h"
 #include <Adafruit_SleepyDog.h>
 
@@ -24,7 +23,6 @@ struct NRF52PlatformTraits
     using LoRaManager = ::LoRaManager;
     using StorageManager = ::MessageBuffer;
     using PowerManager = ::PowerManager;
-    using ActivityManager = ::ApplicationController;
 
     // ========================================================================
     // Platform Capabilities
@@ -135,22 +133,6 @@ struct NRF52PlatformTraits
                 lastBlinkChange = now;
             }
         }
-    }
-
-    // ========================================================================
-    // Activity Management Wrappers
-    // ========================================================================
-
-    static void markActivity(ActivityManager &mgr) { mgr.markActivity(); }
-    static unsigned long getInactivityDuration(ActivityManager &mgr) { return mgr.getTimeSinceLastActivity(); }
-    static void onBleConnected(ActivityManager &mgr) { mgr.setBLEConnected(true); }
-    static void onBleDisconnected(ActivityManager &mgr) { mgr.setBLEConnected(false); }
-    static bool isBleConnected(ActivityManager &mgr) { return mgr.isBLEConnected(); }
-    static bool isAndroidReady(ActivityManager &mgr)
-    {
-        // Wait for Android/PWA to complete BLE GATT setup (service discovery, enable notifications)
-        // Same 1000ms delay as ESP32 to ensure PWA is ready before sending buffered messages
-        return mgr.getConnectionDuration() >= BLEConstants::CONNECTION_SETUP_DELAY_MS;
     }
 };
 

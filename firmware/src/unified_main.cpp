@@ -11,6 +11,7 @@
 
 #include <Arduino.h>
 #include "Protocol.h"
+#include "ApplicationController.h"
 #include "common/MessageQueue.h"
 
 // Select platform traits based on build target
@@ -34,11 +35,13 @@ using Platform = NRF52PlatformTraits;
 static typename Platform::BLEManager *bleManager = nullptr;
 static typename Platform::LoRaManager *loraManager = nullptr;
 static typename Platform::StorageManager *storageManager = nullptr;
-static typename Platform::ActivityManager *activityManager = nullptr;
 
 // Static storage for manager instances (avoids heap allocation)
-static typename Platform::ActivityManager activityManagerInstance;
 static typename Platform::StorageManager storageManagerInstance;
+
+// Application controller (activity tracking and state management)
+static ApplicationController *appController = nullptr;
+static ApplicationController appControllerInstance;
 
 // nRF52 needs PowerManager instance, ESP32 uses static methods
 #if defined(ARDUINO_ARCH_NRF52)
@@ -88,8 +91,9 @@ void setup()
     Platform::initializeLED();
     Platform::ledOn();
 
-    // Initialize activity manager (static allocation)
-    activityManager = &activityManagerInstance;
+    // Initialize application controller (static allocation)
+    appController = &appControllerInstance;
+    appController->begin();
 
     // Initialize storage manager (static allocation)
     storageManager = &storageManagerInstance;
@@ -203,7 +207,7 @@ void loop()
             {
                 if (bleManager->sendMessage(msg))
                 {
-                    Platform::markActivity(*activityManager);
+                    appController->notifyActivity();
                 }
                 else
                 {
@@ -219,7 +223,7 @@ void loop()
     }
 
     // Send buffered messages only when client is connected and has enabled notifications
-    if (bleManager->isConnected() && bleManager->areNotificationsEnabled() && Platform::isAndroidReady(*activityManager) && !storageManager->isEmpty())
+    if (bleManager->isConnected() && bleManager->areNotificationsEnabled() && appController->isAndroidReady() && !storageManager->isEmpty())
     {
         Message bufferedMsg;
         if (storageManager->peek(bufferedMsg))
@@ -230,7 +234,7 @@ void loop()
                 Serial.print("Sent buffered message, ");
                 Serial.print(storageManager->getCount());
                 Serial.println(" remaining");
-                Platform::markActivity(*activityManager);
+                appController->notifyActivity();
             }
             else
             {
@@ -259,7 +263,7 @@ void loop()
     }
 
     // Inactivity timeout - enter deep sleep to save power
-    unsigned long inactiveTime = Platform::getInactivityDuration(*activityManager);
+    unsigned long inactiveTime = appController->getInactivityDuration();
 
     if (inactiveTime > Platform::INACTIVITY_TIMEOUT_MS)
     {
@@ -288,15 +292,14 @@ void loop()
 void onBleConnected()
 {
     Serial.println("BLE connected");
-    Platform::onBleConnected(*activityManager);
-    Platform::markActivity(*activityManager);
+    appController->onBleConnected();
     Platform::ledOn();
 }
 
 void onBleDisconnected()
 {
     Serial.println("BLE disconnected");
-    Platform::onBleDisconnected(*activityManager);
+    appController->onBleDisconnected();
     Platform::ledOff();
 }
 
@@ -346,7 +349,7 @@ void onLoRaReceived(const LoRaPacket &packet)
 
         if (loraToBleQueue.push(msg))
         {
-            Platform::markActivity(*activityManager);
+            appController->notifyActivity();
         }
         else
         {
@@ -386,7 +389,7 @@ void handleBleMessage(const Message &msg)
     {
         if (loraManager->startTransmit(buffer, (size_t)length))
         {
-            Platform::markActivity(*activityManager);
+            appController->notifyActivity();
         }
         else
         {
