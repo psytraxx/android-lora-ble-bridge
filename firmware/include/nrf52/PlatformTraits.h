@@ -148,8 +148,9 @@ struct NRF52PlatformTraits
     static bool isBleConnected(ActivityManager &mgr) { return mgr.isBLEConnected(); }
     static bool isAndroidReady(ActivityManager &mgr)
     {
-        (void)mgr;
-        return true;
+        // Wait for Android/PWA to complete BLE GATT setup (service discovery, enable notifications)
+        // Same 1000ms delay as ESP32 to ensure PWA is ready before sending buffered messages
+        return mgr.getConnectionDuration() >= BLEConstants::CONNECTION_SETUP_DELAY_MS;
     }
 };
 

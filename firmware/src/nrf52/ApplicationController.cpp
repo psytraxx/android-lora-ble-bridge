@@ -3,6 +3,7 @@
 ApplicationController::ApplicationController()
     : bleConnected(false),
       lastActivityTime(0),
+      connectionEstablishedTime(0),
       messagesSent(0),
       messagesReceived(0)
 {
@@ -14,6 +15,11 @@ void ApplicationController::setBLEConnected(bool connected)
     if (connected)
     {
         lastActivityTime = millis();
+        connectionEstablishedTime = millis();
+    }
+    else
+    {
+        connectionEstablishedTime = 0;
     }
 }
 
@@ -39,6 +45,15 @@ unsigned long ApplicationController::getTimeSinceLastActivity() const
         return 0;
     }
     return millis() - lastActivityTime;
+}
+
+unsigned long ApplicationController::getConnectionDuration() const
+{
+    if (!bleConnected || connectionEstablishedTime == 0)
+    {
+        return 0;
+    }
+    return millis() - connectionEstablishedTime;
 }
 
 void ApplicationController::incrementMessagesSent()

@@ -22,6 +22,9 @@ public:
     unsigned long getLastActivityTime() const;
     unsigned long getTimeSinceLastActivity() const;
 
+    // Connection duration tracking (for Android BLE setup delay)
+    unsigned long getConnectionDuration() const;
+
     // Message counters
     void incrementMessagesSent();
     void incrementMessagesReceived();
@@ -32,6 +35,7 @@ private:
     // State variables
     bool bleConnected;
     unsigned long lastActivityTime;
+    unsigned long connectionEstablishedTime;
     uint32_t messagesSent;
     uint32_t messagesReceived;
 };
