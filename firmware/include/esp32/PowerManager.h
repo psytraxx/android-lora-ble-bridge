@@ -113,6 +113,22 @@ public:
 
     static void disableBluetoothClassic();
 
+    /**
+     * @brief Set CPU frequency to low power mode
+     *
+     * Reduces CPU frequency to 80MHz for power savings during idle periods.
+     * Call this when system is waiting for events (BLE/LoRa).
+     */
+    static void setCpuLowPower();
+
+    /**
+     * @brief Set CPU frequency to full power mode
+     *
+     * Restores CPU frequency to 240MHz for radio operations and processing.
+     * Call this before time-critical operations (LoRa TX/RX, BLE).
+     */
+    static void setCpuFullPower();
+
 private:
     /**
      * @brief Disable external peripherals by setting VEXT to input mode

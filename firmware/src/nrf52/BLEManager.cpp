@@ -160,6 +160,15 @@ void BLEManager::connectCallback(uint16_t conn_handle)
 
         instance->isConnectedFlag = true;
 
+        // Request power-optimized connection parameters
+        // Bluefruit API: conn_interval (1.25ms units), slave_latency, sup_timeout (10ms units)
+        // 160 units * 1.25ms = 200ms interval for power savings
+        if (connection)
+        {
+            connection->requestConnectionParameter(160, 0, 400);
+            Serial.println("Requested power-optimized connection params (200ms interval)");
+        }
+
         if (instance->connectCallback_user)
         {
             instance->connectCallback_user();

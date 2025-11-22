@@ -148,6 +148,17 @@ namespace PowerConstants
 }
 
 //==============================================================================
+// Watchdog Configuration
+//==============================================================================
+
+namespace WatchdogConstants
+{
+    /// Watchdog timeout in seconds
+    /// LoRa TX at SF11+BW31kHz can take 2-3s, so 10s provides safe margin
+    constexpr int TIMEOUT_SECONDS = 10;
+}
+
+//==============================================================================
 // LED Configuration
 //==============================================================================
 

@@ -7,6 +7,7 @@
 #include "nrf52/PowerManager.h"
 #include "nrf52/ApplicationController.h"
 #include "nrf52/FirmwareConfig.h"
+#include <Adafruit_SleepyDog.h>
 
 /**
  * @brief nRF52 Platform Traits
@@ -29,7 +30,7 @@ struct NRF52PlatformTraits
     // Platform Capabilities
     // ========================================================================
 
-    static constexpr bool HAS_WATCHDOG = false;
+    static constexpr bool HAS_WATCHDOG = true;
     static constexpr bool HAS_LED_MANAGER = false; // Uses direct GPIO
     static constexpr bool BLE_USES_QUEUE = true;   // nRF52 uses queue
 
@@ -45,8 +46,18 @@ struct NRF52PlatformTraits
     // Platform-Specific Initialization
     // ========================================================================
 
-    static void initializeWatchdog() {}  // No watchdog on nRF52
-    static void resetWatchdog() {}
+    static void initializeWatchdog()
+    {
+        int watchdogMS = Watchdog.enable(WatchdogConstants::TIMEOUT_SECONDS * 1000);
+        Serial.print("Watchdog enabled: ");
+        Serial.print(watchdogMS);
+        Serial.println(" ms");
+    }
+
+    static void resetWatchdog()
+    {
+        Watchdog.reset();
+    }
 
     static void initializePower() {}  // PowerManager initialized via begin()
 
@@ -56,13 +67,24 @@ struct NRF52PlatformTraits
     }
 
     // ========================================================================
-    // LED Control (Direct GPIO)
+    // LED Control (Direct GPIO) - Non-blocking
     // ========================================================================
+
+    static bool blinkActive;
+    static int blinkCount;
+    static int blinkTarget;
+    static unsigned long lastBlinkChange;
+    static bool blinkLedState;
 
     static void initializeLED()
     {
         pinMode(LED_PIN, OUTPUT);
         digitalWrite(LED_PIN, LOW);
+        blinkActive = false;
+        blinkCount = 0;
+        blinkTarget = 0;
+        lastBlinkChange = 0;
+        blinkLedState = false;
     }
 
     static void ledOn() { digitalWrite(LED_PIN, HIGH); }
@@ -70,14 +92,47 @@ struct NRF52PlatformTraits
 
     static void ledBlink(int count)
     {
-        for (int i = 0; i < count; i++)
+        blinkActive = true;
+        blinkTarget = count;
+        blinkCount = 0;
+        blinkLedState = false;
+        lastBlinkChange = millis();
+        digitalWrite(LED_PIN, HIGH); // Start first blink
+        blinkLedState = true;
+    }
+
+    static void updateLED()
+    {
+        if (!blinkActive)
+            return;
+
+        unsigned long now = millis();
+        unsigned long elapsed = (unsigned long)(now - lastBlinkChange);
+
+        if (blinkLedState)
         {
-            digitalWrite(LED_PIN, HIGH);
-            delay(LEDConstants::BLINK_DURATION_MS);
-            digitalWrite(LED_PIN, LOW);
-            if (i < count - 1)
+            // LED is currently ON
+            if (elapsed >= LEDConstants::BLINK_DURATION_MS)
             {
-                delay(LEDConstants::BLINK_DELAY_MS);
+                digitalWrite(LED_PIN, LOW);
+                blinkLedState = false;
+                lastBlinkChange = now;
+                blinkCount++;
+
+                if (blinkCount >= blinkTarget)
+                {
+                    blinkActive = false; // Completed all blinks
+                }
+            }
+        }
+        else
+        {
+            // LED is currently OFF (between blinks)
+            if (elapsed >= LEDConstants::BLINK_DELAY_MS && blinkCount < blinkTarget)
+            {
+                digitalWrite(LED_PIN, HIGH);
+                blinkLedState = true;
+                lastBlinkChange = now;
             }
         }
     }
@@ -92,5 +147,12 @@ struct NRF52PlatformTraits
     static void onBleDisconnected(ActivityManager &mgr) { mgr.setBLEConnected(false); }
     static bool isBleConnected(ActivityManager &mgr) { return mgr.isBLEConnected(); }
 };
+
+// Define static LED state variables
+bool NRF52PlatformTraits::blinkActive = false;
+int NRF52PlatformTraits::blinkCount = 0;
+int NRF52PlatformTraits::blinkTarget = 0;
+unsigned long NRF52PlatformTraits::lastBlinkChange = 0;
+bool NRF52PlatformTraits::blinkLedState = false;
 
 #endif // NRF52_PLATFORM_TRAITS_H

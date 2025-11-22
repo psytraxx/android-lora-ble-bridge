@@ -1,5 +1,12 @@
 #include "nrf52/PowerManager.h"
 #include "nrf52/FirmwareConfig.h"
+#include <Arduino.h>
+
+// nRF52 power management includes
+#ifdef ARDUINO_ARCH_NRF52
+#include "nrf_power.h"
+#include "nrf_gpio.h"
+#endif
 
 PowerManager::PowerManager()
     : lastBatteryLevel(100)
@@ -11,6 +18,20 @@ bool PowerManager::begin()
     // Configure ADC for battery monitoring
     analogReadResolution(PowerConstants::ADC_RESOLUTION_BITS);
     analogReference(AR_INTERNAL); // Use internal 0.6V reference
+
+#ifdef ARDUINO_ARCH_NRF52
+    // Enable DC/DC converter for better power efficiency
+    // This can reduce power consumption by 20-30%
+    if (nrf_power_dcdcen_get(NRF_POWER) == false)
+    {
+        nrf_power_dcdcen_set(NRF_POWER, true);
+        Serial.println("DC/DC regulator enabled (20-30% power savings)");
+    }
+    else
+    {
+        Serial.println("DC/DC regulator already enabled");
+    }
+#endif
 
     Serial.println("PowerManager initialized");
     return true;
@@ -56,8 +77,29 @@ uint8_t PowerManager::readBatteryLevel()
 
 void PowerManager::enterLowPowerMode()
 {
-    // TODO: Implement nRF52 low-power mode
-    // - Configure wake sources (LoRa DIO0, button)
-    // - Enter System OFF mode
-    Serial.println("Low-power mode not yet implemented");
+    Serial.println("Entering System OFF mode...");
+
+#ifdef ARDUINO_ARCH_NRF52
+    // Configure LoRa DIO0 as wake-up source (wake on HIGH)
+    nrf_gpio_cfg_sense_input(LORA_DIO0, NRF_GPIO_PIN_PULLDOWN, NRF_GPIO_PIN_SENSE_HIGH);
+    Serial.printf("Wake source: LoRa DIO0 (GPIO %d) - wake on HIGH\n", LORA_DIO0);
+
+    // Configure wake button as wake-up source (wake on LOW)
+    nrf_gpio_cfg_sense_input(WAKE_BUTTON, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
+    Serial.printf("Wake source: Wake button (GPIO %d) - wake on LOW\n", WAKE_BUTTON);
+
+    // Flush serial output
+    Serial.flush();
+    delay(100); // Allow time for serial transmission
+
+    // Enter System OFF mode (lowest power state)
+    // Current: ~0.002mA with RAM retention
+    // Device will reset on wake (execution starts from setup())
+    sd_power_system_off();
+
+    // This line should never be reached
+    Serial.println("ERROR: Failed to enter System OFF mode");
+#else
+    Serial.println("System OFF mode only available on nRF52");
+#endif
 }

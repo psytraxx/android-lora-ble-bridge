@@ -30,14 +30,20 @@ using Platform = NRF52PlatformTraits;
 // Global Managers (using platform-specific types)
 // ============================================================================
 
+// Use pointers to allow conditional initialization, but allocate statically
 static typename Platform::BLEManager *bleManager = nullptr;
 static typename Platform::LoRaManager *loraManager = nullptr;
 static typename Platform::StorageManager *storageManager = nullptr;
 static typename Platform::ActivityManager *activityManager = nullptr;
 
+// Static storage for manager instances (avoids heap allocation)
+static typename Platform::ActivityManager activityManagerInstance;
+static typename Platform::StorageManager storageManagerInstance;
+
 // nRF52 needs PowerManager instance, ESP32 uses static methods
 #if defined(ARDUINO_ARCH_NRF52)
 static typename Platform::PowerManager *powerManager = nullptr;
+static typename Platform::PowerManager powerManagerInstance;
 #endif
 
 // Message queues
@@ -47,6 +53,7 @@ static MessageQueue loraToBleQueue;
 // Timing
 static unsigned long lastBatteryUpdate = 0;
 static constexpr unsigned long BATTERY_UPDATE_INTERVAL = 60000; // 1 minute
+
 
 // ============================================================================
 // Forward Declarations
@@ -82,26 +89,26 @@ void setup()
     Platform::initializeLED();
     Platform::ledOn();
 
-    // Create activity manager
-    activityManager = new typename Platform::ActivityManager();
+    // Initialize activity manager (static allocation)
+    activityManager = &activityManagerInstance;
 
-    // Create storage manager
-    storageManager = new typename Platform::StorageManager();
+    // Initialize storage manager (static allocation)
+    storageManager = &storageManagerInstance;
     if (!storageManager->begin())
     {
         Serial.println("Storage initialization failed!");
     }
 
-    // Create power manager (nRF52 only)
+    // Initialize power manager (nRF52 only, static allocation)
 #if defined(ARDUINO_ARCH_NRF52)
-    powerManager = new typename Platform::PowerManager();
+    powerManager = &powerManagerInstance;
     if (!powerManager->begin())
     {
         Serial.println("Power manager initialization failed!");
     }
 #endif
 
-    // Create BLE manager
+    // Initialize BLE manager (heap allocation required due to different constructors)
 #if defined(ARDUINO_ARCH_NRF52)
     // nRF52: BLEManager needs queue pointer
     bleManager = new typename Platform::BLEManager(&bleToLoraQueue);
@@ -125,7 +132,8 @@ void setup()
 
     bleManager->startAdvertising();
 
-    // Create LoRa manager
+    // Initialize LoRa manager (heap allocation required due to runtime pin configuration)
+    // TODO: Consider static allocation with placement new if memory is constrained
     loraManager = new typename Platform::LoRaManager(
         LORA_SCK,
         LORA_MISO,
@@ -169,6 +177,9 @@ void loop()
 {
     // Reset watchdog
     Platform::resetWatchdog();
+
+    // Update LED state machine (non-blocking)
+    Platform::updateLED();
 
     // Process LoRa events
     loraManager->process();
@@ -225,9 +236,10 @@ void loop()
         }
     }
 
-    // Battery monitoring
+    // Battery monitoring (rollover-safe comparison)
     unsigned long now = millis();
-    if (now - lastBatteryUpdate >= BATTERY_UPDATE_INTERVAL)
+    unsigned long batteryElapsed = (unsigned long)(now - lastBatteryUpdate);
+    if (batteryElapsed >= BATTERY_UPDATE_INTERVAL)
     {
 #if defined(ARDUINO_ARCH_ESP32)
         uint8_t batteryLevel = Platform::readBatteryLevel();
@@ -243,15 +255,24 @@ void loop()
         lastBatteryUpdate = now;
     }
 
-    // Inactivity timeout
-    if (Platform::isBleConnected(*activityManager))
+    // Inactivity timeout - enter deep sleep to save power
+    unsigned long inactiveTime = Platform::getInactivityDuration(*activityManager);
+
+    if (inactiveTime > Platform::INACTIVITY_TIMEOUT_MS)
     {
-        unsigned long inactiveTime = Platform::getInactivityDuration(*activityManager);
-        if (inactiveTime > Platform::INACTIVITY_TIMEOUT_MS)
-        {
-            Serial.println("Inactivity timeout - disconnecting BLE");
-            bleManager->disconnect();
-        }
+        Serial.println("Inactivity timeout - entering deep sleep...");
+        Serial.flush();
+        delay(100); // Allow serial output to complete
+
+        Platform::ledOff();
+
+        #if defined(ARDUINO_ARCH_ESP32)
+        PowerManager::enterDeepSleep();
+        #elif defined(ARDUINO_ARCH_NRF52)
+        powerManager->enterLowPowerMode();
+        #endif
+
+        // Should not reach here (device resets on wake)
     }
 
     delay(10);

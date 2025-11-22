@@ -11,6 +11,16 @@ void MyServerCallbacks::onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInf
 
     bleManager->onConnected(connInfo.getConnHandle());
 
+    // Request longer connection intervals for power savings
+    // Intervals in 1.25ms units: 80 = 100ms, 160 = 200ms
+    // Longer intervals allow more CPU sleep time between BLE events
+    pServer->updateConnParams(connInfo.getConnHandle(),
+                              80,   // min interval (100ms)
+                              160,  // max interval (200ms)
+                              0,    // latency (no slave latency)
+                              400); // timeout (4000ms = 4s)
+    Serial.println("Requested power-optimized connection params (100-200ms interval)");
+
     // Stop advertising when connected
     NimBLEDevice::getAdvertising()->stop();
     Serial.println("BLE connected - advertising stopped");

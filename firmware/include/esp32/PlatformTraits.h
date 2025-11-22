@@ -62,6 +62,16 @@ struct ESP32PlatformTraits
     static void initializePower()
     {
         PowerManager::configurePowerManagement();
+
+        // Disable unused radios to save power
+        PowerManager::disableWiFi();
+        PowerManager::disableBluetoothClassic();
+
+        // Print wakeup reason if resuming from deep sleep
+        PowerManager::printWakeupReason();
+
+        // Configure wake sources for future deep sleep
+        PowerManager::configureWakeupSources(WAKE_BUTTON, LORA_DIO0);
     }
 
     static uint8_t readBatteryLevel()
@@ -84,11 +94,13 @@ struct ESP32PlatformTraits
     static void ledOn() { ledManager.setOn(); }
     static void ledOff() { ledManager.setOff(); }
     static void ledBlink(int count) { ledManager.blink(count); }
+    static void updateLED() { ledManager.update(); }
 #else
     static void initializeLED() {}
     static void ledOn() {}
     static void ledOff() {}
     static void ledBlink(int count) { (void)count; }
+    static void updateLED() {}
 #endif
 
     // ========================================================================
