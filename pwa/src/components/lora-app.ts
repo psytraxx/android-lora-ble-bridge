@@ -5,7 +5,7 @@
 
 import { html, LitElement } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
-import { MESSAGE_TYPE, type Message, type TextMessage } from '../protocol';
+import { MESSAGE_TYPE, type Message, PROTOCOL, type TextMessage } from '../protocol';
 import { bleService, ConnectionState } from '../services/BleService';
 import { locationService } from '../services/LocationService';
 import { AckStatus, type ChatMessage, messageRepository } from '../services/MessageRepository';
@@ -132,12 +132,14 @@ export class LoraApp extends LitElement {
               @connect=${this.onConnectDirect}
               @disconnect=${this.onDisconnect}
             ></connection-status>
-            ${isConnecting
-        ? html`<progress class="progress progress-primary w-full h-1"></progress>`
-        : ''
-      }
-            ${showBleWarning
-        ? html`
+            ${
+              isConnecting
+                ? html`<progress class="progress progress-primary w-full h-1"></progress>`
+                : ''
+            }
+            ${
+              showBleWarning
+                ? html`
                   <div role="alert" class="alert alert-warning rounded-none">
                     <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -145,18 +147,19 @@ export class LoraApp extends LitElement {
                     <span>Web Bluetooth not supported. Use Chrome on desktop or Android.</span>
                   </div>
                 `
-        : ''
-      }
+                : ''
+            }
         </header>
 
         <!-- Main content area -->
         <main class="flex-1 mt-20 mb-20 overflow-y-auto">
-          ${showEmptyState
-            ? html`<empty-state
+          ${
+            showEmptyState
+              ? html`<empty-state
                 class="h-full"
                 @connect-requested=${this.onConnectRequest}
               ></empty-state>`
-            : html`<message-list class="h-full" .messages=${this.messages}></message-list>`
+              : html`<message-list class="h-full" .messages=${this.messages}></message-list>`
           }
         </main>
 
@@ -179,7 +182,7 @@ export class LoraApp extends LitElement {
         <!-- Success Toast -->
         <success-toast
           .show=${this.showSuccessToast}
-          @hide=${() => this.showSuccessToast = false}
+          @hide=${() => (this.showSuccessToast = false)}
         ></success-toast>
       </div>
     `;
@@ -344,7 +347,7 @@ export class LoraApp extends LitElement {
       console.log('ACK timeout for seq:', seq);
       this.ackTimeouts.delete(seq);
       // Message remains in PENDING state (could add FAILED state if desired)
-    }, 5000);
+    }, PROTOCOL.ACK_TIMEOUT_MS);
 
     this.ackTimeouts.set(seq, timeout);
   }
