@@ -72,8 +72,8 @@ void BLEManager::startAdvertising()
     // Secondary Scan Response packet (optional)
     Bluefruit.ScanResponse.addName();
 
-    // Start advertising
-    Bluefruit.Advertising.restartOnDisconnect(true);
+    // Start advertising - restart handled manually in onBleDisconnected callback
+    Bluefruit.Advertising.restartOnDisconnect(false);
     Bluefruit.Advertising.setInterval(BLEConstants::ADV_MIN_INTERVAL, BLEConstants::ADV_MAX_INTERVAL);
     Bluefruit.Advertising.setFastTimeout(30); // Fast advertising for 30 seconds
     Bluefruit.Advertising.start(0);           // 0 = Don't stop advertising after n seconds

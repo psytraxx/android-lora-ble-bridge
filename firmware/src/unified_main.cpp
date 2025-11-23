@@ -295,6 +295,9 @@ void onBleDisconnected()
     Serial.println("BLE disconnected");
     appController->onBleDisconnected();
     Platform::ledOff();
+
+    // Restart advertising for next connection
+    bleManager->startAdvertising();
 }
 
 void onLoRaReceived(const LoRaPacket &packet)

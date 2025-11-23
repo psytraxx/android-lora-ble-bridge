@@ -178,13 +178,9 @@ namespace BufferConstants
 
 namespace PowerConstants
 {
-    /// BLE advertising duration before entering low-power mode (milliseconds)
-    /// 30 seconds provides good discoverability window while conserving power
-    constexpr unsigned long ADVERTISE_DURATION_MS = 30000UL;
-
-    /// BLE connection inactivity timeout before forced disconnect (milliseconds)
-    /// 60 seconds allows for casual message reading without premature disconnection
-    /// Note: Android app expects 30s timeout (see BleConstants.AUTO_DISCONNECT_DELAY_MS)
+    /// Inactivity timeout before entering deep sleep (milliseconds)
+    /// Device enters deep sleep after this duration with no BLE or LoRa activity
+    /// BLE advertising continues until device is connected or enters deep sleep
     constexpr unsigned long INACTIVITY_TIMEOUT_MS = 60000UL;
 
 #if defined(ARDUINO_ARCH_NRF52)
