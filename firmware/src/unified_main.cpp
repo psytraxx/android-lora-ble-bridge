@@ -153,9 +153,7 @@ void setup()
     {
         LOG_I(TAG, "Failed to start LoRa receive mode!");
     }
-#ifdef LED_PIN
-    ledManager->setOff();
-#endif
+
     LOG_I(TAG, "Setup complete!");
 }
 
@@ -249,9 +247,6 @@ void loop()
     {
         LOG_I(TAG, "Inactivity timeout - entering deep sleep...");
 
-#ifdef LED_PIN
-        ledManager->setOff();
-#endif
         if (!loraManager->startReceive(true))
         {
             LOG_I(TAG, "Failed to start LoRa continuous receive mode!");
@@ -289,6 +284,10 @@ void onLoRaReceived(const LoRaPacket &packet)
 {
     LOG_I(TAG, "LoRa packet received: %d bytes, RSSI: %d dBm, SNR: %.1f dB",
           packet.len, packet.rssi, packet.snr);
+
+#ifdef LED_PIN
+    ledManager->blink(LEDConstants::RX_BLINKS);
+#endif
 
     Message msg;
     if (msg.deserialize(packet.buffer, packet.len))
@@ -339,9 +338,6 @@ void onLoRaReceived(const LoRaPacket &packet)
     {
         LOG_I(TAG, "Failed to deserialize LoRa message");
     }
-#ifdef LED_PIN
-    ledManager->blink(LEDConstants::RX_BLINKS);
-#endif
 }
 
 void onLoRaTransmitted(bool success)
