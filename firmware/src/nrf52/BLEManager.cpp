@@ -20,7 +20,8 @@ bool BLEManager::setup(const char *deviceName)
     deviceNameStr = String(deviceName);
     LOG_I(TAG, "Initializing BLE: %s", deviceName);
 
-    // Initialize Bluefruit
+    // Initialize Bluefruit with max bandwidth (which also sets max MTU)
+    Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
     Bluefruit.begin();
     Bluefruit.setTxPower(BLEConstants::TX_POWER_DBM);
     Bluefruit.setName(deviceName);
@@ -47,6 +48,7 @@ bool BLEManager::setup(const char *deviceName)
     // Use variable-length characteristic (default) for efficient BLE bandwidth usage
     // Removes fixed-length padding - matches ESP32 implementation
     txCharacteristic.setCccdWriteCallback(BLEManager::cccdCallback);
+    txCharacteristic.setFixedLen(BufferConstants::MAX_PROTOCOL_MESSAGE); // Set max length for MTU negotiation
     txCharacteristic.begin();
 
     // Configure RX Characteristic (Android -> ESP32)
@@ -169,6 +171,10 @@ void BLEManager::connectCallback(uint16_t conn_handle)
         {
             connection->requestConnectionParameter(160, 0, 400);
             LOG_I(TAG, "Requested power-optimized connection params (200ms interval)");
+
+            // Request MTU exchange for larger packets (3 bytes for ATT header + MAX_PROTOCOL_MESSAGE)
+            connection->requestMtuExchange(BufferConstants::MAX_PROTOCOL_MESSAGE + 3);
+            LOG_I(TAG, "Requested MTU exchange to %d", BufferConstants::MAX_PROTOCOL_MESSAGE + 3);
         }
 
         if (instance->connectCallback_user)
