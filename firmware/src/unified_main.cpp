@@ -39,7 +39,6 @@ using Platform = NRF52PlatformTraits;
 
 // Use pointers to allow conditional initialization, but allocate statically
 static typename Platform::BLEManager *bleManager = nullptr;
-static LoRaManager *loraManager = nullptr;
 static typename Platform::StorageManager *storageManager = nullptr;
 
 // Static storage for manager instances (avoids heap allocation)
@@ -53,8 +52,11 @@ static ApplicationController appControllerInstance;
 static MessageQueue bleToLoraQueue;
 static MessageQueue loraToBleQueue;
 
+// LoRa manager instance
+static LoRaManager *loraManager = nullptr;
+
 #ifdef LED_PIN
-LEDManager *ledManager = new LEDManager(LED_PIN);
+static LEDManager *ledManager = new LEDManager(LED_PIN);
 #endif
 
 // Timing

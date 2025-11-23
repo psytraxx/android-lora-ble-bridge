@@ -2,7 +2,7 @@
 #define FIRMWARE_CONFIG_H
 
 #include <cstdint>
-#include "common/LoRaTimeOnAir.h"
+#include "common/LoRaManager.h"
 
 /**
  * @file FirmwareConfig.h
@@ -58,7 +58,7 @@ namespace LoRaConstants
     /// Calculated as: ToA(WakeUp) + Deep Sleep Wake Time + RX Settle Time + Margin
     /// This ensures the receiver has ample time to wake up and switch to RX mode.
     const int WAKEUP_TO_MESSAGE_DELAY_MS =
-        static_cast<int>(LoRaTimeOnAir::calculateToA_ms(
+        static_cast<int>(LoRaManager::calculateToA_ms(
             LORA_SPREADING_FACTOR,
             LORA_BANDWIDTH * 1000,
             LORA_CODING_RATE,
@@ -71,7 +71,7 @@ namespace LoRaConstants
     /// Delay before sending an ACK to ensure the original sender has switched to RX mode.
     /// Calculated as: ToA(Max_Message) + TX->RX Switch Time + Margin
     const int ACK_DELAY_MS =
-        static_cast<int>(LoRaTimeOnAir::calculateToA_ms(
+        static_cast<int>(LoRaManager::calculateToA_ms(
             LORA_SPREADING_FACTOR,
             LORA_BANDWIDTH * 1000,
             LORA_CODING_RATE,
