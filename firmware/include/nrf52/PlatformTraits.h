@@ -8,7 +8,7 @@
 #include "common/Logging.h"
 #include <Adafruit_SleepyDog.h>
 
-static const char* PLATFORM_TAG = "nRF52";
+static const char *PLATFORM_TAG = "nRF52";
 
 /**
  * @brief nRF52 Platform Traits
@@ -56,11 +56,19 @@ struct NRF52PlatformTraits
         Watchdog.reset();
     }
 
-    static void initializePower() {} // PowerManager initialized via begin()
-
-    static uint8_t readBatteryLevel(PowerManager &mgr)
+    static void initializePower()
     {
-        return mgr.readBatteryLevel();
+        PowerManager::configurePowerManagement();
+    }
+
+    static uint8_t readBatteryLevel()
+    {
+        return PowerManager::readBatteryLevel();
+    }
+
+    static void sleep()
+    {
+        PowerManager::enterLowPowerMode();
     }
 
     // ========================================================================

@@ -3,7 +3,7 @@
 #include "common/Logging.h"
 #include <Arduino.h>
 
-static const char* TAG = "Power";
+static const char *TAG = "Power";
 
 // nRF52 power management includes
 #ifdef ARDUINO_ARCH_NRF52
@@ -11,15 +11,7 @@ static const char* TAG = "Power";
 #include "nrf_gpio.h"
 #endif
 
-PowerManager::PowerManager()
-    : lastBatteryLevel(100),
-      initial_read_done(false),
-      last_read_value(3300.0), // Start at reasonable 3.3V
-      last_read_time_ms(0)
-{
-}
-
-bool PowerManager::begin()
+bool PowerManager::configurePowerManagement()
 {
     // Configure ADC for battery monitoring
     analogReadResolution(PowerConstants::ADC_RESOLUTION_BITS);
@@ -108,63 +100,40 @@ uint8_t PowerManager::voltageToPercentage(uint16_t voltagePerCellMv)
 
 uint16_t PowerManager::readBatteryVoltage()
 {
-    // Throttle ADC reads to once per 5 seconds minimum
-    const uint32_t MIN_READ_INTERVAL_MS = 5000;
     const uint32_t BATTERY_SENSE_SAMPLES = 10;
 
-    if (!initial_read_done || (millis() - last_read_time_ms >= MIN_READ_INTERVAL_MS))
+    // Enable battery ADC (set VBAT_ENABLE LOW on Seeed XIAO)
+    battery_adcEnable();
+
+    // Read battery voltage from ADC with averaging
+    // XIAO nRF52840: Battery voltage may be divided by hardware
+    uint32_t adcSum = 0;
+    for (uint32_t i = 0; i < BATTERY_SENSE_SAMPLES; i++)
     {
-        last_read_time_ms = millis();
+        adcSum += analogRead(BATTERY_ADC_PIN);
+    }
+    int adcValue = adcSum / BATTERY_SENSE_SAMPLES;
 
-        // Enable battery ADC (set VBAT_ENABLE LOW on Seeed XIAO)
-        battery_adcEnable();
+    // Disable battery ADC to save power (set VBAT_ENABLE HIGH)
+    battery_adcDisable();
 
-        // Read battery voltage from ADC with averaging
-        // XIAO nRF52840: Battery voltage may be divided by hardware
-        uint32_t adcSum = 0;
-        for (uint32_t i = 0; i < BATTERY_SENSE_SAMPLES; i++)
-        {
-            adcSum += analogRead(BATTERY_ADC_PIN);
-        }
-        int adcValue = adcSum / BATTERY_SENSE_SAMPLES;
+    // Convert ADC value to voltage in millivolts
+    // nRF52840: 12-bit ADC (0-4095) with 0.6V internal reference and 1/6 gain
+    // Max measurable voltage = 0.6V * 6 = 3.6V at ADC value 4095
+    // voltage_mv = (adcValue / 4095.0) * 3600.0 * BATTERY_DIVIDER
+    float voltage_mv = (adcValue / 4095.0) * PowerConstants::ADC_MAX_VOLTAGE *
+                       PowerConstants::BATTERY_DIVIDER * 1000.0;
 
-        // Disable battery ADC to save power (set VBAT_ENABLE HIGH)
-        battery_adcDisable();
-
-        // Convert ADC value to voltage in millivolts
-        // nRF52840: 12-bit ADC (0-4095) with 0.6V internal reference and 1/6 gain
-        // Max measurable voltage = 0.6V * 6 = 3.6V at ADC value 4095
-        // voltage_mv = (adcValue / 4095.0) * 3600.0 * BATTERY_DIVIDER
-        float voltage_mv = (adcValue / 4095.0) * PowerConstants::ADC_MAX_VOLTAGE *
-                           PowerConstants::BATTERY_DIVIDER * 1000.0;
-
-        if (!initial_read_done)
-        {
-            // Initialize filter with first reading if plausible
-            if (voltage_mv > last_read_value)
-            {
-                last_read_value = voltage_mv;
-            }
-            initial_read_done = true;
-        }
-        else
-        {
-            // Apply low-pass filter: output = output + alpha * (input - output)
-            // Alpha = 0.5 provides good balance between responsiveness and smoothing
-            last_read_value += (voltage_mv - last_read_value) * 0.5;
-        }
-
-        // Log debug info periodically
-        static uint32_t last_log = 0;
-        if (millis() - last_log > 30000)
-        {
-            LOG_D(TAG, "Battery: adc=%d, voltage=%u mV, filtered=%u mV",
-                  adcValue, (uint16_t)voltage_mv, (uint16_t)last_read_value);
-            last_log = millis();
-        }
+    // Log debug info periodically
+    static uint32_t last_log = 0;
+    if (millis() - last_log > 30000)
+    {
+        LOG_D(TAG, "Battery: adc=%d, voltage=%u mV",
+              adcValue, (uint16_t)voltage_mv);
+        last_log = millis();
     }
 
-    return (uint16_t)last_read_value;
+    return (uint16_t)voltage_mv;
 }
 
 uint8_t PowerManager::readBatteryLevel()
@@ -178,13 +147,11 @@ uint8_t PowerManager::readBatteryLevel()
 
     if (voltage < MIN_BATTERY_VOLTAGE)
     {
-        lastBatteryLevel = 0; // No battery or critically low
-        return 0;
+        return 0; // No battery or critically low
     }
 
     // Convert voltage to percentage using OCV lookup table
-    lastBatteryLevel = voltageToPercentage(voltage);
-    return lastBatteryLevel;
+    return voltageToPercentage(voltage);
 }
 
 void PowerManager::enterLowPowerMode()

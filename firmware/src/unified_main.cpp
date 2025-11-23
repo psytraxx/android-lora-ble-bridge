@@ -48,12 +48,6 @@ static typename Platform::StorageManager storageManagerInstance;
 static ApplicationController *appController = nullptr;
 static ApplicationController appControllerInstance;
 
-// nRF52 needs PowerManager instance, ESP32 uses static methods
-#if defined(ARDUINO_ARCH_NRF52)
-static typename Platform::PowerManager *powerManager = nullptr;
-static typename Platform::PowerManager powerManagerInstance;
-#endif
-
 // Message queues
 static MessageQueue bleToLoraQueue;
 static MessageQueue loraToBleQueue;
@@ -104,15 +98,6 @@ void setup()
     {
         LOG_I(TAG, "Storage initialization failed!");
     }
-
-    // Initialize power manager (nRF52 only, static allocation)
-#if defined(ARDUINO_ARCH_NRF52)
-    powerManager = &powerManagerInstance;
-    if (!powerManager->begin())
-    {
-        LOG_I(TAG, "Power manager initialization failed!");
-    }
-#endif
 
     // Initialize BLE manager (heap allocation required due to different constructors)
     // Both platforms now use queue-based message handling
@@ -236,11 +221,8 @@ void loop()
     unsigned long batteryElapsed = (unsigned long)(now - lastBatteryUpdate);
     if (batteryElapsed >= BATTERY_UPDATE_INTERVAL)
     {
-#if defined(ARDUINO_ARCH_ESP32)
         uint8_t batteryLevel = Platform::readBatteryLevel();
-#else
-        uint8_t batteryLevel = Platform::readBatteryLevel(*powerManager);
-#endif
+
         bleManager->updateBatteryLevel(batteryLevel);
 
         LOG_D(TAG, "Battery: %d%%", batteryLevel);
@@ -263,11 +245,7 @@ void loop()
         }
         bleManager->stopAdvertising();
 
-#if defined(ARDUINO_ARCH_ESP32)
-        PowerManager::enterDeepSleep();
-#elif defined(ARDUINO_ARCH_NRF52)
-        powerManager->enterLowPowerMode();
-#endif
+        Platform::sleep();
 
         // Should not reach here (device resets on wake)
     }

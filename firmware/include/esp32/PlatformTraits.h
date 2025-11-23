@@ -9,7 +9,7 @@
 #include "common/Logging.h"
 #include <Adafruit_SleepyDog.h>
 
-static const char* PLATFORM_TAG = "ESP32";
+static const char *PLATFORM_TAG = "ESP32";
 
 /**
  * @brief ESP32 Platform Traits
@@ -74,6 +74,11 @@ struct ESP32PlatformTraits
     static uint8_t readBatteryLevel()
     {
         return PowerManager::readBatteryLevel();
+    }
+
+    static void sleep()
+    {
+        PowerManager::enterDeepSleep();
     }
 
     // ========================================================================
