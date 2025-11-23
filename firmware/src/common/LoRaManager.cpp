@@ -201,7 +201,7 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
         }
         else
         {
-            LOG_I(TAG, "WakeUp sent successfully");
+            LOG_I(TAG, "WakeUp sent successfully, %d bytes, seq: %d", wakeUpLen, (int)wakeUpMsg.textData.seq);
         }
 
         // Wait for receiver to wake up and switch to continuous RX
