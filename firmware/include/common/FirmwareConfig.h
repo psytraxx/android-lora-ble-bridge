@@ -127,32 +127,6 @@ namespace BLEConstants
     /// BLE TX power level (nRF52: -40, -20, -16, -12, -8, -4, 0, +3, +4 dBm)
     constexpr int TX_POWER_DBM = 0; // 0 dBm for balanced range/power
 #endif
-
-    /// Number of retry attempts for BLE initialization
-    constexpr int INIT_RETRY_COUNT = 3;
-
-    /// Delay between BLE initialization retries (milliseconds)
-    constexpr int INIT_RETRY_DELAY_MS = 1000;
-
-    /// Time to wait after disconnect before restarting advertising
-    /// Allows BLE stack to clean up connection state
-    constexpr int DISCONNECT_SETTLE_MS = 300;
-
-    /// Spacing between consecutive BLE message sends to avoid overwhelming stack
-    constexpr int MESSAGE_SPACING_MS = 500;
-}
-
-//==============================================================================
-// Message Queue Configuration
-//==============================================================================
-
-namespace QueueConstants
-{
-    /// BLE -> LoRa queue size (lower since app sends one at a time)
-    constexpr int BLE_TO_LORA_SIZE = 10;
-
-    /// LoRa -> BLE queue size (higher to handle burst reception from multiple senders)
-    constexpr int LORA_TO_BLE_SIZE = 15;
 }
 
 //==============================================================================
@@ -242,9 +216,6 @@ namespace WatchdogConstants
 
 namespace LEDConstants
 {
-    /// LED blink duration for single event (milliseconds)
-    constexpr int BLINK_DURATION_MS = 50;
-
     /// Delay between consecutive blinks (milliseconds)
     constexpr int BLINK_DELAY_MS = 200;
 

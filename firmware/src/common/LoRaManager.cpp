@@ -49,15 +49,9 @@ bool LoRaManager::begin(const LoRaConfig &config)
     SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
 #endif
     // nRF52: SPI initialization happens elsewhere (in Arduino core)
-
-    // Attempt initialization with retries
-    // Note: LoRaConstants will be defined in FirmwareConfig (user will fix)
-    const int INIT_RETRY_COUNT = 3;
-    const int INIT_RETRY_DELAY_MS = 1000;
-
-    for (int attempt = 1; attempt <= INIT_RETRY_COUNT; attempt++)
+    for (int attempt = 1; attempt <= LoRaConstants::INIT_RETRY_COUNT; attempt++)
     {
-        LOG_I(TAG, "Setup attempt %d/%d", attempt, INIT_RETRY_COUNT);
+        LOG_I(TAG, "Setup attempt %d/%d", attempt, LoRaConstants::INIT_RETRY_COUNT);
 
         // Initialize radio based on chip type
         int state;
@@ -115,10 +109,10 @@ bool LoRaManager::begin(const LoRaConfig &config)
 
         LOG_E(TAG, "Setup failed, code %d", state);
 
-        if (attempt < INIT_RETRY_COUNT)
+        if (attempt < LoRaConstants::INIT_RETRY_COUNT)
         {
             LOG_I(TAG, "Retrying in 1 second...");
-            delay(INIT_RETRY_DELAY_MS);
+            delay(LoRaConstants::INIT_RETRY_DELAY_MS);
         }
     }
 

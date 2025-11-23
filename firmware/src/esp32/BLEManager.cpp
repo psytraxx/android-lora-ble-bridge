@@ -4,7 +4,7 @@
 #include <string.h>
 #include <Arduino.h>
 
-static const char* TAG = "BLE";
+static const char *TAG = "BLE";
 
 // Server callbacks implementation
 void MyServerCallbacks::onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo)
@@ -158,7 +158,7 @@ bool BLEManager::setup(const char *deviceName)
     pAdvertising->setName(deviceName);
 
     // Lower TX power to save energy
-    NimBLEDevice::setPower(ESP_PWR_LVL_P3);
+    NimBLEDevice::setPower(BLEConstants::TX_POWER_LEVEL);
 
     LOG_I(TAG, "Service created successfully");
 

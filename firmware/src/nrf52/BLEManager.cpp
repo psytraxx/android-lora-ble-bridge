@@ -1,7 +1,7 @@
 #include "nrf52/BLEManager.h"
 #include "common/Logging.h"
 
-static const char* TAG = "BLE";
+static const char *TAG = "BLE";
 
 // Static instance for callbacks
 BLEManager *BLEManager::instance = nullptr;
