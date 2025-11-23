@@ -268,8 +268,10 @@ export class BleService {
       this.emitMessage(message);
       this.resetDisconnectTimeout();
     } catch (error) {
-      console.error('Failed to parse received message:', error);
-      this.emitError(error as Error);
+      console.warn('Failed to parse received message (possibly corrupt/truncated), ignoring:', error);
+      console.warn('Raw data:', new Uint8Array(value.buffer));
+      // Don't emit error for parse failures - just log and continue
+      // This handles corrupt messages from flash buffer gracefully
     }
   };
 
