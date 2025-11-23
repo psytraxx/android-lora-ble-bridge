@@ -1,13 +1,18 @@
 #include "esp32/BLEManager.h"
 #include "esp32/PowerManager.h"
+#include "common/Logging.h"
 #include <string.h>
 #include <Arduino.h>
+
+static const char* TAG = "BLE";
 
 // Server callbacks implementation
 void MyServerCallbacks::onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo)
 {
-    Serial.printf("BLE client connected: %s", connInfo.getAddress().toString().c_str());
-    Serial.printf(" (conn=%d, mtu=%d)", connInfo.getConnHandle(), connInfo.getMTU());
+    LOG_I(TAG, "Client connected: %s (conn=%d, mtu=%d)",
+          connInfo.getAddress().toString().c_str(),
+          connInfo.getConnHandle(),
+          connInfo.getMTU());
 
     bleManager->onConnected(connInfo.getConnHandle());
 
@@ -19,16 +24,16 @@ void MyServerCallbacks::onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInf
                               160,  // max interval (200ms)
                               0,    // latency (no slave latency)
                               400); // timeout (4000ms = 4s)
-    Serial.println("Requested power-optimized connection params (100-200ms interval)");
+    LOG_I(TAG, "Requested power-optimized connection params (100-200ms interval)");
 
     // Stop advertising when connected
     NimBLEDevice::getAdvertising()->stop();
-    Serial.println("BLE connected - advertising stopped");
+    LOG_I(TAG, "Advertising stopped");
 }
 
 void MyServerCallbacks::onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo, int reason)
 {
-    Serial.printf("BLE client disconnected, reason: %d", reason);
+    LOG_I(TAG, "Client disconnected, reason: %d", reason);
     bleManager->onDisconnected(connInfo.getConnHandle());
 }
 
@@ -38,7 +43,7 @@ void MyCharacteristicCallbacks::onWrite(NimBLECharacteristic *pCharacteristic, N
     std::string value = pCharacteristic->getValue();
     if (value.length() > 0)
     {
-        Serial.printf("BLE write received (%d bytes)\n", value.length());
+        LOG_D(TAG, "Write received (%d bytes)", value.length());
         bleManager->onMessageReceived((const uint8_t *)value.data(), value.length());
     }
 }
@@ -48,12 +53,12 @@ void TxCharacteristicCallbacks::onSubscribe(NimBLECharacteristic *pCharacteristi
 {
     if (subValue & 0x0001)
     {
-        Serial.println("Client enabled notifications - Android ready to receive!");
+        LOG_I(TAG, "Client enabled notifications - Android ready to receive!");
         bleManager->onNotificationsEnabled(true);
     }
     else
     {
-        Serial.println("Client disabled notifications");
+        LOG_I(TAG, "Client disabled notifications");
         bleManager->onNotificationsEnabled(false);
     }
 }
@@ -63,7 +68,7 @@ void BatteryCharacteristicCallbacks::onRead(NimBLECharacteristic *pCharacteristi
 {
     uint8_t batteryLevel = PowerManager::readBatteryLevel();
     pCharacteristic->setValue(&batteryLevel, 1);
-    Serial.printf("Battery level read: %d%%\n", batteryLevel);
+    LOG_D(TAG, "Battery level read: %d%%", batteryLevel);
 }
 
 // BLEManager implementation
@@ -81,7 +86,7 @@ BLEManager::BLEManager(MessageQueue *bleToLoraQueue)
 
 bool BLEManager::setup(const char *deviceName)
 {
-    Serial.println("Initializing BLE");
+    LOG_I(TAG, "Initializing BLE");
 
     // Store device name for debugging
     deviceNameStr = std::string(deviceName);
@@ -138,7 +143,7 @@ bool BLEManager::setup(const char *deviceName)
     // Start the battery service
     pBatteryService->start();
 
-    Serial.printf("Battery service created (initial level: %d%%)\n", initialBattery);
+    LOG_I(TAG, "Battery service created (initial level: %d%%)", initialBattery);
 
     // Get advertising instance and configure for better discoverability
     pAdvertising = NimBLEDevice::getAdvertising();
@@ -155,14 +160,14 @@ bool BLEManager::setup(const char *deviceName)
     // Lower TX power to save energy
     NimBLEDevice::setPower(ESP_PWR_LVL_P3);
 
-    Serial.println("BLE service created");
+    LOG_I(TAG, "Service created successfully");
 
     return true;
 }
 
 void BLEManager::startAdvertising()
 {
-    Serial.println("Starting BLE advertising");
+    LOG_I(TAG, "Starting advertising");
     NimBLEDevice::startAdvertising();
 }
 
@@ -170,7 +175,7 @@ bool BLEManager::sendMessage(const Message &msg)
 {
     if (!isConnected())
     {
-        Serial.println("Cannot send message: BLE not connected");
+        LOG_W(TAG, "Cannot send message: not connected");
         return false;
     }
 
@@ -179,7 +184,7 @@ bool BLEManager::sendMessage(const Message &msg)
 
     if (len < 0)
     {
-        Serial.println("Failed to serialize message for BLE");
+        LOG_E(TAG, "Failed to serialize message");
         return false;
     }
 
@@ -189,11 +194,11 @@ bool BLEManager::sendMessage(const Message &msg)
     // or if the notification queue is full
     if (!pTxCharacteristic->notify())
     {
-        Serial.println("BLE notify failed - client may not be subscribed or queue full");
+        LOG_W(TAG, "Notify failed - client may not be subscribed or queue full");
         return false;
     }
 
-    Serial.printf("BLE notify sent (%d bytes)\n", len);
+    LOG_D(TAG, "Notify sent (%d bytes)", len);
     return true;
 }
 
@@ -213,7 +218,7 @@ void BLEManager::stopAdvertising()
     if (pAdvertising)
     {
         pAdvertising->stop();
-        Serial.println("BLE advertising manually stopped");
+        LOG_I(TAG, "Advertising stopped");
     }
 }
 
@@ -221,11 +226,11 @@ void BLEManager::disconnect()
 {
     if (!isConnected())
     {
-        Serial.println("Disconnect requested but no BLE client is connected");
+        LOG_W(TAG, "Disconnect requested but no client is connected");
         return;
     }
 
-    Serial.println("Disconnecting BLE client...");
+    LOG_I(TAG, "Disconnecting client...");
 
     if (pServer)
     {
@@ -235,40 +240,40 @@ void BLEManager::disconnect()
         }
         else
         {
-            Serial.println("Warning: No active connection handle tracked; disconnect request skipped");
+            LOG_W(TAG, "No active connection handle tracked; disconnect request skipped");
         }
     }
     else
     {
-        Serial.println("Warning: BLE server not initialized; cannot issue disconnect");
+        LOG_W(TAG, "Server not initialized; cannot issue disconnect");
     }
 }
 
 void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
 {
-    Serial.printf("Parsing BLE message, length: %d\n", length);
+    LOG_D(TAG, "Parsing message, length: %d", length);
 
     Message msg;
     if (msg.deserialize(data, length))
     {
-        Serial.printf("Deserialized message type: %d\n", (int)msg.type);
+        LOG_D(TAG, "Deserialized message type: %d", (int)msg.type);
 
         // Push message to queue for processing in main loop
         if (bleToLoraQueue != nullptr)
         {
             if (!bleToLoraQueue->push(msg))
             {
-                Serial.println("BLE->LoRa queue full, message dropped");
+                LOG_E(TAG, "Queue full, message dropped");
             }
         }
         else
         {
-            Serial.println("Warning: No message queue configured, message dropped");
+            LOG_W(TAG, "No message queue configured, message dropped");
         }
     }
     else
     {
-        Serial.println("Failed to deserialize message from BLE");
+        LOG_E(TAG, "Failed to deserialize message");
     }
 }
 
@@ -302,14 +307,14 @@ void BLEManager::onDisconnected(uint16_t connHandle)
 void BLEManager::onNotificationsEnabled(bool enabled)
 {
     notificationsEnabled = enabled;
-    Serial.printf("Notifications state changed: %s\n", enabled ? "ENABLED" : "DISABLED");
+    LOG_I(TAG, "Notifications state changed: %s", enabled ? "ENABLED" : "DISABLED");
 }
 
 void BLEManager::setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)())
 {
     connectCallback = onConnect;
     disconnectCallback = onDisconnect;
-    Serial.println("Connection callbacks registered");
+    LOG_D(TAG, "Connection callbacks registered");
 }
 
 void BLEManager::updateBatteryLevel(uint8_t level)
@@ -321,6 +326,6 @@ void BLEManager::updateBatteryLevel(uint8_t level)
         {
             pBatteryCharacteristic->notify();
         }
-        Serial.printf("Battery level updated: %d%%\n", level);
+        LOG_D(TAG, "Battery level updated: %d%%", level);
     }
 }

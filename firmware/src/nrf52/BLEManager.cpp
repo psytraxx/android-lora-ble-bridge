@@ -1,4 +1,7 @@
 #include "nrf52/BLEManager.h"
+#include "common/Logging.h"
+
+static const char* TAG = "BLE";
 
 // Static instance for callbacks
 BLEManager *BLEManager::instance = nullptr;
@@ -15,8 +18,7 @@ BLEManager::BLEManager(MessageQueue *bleToLoraQueue)
 bool BLEManager::setup(const char *deviceName)
 {
     deviceNameStr = String(deviceName);
-    Serial.print("Initializing BLE: ");
-    Serial.println(deviceName);
+    LOG_I(TAG, "Initializing BLE: %s", deviceName);
 
     // Initialize Bluefruit
     Bluefruit.begin();
@@ -55,13 +57,13 @@ bool BLEManager::setup(const char *deviceName)
     rxCharacteristic.setWriteCallback(BLEManager::rxWriteCallback);
     rxCharacteristic.begin();
 
-    Serial.println("BLE initialized successfully");
+    LOG_I(TAG, "Initialized successfully");
     return true;
 }
 
 void BLEManager::startAdvertising()
 {
-    Serial.println("Starting BLE advertising");
+    LOG_I(TAG, "Starting advertising");
 
     // Advertising packet
     Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
@@ -81,7 +83,7 @@ void BLEManager::startAdvertising()
 
 void BLEManager::stopAdvertising()
 {
-    Serial.println("Stopping BLE advertising");
+    LOG_I(TAG, "Stopping advertising");
     Bluefruit.Advertising.stop();
 }
 
@@ -89,7 +91,7 @@ void BLEManager::disconnect()
 {
     if (Bluefruit.connected())
     {
-        Serial.println("Disconnecting BLE client");
+        LOG_I(TAG, "Disconnecting client");
         Bluefruit.disconnect(Bluefruit.connHandle());
     }
 }
@@ -103,7 +105,7 @@ bool BLEManager::sendMessage(const Message &msg)
 {
     if (!isConnected() || !notificationsEnabled)
     {
-        Serial.println("Cannot send: not connected or notifications disabled");
+        LOG_W(TAG, "Cannot send: not connected or notifications disabled");
         return false;
     }
 
@@ -113,7 +115,7 @@ bool BLEManager::sendMessage(const Message &msg)
 
     if (length <= 0)
     {
-        Serial.println("Failed to serialize message");
+        LOG_E(TAG, "Failed to serialize message");
         return false;
     }
 
@@ -122,12 +124,11 @@ bool BLEManager::sendMessage(const Message &msg)
 
     if (success)
     {
-        Serial.print("Sent BLE message, type: ");
-        Serial.println((int)msg.type);
+        LOG_D(TAG, "Sent message, type: %d", (int)msg.type);
     }
     else
     {
-        Serial.println("Failed to send BLE notification");
+        LOG_E(TAG, "Failed to send notification");
     }
 
     return success;
@@ -157,8 +158,7 @@ void BLEManager::connectCallback(uint16_t conn_handle)
         char central_name[32] = {0};
         connection->getPeerName(central_name, sizeof(central_name));
 
-        Serial.print("BLE connected: ");
-        Serial.println(central_name);
+        LOG_I(TAG, "Connected: %s", central_name);
 
         instance->isConnectedFlag = true;
 
@@ -168,7 +168,7 @@ void BLEManager::connectCallback(uint16_t conn_handle)
         if (connection)
         {
             connection->requestConnectionParameter(160, 0, 400);
-            Serial.println("Requested power-optimized connection params (200ms interval)");
+            LOG_I(TAG, "Requested power-optimized connection params (200ms interval)");
         }
 
         if (instance->connectCallback_user)
@@ -181,11 +181,10 @@ void BLEManager::connectCallback(uint16_t conn_handle)
 void BLEManager::disconnectCallback(uint16_t conn_handle, uint8_t reason)
 {
     (void)conn_handle;
-    (void)reason;
 
     if (instance)
     {
-        Serial.println("BLE disconnected");
+        LOG_I(TAG, "Disconnected, reason: %d", reason);
 
         instance->isConnectedFlag = false;
         instance->notificationsEnabled = false;
@@ -222,13 +221,11 @@ void BLEManager::cccdCallback(uint16_t conn_hdl, BLECharacteristic *chr, uint16_
 // Internal handlers
 void BLEManager::handleRxWrite(uint8_t *data, uint16_t len)
 {
-    Serial.print("BLE RX received ");
-    Serial.print(len);
-    Serial.println(" bytes");
+    LOG_D(TAG, "RX received %d bytes", len);
 
     if (len == 0 || len > BufferConstants::MAX_PROTOCOL_MESSAGE)
     {
-        Serial.println("Invalid message length");
+        LOG_E(TAG, "Invalid message length");
         return;
     }
 
@@ -236,7 +233,7 @@ void BLEManager::handleRxWrite(uint8_t *data, uint16_t len)
     Message msg;
     if (!msg.deserialize(data, len))
     {
-        Serial.println("Failed to deserialize message");
+        LOG_E(TAG, "Failed to deserialize message");
         return;
     }
 
@@ -245,12 +242,11 @@ void BLEManager::handleRxWrite(uint8_t *data, uint16_t len)
     {
         if (!bleToLoraQueue->push(msg))
         {
-            Serial.println("BLE->LoRa queue full");
+            LOG_E(TAG, "Queue full");
         }
         else
         {
-            Serial.print("Message queued for LoRa, type: ");
-            Serial.println((int)msg.type);
+            LOG_D(TAG, "Message queued for LoRa, type: %d", (int)msg.type);
         }
     }
 }
@@ -259,12 +255,12 @@ void BLEManager::handleCccdWrite(uint16_t value)
 {
     if (value & BLE_GATT_HVX_NOTIFICATION)
     {
-        Serial.println("TX notifications enabled by client");
+        LOG_I(TAG, "TX notifications enabled by client");
         notificationsEnabled = true;
     }
     else
     {
-        Serial.println("TX notifications disabled by client");
+        LOG_I(TAG, "TX notifications disabled by client");
         notificationsEnabled = false;
     }
 }
