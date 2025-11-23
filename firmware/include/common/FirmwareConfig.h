@@ -2,18 +2,18 @@
 #define FIRMWARE_CONFIG_H
 
 #include <cstdint>
-#include "LoRaTimeOnAir.h"
+#include "common/LoRaManager.h"
 
 /**
  * @file FirmwareConfig.h
- * @brief Centralized configuration for ESP32 LoRa-BLE Bridge firmware
+ * @brief Unified configuration for LoRa-BLE Bridge firmware (ESP32 and nRF52)
  *
- * This header consolidates all firmware constants, timeouts, and magic numbers
- * in one location for easy modification and documentation. Replaces scattered
- * compile-time defines with structured configuration.
+ * This header consolidates all firmware constants, timeouts, and configuration
+ * in one location for easy modification and documentation.
  *
  * Design Goals:
  *  - Single source of truth for configuration values
+ *  - Platform-specific values handled via conditional compilation
  *  - Self-documenting with clear comments
  *  - Type-safe constants instead of preprocessor macros
  *  - Easy to port to runtime configuration (JSON/EEPROM) later
@@ -24,17 +24,17 @@
 //==============================================================================
 
 /// GPIO pin configuration for peripherals
-/// Note: These are still defined as build-time constants via platformio.ini
+/// Note: These are defined as build-time constants via platformio.ini
 /// for hardware portability. Access via LORA_*, LED_PIN, WAKE_BUTTON macros.
 
 // LoRa SPI pins - defined in platformio.ini:
-// LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0
+// LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS, LORA_RST, LORA_DIO0, LORA_BUSY
 
 // LED status indicator - defined in platformio.ini:
-// LED_PIN
+// LED_PIN (optional)
 
 // Wake button - defined in platformio.ini:
-// WAKE_BUTTON
+// WAKE_BUTTON (optional)
 
 //==============================================================================
 // LoRa Radio Configuration
@@ -58,11 +58,11 @@ namespace LoRaConstants
     /// Calculated as: ToA(WakeUp) + Deep Sleep Wake Time + RX Settle Time + Margin
     /// This ensures the receiver has ample time to wake up and switch to RX mode.
     const int WAKEUP_TO_MESSAGE_DELAY_MS =
-        static_cast<int>(LoRaTimeOnAir::calculateToA_ms(
+        static_cast<int>(LoRaManager::calculateToA_ms(
             LORA_SPREADING_FACTOR,
             LORA_BANDWIDTH * 1000,
             LORA_CODING_RATE,
-            LoRaConstants::PREAMBLE_LENGTH, // Use LoRaConstants::PREAMBLE_LENGTH
+            LoRaConstants::PREAMBLE_LENGTH,
             1)) +
         600 + // Estimated deep sleep wake time
         RX_SETTLE_TIME_MS +
@@ -70,14 +70,13 @@ namespace LoRaConstants
 
     /// Delay before sending an ACK to ensure the original sender has switched to RX mode.
     /// Calculated as: ToA(Max_Message) + TX->RX Switch Time + Margin
-    /// Using max payload ensures this works for any valid message.
     const int ACK_DELAY_MS =
-        static_cast<int>(LoRaTimeOnAir::calculateToA_ms(
+        static_cast<int>(LoRaManager::calculateToA_ms(
             LORA_SPREADING_FACTOR,
             LORA_BANDWIDTH * 1000,
             LORA_CODING_RATE,
-            LoRaConstants::PREAMBLE_LENGTH, // Use LoRaConstants::PREAMBLE_LENGTH
-            64)) +                          // Max expected payload
+            LoRaConstants::PREAMBLE_LENGTH,
+            64)) + // Max expected payload
         RX_SETTLE_TIME_MS +
         TIMING_MARGIN_MS;
 
@@ -87,7 +86,7 @@ namespace LoRaConstants
     /// Delay between LoRa initialization retries (milliseconds)
     constexpr int INIT_RETRY_DELAY_MS = 1000;
 
-    /// tcxoVoltage for SX1262 radios (1.6V, 1.7V, 1.8V, 2.2V, 2.4V, 2.7V, 3.0V, 3.3V)
+    /// tcxoVoltage for SX1262/SX1268 radios (1.6V, 1.7V, 1.8V, 2.2V, 2.4V, 2.7V, 3.0V, 3.3V)
     constexpr float TCXO_VOLTAGE = 1.8;
 }
 
@@ -95,19 +94,15 @@ namespace LoRaConstants
 // BLE Configuration
 //==============================================================================
 
-// Note: DEVICE_NAME is defined in platformio.ini as a build flag:
-//   -DDEVICE_NAME='"ESP32-LoRa"'     (for esp32dev)
-//   -DDEVICE_NAME='"ESP32S3-LoRa"'   (for lilygo-t-display-s3)
-
 namespace BLEConstants
 {
     /// BLE service UUID (application-specific)
     constexpr const char *SERVICE_UUID = "00001234-0000-1000-8000-00805f9b34fb";
 
-    /// BLE TX characteristic UUID (ESP32 -> Android notifications)
+    /// BLE TX characteristic UUID (Device -> Android notifications)
     constexpr const char *TX_CHARACTERISTIC_UUID = "00005678-0000-1000-8000-00805f9b34fb";
 
-    /// BLE RX characteristic UUID (Android -> ESP32 writes)
+    /// BLE RX characteristic UUID (Android -> Device writes)
     constexpr const char *RX_CHARACTERISTIC_UUID = "00005679-0000-1000-8000-00805f9b34fb";
 
     /// Standard BLE Battery Service UUID (read-only)
@@ -124,41 +119,14 @@ namespace BLEConstants
     /// 3200 * 0.625ms = 2000ms (2 seconds)
     constexpr int ADV_MAX_INTERVAL = 3200;
 
+#if defined(ARDUINO_ARCH_ESP32)
     /// BLE TX power level for balance of range (~10m) vs power consumption
-    /// Options: P9 (+9dBm max), P6 (+6dBm), P3 (+3dBm balanced), P0 (0dBm), N3 (-3dBm min)
+    /// ESP32 options: P9 (+9dBm max), P6 (+6dBm), P3 (+3dBm balanced), P0 (0dBm), N3 (-3dBm min)
     constexpr int TX_POWER_LEVEL = 3; // ESP_PWR_LVL_P3
-
-    /// Number of retry attempts for BLE initialization
-    constexpr int INIT_RETRY_COUNT = 3;
-
-    /// Delay between BLE initialization retries (milliseconds)
-    constexpr int INIT_RETRY_DELAY_MS = 1000;
-
-    /// Time to wait after disconnect before restarting advertising
-    /// Allows NimBLE stack to clean up connection state
-    constexpr int DISCONNECT_SETTLE_MS = 300;
-
-    /// Time to wait after new connection before sending buffered messages
-    /// Allows Android to: request MTU, discover services, enable notifications
-    /// Increased to 1000ms to ensure Android has enabled notifications before
-    /// sending buffered messages (500ms was too short in testing)
-    constexpr int CONNECTION_SETUP_DELAY_MS = 1000;
-
-    /// Spacing between consecutive BLE message sends to avoid overwhelming stack
-    constexpr int MESSAGE_SPACING_MS = 500;
-}
-
-//==============================================================================
-// Message Queue Configuration
-//==============================================================================
-
-namespace QueueConstants
-{
-    /// BLE -> LoRa queue size (lower since app sends one at a time)
-    constexpr int BLE_TO_LORA_SIZE = 10;
-
-    /// LoRa -> BLE queue size (higher to handle burst reception from multiple senders)
-    constexpr int LORA_TO_BLE_SIZE = 15;
+#elif defined(ARDUINO_ARCH_NRF52)
+    /// BLE TX power level (nRF52: -40, -20, -16, -12, -8, -4, 0, +3, +4 dBm)
+    constexpr int TX_POWER_DBM = 0; // 0 dBm for balanced range/power
+#endif
 }
 
 //==============================================================================
@@ -171,7 +139,7 @@ namespace BufferConstants
     /// Each Message is ~160 bytes, so 10 messages = ~1.6 KB RAM
     constexpr int MAX_BUFFERED_MESSAGES = 10;
 
-    /// Maximum LoRa payload size (RadioLib SX1278 limit)
+    /// Maximum LoRa payload size (RadioLib limit)
     constexpr int MAX_LORA_PAYLOAD = 256;
 
     /// Maximum protocol message size (ACK=2, Text+GPS=52)
@@ -184,22 +152,52 @@ namespace BufferConstants
 
 namespace PowerConstants
 {
-    /// CPU frequency in MHz (set via platformio.ini CPU_FREQ_MHZ)
-    /// ESP32: 80 MHz for power savings vs 240 MHz max
-    /// ESP32-S3: 160 MHz for balance
-
-    /// Minimum CPU frequency for dynamic frequency scaling
-    constexpr int CPU_MIN_FREQ_MHZ = 20;
-
-    /// BLE advertising duration before entering light sleep (milliseconds)
-    /// 30 seconds provides good discoverability window while conserving power
-    constexpr unsigned long ADVERTISE_DURATION_MS = 30000UL;
-
-    /// BLE connection inactivity timeout before forced disconnect (milliseconds)
-    /// 60 seconds allows for casual message reading without premature disconnection
-    /// Note: Android app expects 30s timeout (see BleConstants.AUTO_DISCONNECT_DELAY_MS)
+    /// Inactivity timeout before entering deep sleep (milliseconds)
+    /// Device enters deep sleep after this duration with no BLE or LoRa activity
+    /// BLE advertising continues until device is connected or enters deep sleep
     constexpr unsigned long INACTIVITY_TIMEOUT_MS = 60000UL;
+
+#if defined(ARDUINO_ARCH_NRF52)
+    /// Battery voltage divider ratio - defined in platformio.ini:
+    /// BATTERY_VOLTAGE_DIVIDER
+    constexpr float BATTERY_DIVIDER = BATTERY_VOLTAGE_DIVIDER;
+
+    /// ADC maximum input voltage for nRF52840
+    /// Uses internal 0.6V reference with 1/6 gain = 0.6V * 6 = 3.6V max measurable range
+    constexpr float ADC_MAX_VOLTAGE = 3.6; // Volts
+
+    /// ADC resolution bits (nRF52840 supports 8, 10, 12, 14-bit)
+    constexpr int ADC_RESOLUTION_BITS = 12; // 12-bit = 0-4095
+#endif
 }
+
+//==============================================================================
+// Battery Monitoring Configuration
+//==============================================================================
+
+/// Number of cells in battery pack (1 for single-cell Li-ion)
+constexpr int NUM_CELLS = 1;
+
+/// Number of points in OCV lookup table
+constexpr int NUM_OCV_POINTS = 11;
+
+/// OCV (Open Circuit Voltage) lookup table for Li-ion battery (millivolts per cell)
+/// Index 0 = 100% charged, Index 10 = 0% charged
+/// Based on typical single-cell Li-ion discharge curve
+/// Source: Meshtastic project (validated across many devices)
+const uint16_t OCV[NUM_OCV_POINTS] = {
+    4200, // 100% - Fully charged
+    4050, // 90%
+    3900, // 80%
+    3800, // 70%
+    3730, // 60%
+    3680, // 50%
+    3630, // 40%
+    3570, // 30%
+    3500, // 20%
+    3400, // 10%
+    3100  // 0% - Cut-off voltage
+};
 
 //==============================================================================
 // Watchdog Timer Configuration
@@ -218,9 +216,6 @@ namespace WatchdogConstants
 
 namespace LEDConstants
 {
-    /// LED blink duration for single event (milliseconds)
-    constexpr int BLINK_DURATION_MS = 50;
-
     /// Delay between consecutive blinks (milliseconds)
     constexpr int BLINK_DELAY_MS = 200;
 

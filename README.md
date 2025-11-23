@@ -18,32 +18,30 @@ A long-range communication system for sending text messages (up to 50 characters
 
 ## Architecture
 
+### System Overview
+
+The system uses a **unified trait-based architecture** supporting multiple platforms (ESP32 and nRF52) with a single codebase:
+
 ```mermaid
 graph TD
     A[Android Phone 1<br/>- Internal GPS<br/>- Text Input<br/>- Display<br/>- Kotlin + Compose App] -->|Text + GPS Data| B[BLE]
-  B --> C[ESP32-S3<br/>LoRa Transmitter<br/>- Sx1276 Module<br/>- Pins: SCK12, MISO13, MOSI11, CS10, RST43, DIO044<br/>- Firmware: C++/Arduino or Rust]
+    B --> C[ESP32/nRF52 Device<br/>LoRa Transmitter<br/>- SX1262/SX1278 Module<br/>- Unified C++ Firmware]
     C -->|LoRa Transmission| D[LoRa Radio Waves]
-  D -->     E[ESP32-S3<br/>LoRa Receiver<br/>- Same hardware/firmware<br/>- C++/Arduino or Rust]
+    D --> E[ESP32/nRF52 Device<br/>LoRa Receiver<br/>- Same Unified Firmware]
     E -->|Forwarded Data| F[BLE]
     F --> G[Android Phone 2<br/>- Display<br/>- Receives Text + GPS<br/>- Same Kotlin App]
-    
+
     E -->|ACK| D
     D --> C
     C -->|ACK| B
     B --> A
-    %% Wake-up behaviour note: EXT0 (LoRa) wakes device but should NOT trigger WakeUp reply; Button or cold boot SHOULD send WakeUp
-    subgraph WakeUpRules[Wake-up rules]
-      direction TB
-      W1[EXT0 LoRa DIO0 \nWake source] ---|DO NOT send WakeUp| E
-      W2[EXT1 Button or Cold Boot] ---|SEND WakeUp| C
-    end
-    
+
     subgraph "Sender Side"
         A
         B
         C
     end
-    
+
     subgraph "Receiver Side"
         E
         F
@@ -51,13 +49,42 @@ graph TD
     end
 ```
 
+### Firmware Architecture
+
+**Trait-Based Multi-Platform Design:**
+- **Single unified main.cpp** with `setup()` and `loop()` for all platforms
+- **Platform traits** provide compile-time polymorphism
+- **Zero runtime overhead** (no virtual functions)
+- **Loop-based architecture** - Non-blocking state machines on both platforms
+- **Supported platforms:** ESP32, nRF52
+- **Supported radios:** SX1262 (autonomous duty cycle), SX1278 (continuous RX)
+
+**Key Components:**
+- `unified_main.cpp` - Single entry point with setup()/loop() pattern
+- `PlatformTraits.h` - Platform-specific type definitions
+- `BLEManager` - BLE integration (NimBLE on ESP32, Arduino BLE on nRF52)
+- `LoRaManager` - RadioLib integration with SX1262/SX1278 support
+- `MessageQueue` - Simple queue for BLE↔LoRa message passing
+- Platform-specific managers with non-blocking operations
+
 ## Project Structure
 
 ```
 android-lora-ble-bridge/
 ├── android/              # Android application (Kotlin + Jetpack Compose)
 ├── pwa/                  # Progressive Web App (TypeScript + Lit + Web Bluetooth)
-├── firmware/             # ESP32 firmware (C++/Arduino) - Transceiver with BLE
+├── firmware/             # Unified C++ firmware (ESP32 & nRF52 support)
+│   ├── include/
+│   │   ├── common/       # Platform-agnostic code
+│   │   ├── esp32/        # ESP32-specific implementations
+│   │   └── nrf52/        # nRF52-specific implementations
+│   ├── src/
+│   │   ├── unified_main.cpp  # Single entry point for all platforms
+│   │   ├── Protocol.cpp      # Shared protocol implementation
+│   │   ├── esp32/            # ESP32 platform code
+│   │   └── nrf52/            # nRF52 platform code
+│   ├── platformio.ini    # Build configuration for all platforms
+│   └── ARCHITECTURE.md   # Firmware architecture documentation
 ├── protocol.md           # Protocol specification
 ├── CHANGELOG.md          # Project changelog
 └── README.md             # This file (you are here)
@@ -71,6 +98,13 @@ android-lora-ble-bridge/
 - [Android Studio](https://developer.android.com/studio) or Android SDK
 - JDK 11 or higher (for Kotlin + Compose)
 - Gradle (included in Android Studio)
+
+#### ESP32/nRF52 Firmware
+- [PlatformIO](https://platformio.org/) (recommended) or Arduino IDE
+- USB cable for flashing
+- Supported boards:
+  - ESP32: LilyGo T-Display S3, Heltec WiFi LoRa V3
+  - nRF52: Seeed XIAO nRF52840
 
 #### Progressive Web App
 - [Node.js](https://nodejs.org/) 18 or higher
@@ -106,6 +140,37 @@ npm run build
 
 Output will be in `pwa/dist/` directory. See [pwa/DEPLOYMENT.md](pwa/DEPLOYMENT.md) for deployment options.
 
+### ESP32/nRF52 Firmware Build
+
+#### Using PlatformIO (Recommended)
+
+**For ESP32 (LilyGo T-Display S3):**
+```bash
+cd firmware
+~/.platformio/penv/bin/pio run -e lilygo-t-display-s3              # Build
+~/.platformio/penv/bin/pio run -e lilygo-t-display-s3 --target upload --target monitor
+```
+
+**For ESP32 (Heltec WiFi LoRa V3):**
+```bash
+cd firmware
+~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3              # Build
+~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3 --target upload --target monitor
+```
+
+**For nRF52 (Seeed XIAO):**
+```bash
+cd firmware
+~/.platformio/penv/bin/pio run -e xiao_nrf52840                    # Build
+~/.platformio/penv/bin/pio run -e xiao_nrf52840 --target upload --target monitor
+```
+
+**Configuration:**
+- LoRa settings configured in `firmware/platformio.ini`
+- Default: 433.92 MHz, SF9, BW250 kHz, CR4/5
+- Device name auto-generated from chip ID
+- See `firmware/ARCHITECTURE.md` for platform-specific details
+
 ### Android App Build
 
 #### Using Android Studio
@@ -140,8 +205,22 @@ cd android
 
 ## Hardware Setup
 
-### ESP32-S3 to SX1278 Wiring
+### Supported Hardware
 
+**ESP32 Boards:**
+- **LilyGo T-Display S3** - Built-in display, SX1278 support
+- **Heltec WiFi LoRa V3** - SX1262 with autonomous duty cycle
+
+**nRF52 Boards:**
+- **Seeed XIAO nRF52840** - Compact form factor, SX1262 support
+
+**LoRa Radios:**
+- **SX1278** - Continuous RX mode, lower power
+- **SX1262** - Autonomous duty cycle, ultra-low power (~1.5-2mA avg)
+
+### Pin Configurations
+
+**LilyGo T-Display S3 (SX1278):**
 | SX1278 Pin | ESP32-S3 Pin | Function |
 |------------|--------------|----------|
 | SCK | GPIO12 | SPI Clock |
@@ -153,15 +232,28 @@ cd android
 | 3.3V | 3.3V | Power |
 | GND | GND | Ground |
 
+**Heltec WiFi LoRa V3 (SX1262):**
+| SX1262 Pin | ESP32-S3 Pin | Function |
+|------------|--------------|----------|
+| SCK | GPIO9 | SPI Clock |
+| MISO | GPIO11 | SPI MISO |
+| MOSI | GPIO10 | SPI MOSI |
+| NSS/CS | GPIO8 | Chip Select |
+| RESET | GPIO12 | Reset |
+| DIO1 | GPIO14 | Interrupt |
+| BUSY | GPIO13 | Busy signal |
+| 3.3V | 3.3V | Power |
+| GND | GND | Ground |
+
 ### LoRa Module Configuration
 
-**Current Configuration:**
+**Current Configuration (as of Nov 2025):**
 - **Frequency**: 433.92 MHz (worldwide ISM band)
 - **Bandwidth**: 250 kHz (fast airtime, good range)
-- **Spreading Factor**: 11 (excellent sensitivity)
+- **Spreading Factor**: 9 (balanced range/speed)
 - **Coding Rate**: 4/5 (error correction)
 - **TX Power**: 20 dBm (100 mW)
-- **Preamble**: 512 symbols (~2.5s for duty cycle compatibility)
+- **Preamble**: 8 symbols (default RadioLib)
 
 **Regional Power Limits:**
 - EU (433 MHz): 2 dBm max (current config exceeds, adjust for EU compliance)
@@ -175,14 +267,14 @@ cd android
 
 ## Message Buffering
 
-The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
+The firmware (ESP32/nRF52) buffers up to 10 messages when your phone is disconnected:
 
 **When Phone is Connected:**
 - Messages delivered instantly
 
 **When Phone is Disconnected:**
 - Messages buffered (up to 10)
-- ESP32 continues receiving
+- Device continues receiving via LoRa
 - Sender gets ACK immediately
 
 **When You Reconnect:**
@@ -191,7 +283,7 @@ The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
 
 **If Buffer is Full:**
 - Messages 11+ are dropped with warning log
-- ESP32 continues receiving (doesn't block)
+- Device continues receiving (doesn't block)
 
 ## Usage
 
@@ -199,7 +291,7 @@ The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
 
 1. **Launch app** on both Android devices
 2. **Grant permissions**: Bluetooth, Location (GPS)
-3. **Wait for BLE connection**: App automatically scans for "ESP32S3-LoRa"
+3. **Wait for BLE connection**: App automatically scans for device (e.g., "ESP32S3-LoRa", "HellTecLite-LoRa", "nRF52-LoRa")
 4. **Send message**:
    - Type message (max 50 characters, uppercase A-Z, 0-9, punctuation)
    - GPS is optional - app will send text even without GPS
@@ -224,14 +316,25 @@ The ESP32 firmware buffers up to 10 messages when your phone is disconnected:
 
 - **Max text**: 50 characters (38 bytes with 6-bit packing)
 - **GPS data**: 8 bytes when included (fixed size)
-- **Range**: 5-15 km typical (SF11 provides excellent sensitivity)
-- **Airtime**: ~0.8 seconds per message (BW250 kHz, 6x faster than BW31.25 kHz)
-- **Battery Life**: ~52 days on 2500 mAh with SX1262 (autonomous duty cycle ~1.5-2mA)
-- **LoRa Config**: 433.92 MHz, BW250 kHz, SF11, CR4/5, 20 dBm TX, 512-symbol preamble
-- **Preamble**: 512 symbols (~2.5s) ensures detection by duty-cycled receivers
+- **Range**: 3-10 km typical (SF9 balanced range/speed)
+- **Airtime**: ~0.3-0.5 seconds per message (BW250 kHz, SF9)
+- **Battery Life (SX1262)**: Multiple weeks on 2500 mAh with autonomous duty cycle (~1.5-2mA avg)
+- **Battery Life (SX1278)**: Several days on 2500 mAh with continuous RX (~12-15mA avg)
+- **LoRa Config**: 433.92 MHz, BW250 kHz, SF9, CR4/5, 20 dBm TX
 - **Duty Cycle**: EU requires 1% (36s/hour) - calculate at [LoRa Calculator](https://www.loratools.nl/#/airtime)
 
-See **[protocol.md](protocol.md)** for detailed specifications and **[firmware/power.md](firmware/power.md)** for power optimization details.
+**Platform Comparison:**
+
+| Feature | ESP32 | nRF52 |
+|---------|-------|-------|
+| Architecture | Loop-based (Arduino) | Loop-based (Arduino) |
+| BLE Stack | NimBLE | Arduino BLE |
+| Power Management | Deep sleep support | SoftDevice power modes |
+| Radio Support | SX1262, SX1278 | SX1262 |
+| Flash/RAM | 8MB / 327KB | 1MB / 256KB |
+| Execution Model | setup() + loop() | setup() + loop() |
+
+See **[protocol.md](protocol.md)** for detailed specifications and **[firmware/ARCHITECTURE.md](firmware/ARCHITECTURE.md)** for architecture details.
 
 ## Message Flow & ACK Timing
 

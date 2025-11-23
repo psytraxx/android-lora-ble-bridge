@@ -1,27 +1,39 @@
-#include "BLEManager.h"
-#include "LoraTask.h"
-#include "BleTask.h"
-#include "PowerManager.h"
+#include "esp32/BLEManager.h"
+#include "esp32/PowerManager.h"
+#include "common/Logging.h"
 #include <string.h>
+#include <Arduino.h>
 
-static const char *TAG_BLE = "BLE";
+static const char *TAG = "BLE";
 
 // Server callbacks implementation
 void MyServerCallbacks::onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo)
 {
-    ESP_LOGI(TAG_BLE, "BLE client connected: %s", connInfo.getAddress().toString().c_str());
-    ESP_LOGI(TAG_BLE, " (conn=%d, mtu=%d)", connInfo.getConnHandle(), connInfo.getMTU());
+    LOG_I(TAG, "Client connected: %s (conn=%d, mtu=%d)",
+          connInfo.getAddress().toString().c_str(),
+          connInfo.getConnHandle(),
+          connInfo.getMTU());
 
     bleManager->onConnected(connInfo.getConnHandle());
 
+    // Request longer connection intervals for power savings
+    // Intervals in 1.25ms units: 80 = 100ms, 160 = 200ms
+    // Longer intervals allow more CPU sleep time between BLE events
+    pServer->updateConnParams(connInfo.getConnHandle(),
+                              80,   // min interval (100ms)
+                              160,  // max interval (200ms)
+                              0,    // latency (no slave latency)
+                              400); // timeout (4000ms = 4s)
+    LOG_I(TAG, "Requested power-optimized connection params (100-200ms interval)");
+
     // Stop advertising when connected
     NimBLEDevice::getAdvertising()->stop();
-    ESP_LOGI(TAG_BLE, "BLE connected - advertising stopped");
+    LOG_I(TAG, "Advertising stopped");
 }
 
 void MyServerCallbacks::onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo, int reason)
 {
-    ESP_LOGI(TAG_BLE, "BLE client disconnected, reason: %d", reason);
+    LOG_I(TAG, "Client disconnected, reason: %d", reason);
     bleManager->onDisconnected(connInfo.getConnHandle());
 }
 
@@ -31,7 +43,7 @@ void MyCharacteristicCallbacks::onWrite(NimBLECharacteristic *pCharacteristic, N
     std::string value = pCharacteristic->getValue();
     if (value.length() > 0)
     {
-        ESP_LOGI(TAG_BLE, "BLE write received (%d bytes)", value.length());
+        LOG_D(TAG, "Write received (%d bytes)", value.length());
         bleManager->onMessageReceived((const uint8_t *)value.data(), value.length());
     }
 }
@@ -41,12 +53,12 @@ void TxCharacteristicCallbacks::onSubscribe(NimBLECharacteristic *pCharacteristi
 {
     if (subValue & 0x0001)
     {
-        ESP_LOGI(TAG_BLE, "Client enabled notifications - Android ready to receive!");
+        LOG_I(TAG, "Client enabled notifications - Android ready to receive!");
         bleManager->onNotificationsEnabled(true);
     }
     else
     {
-        ESP_LOGI(TAG_BLE, "Client disabled notifications");
+        LOG_I(TAG, "Client disabled notifications");
         bleManager->onNotificationsEnabled(false);
     }
 }
@@ -56,25 +68,25 @@ void BatteryCharacteristicCallbacks::onRead(NimBLECharacteristic *pCharacteristi
 {
     uint8_t batteryLevel = PowerManager::readBatteryLevel();
     pCharacteristic->setValue(&batteryLevel, 1);
-    ESP_LOGI(TAG_BLE, "Battery level read: %d%%", batteryLevel);
+    LOG_D(TAG, "Battery level read: %d%%", batteryLevel);
 }
 
 // BLEManager implementation
-BLEManager::BLEManager(QueueHandle_t queue)
+BLEManager::BLEManager(MessageQueue *bleToLoraQueue)
     : pServer(nullptr),
       pTxCharacteristic(nullptr),
       pRxCharacteristic(nullptr),
       pAdvertising(nullptr),
-      bleToLoraQueue(queue),
       deviceNameStr(""),
       serverCallbacks(nullptr),
-      rxCallbacks(nullptr)
+      rxCallbacks(nullptr),
+      bleToLoraQueue(bleToLoraQueue)
 {
 }
 
 bool BLEManager::setup(const char *deviceName)
 {
-    ESP_LOGI(TAG_BLE, "Initializing BLE");
+    LOG_I(TAG, "Initializing BLE");
 
     // Store device name for debugging
     deviceNameStr = std::string(deviceName);
@@ -131,7 +143,7 @@ bool BLEManager::setup(const char *deviceName)
     // Start the battery service
     pBatteryService->start();
 
-    ESP_LOGI(TAG_BLE, "Battery service created (initial level: %d%%)", initialBattery);
+    LOG_I(TAG, "Battery service created (initial level: %d%%)", initialBattery);
 
     // Get advertising instance and configure for better discoverability
     pAdvertising = NimBLEDevice::getAdvertising();
@@ -146,16 +158,16 @@ bool BLEManager::setup(const char *deviceName)
     pAdvertising->setName(deviceName);
 
     // Lower TX power to save energy
-    NimBLEDevice::setPower(ESP_PWR_LVL_P3);
+    NimBLEDevice::setPower(BLEConstants::TX_POWER_LEVEL);
 
-    ESP_LOGI(TAG_BLE, "BLE service created");
+    LOG_I(TAG, "Service created successfully");
 
     return true;
 }
 
 void BLEManager::startAdvertising()
 {
-    ESP_LOGI(TAG_BLE, "Starting BLE advertising");
+    LOG_I(TAG, "Starting advertising");
     NimBLEDevice::startAdvertising();
 }
 
@@ -163,16 +175,25 @@ bool BLEManager::sendMessage(const Message &msg)
 {
     if (!isConnected())
     {
-        ESP_LOGW(TAG_BLE, "Cannot send message: BLE not connected");
+        LOG_W(TAG, "Cannot send message: not connected");
         return false;
     }
 
-    uint8_t buf[64];
+    // Do not attempt to send notifications until the client has enabled them.
+    // This prevents messages from being queued internally by NimBLE and left
+    // in a pending/buffered state which was observed on ESP32 but not on nRF52.
+    if (!areNotificationsEnabled())
+    {
+        LOG_W(TAG, "Cannot send message: notifications not enabled by client");
+        return false;
+    }
+
+    uint8_t buf[BufferConstants::MAX_PROTOCOL_MESSAGE];
     int len = msg.serialize(buf, sizeof(buf));
 
     if (len < 0)
     {
-        ESP_LOGE(TAG_BLE, "Failed to serialize message for BLE");
+        LOG_E(TAG, "Failed to serialize message");
         return false;
     }
 
@@ -180,17 +201,17 @@ bool BLEManager::sendMessage(const Message &msg)
 
     // Check if notify() succeeds - it returns false if client hasn't enabled notifications
     // or if the notification queue is full
-    if (!pTxCharacteristic->notify())
+    bool success = pTxCharacteristic->notify();
+    if (success)
     {
-        ESP_LOGW(TAG_BLE, "BLE notify failed - client may not be subscribed or queue full");
-        return false;
+        LOG_D(TAG, "Sent message, type: %d, seq: %d, size: %d", (int)msg.type, (int)msg.textData.seq, len);
     }
-
-    ESP_LOGI(TAG_BLE, "BLE notify sent (%d bytes)", len);
+    else
+    {
+        LOG_E(TAG, "Failed to send notification");
+    }
     return true;
 }
-
-
 
 bool BLEManager::isConnected() const
 {
@@ -203,13 +224,12 @@ bool BLEManager::isConnected() const
     return srv->getConnectedCount() > 0;
 }
 
-
 void BLEManager::stopAdvertising()
 {
     if (pAdvertising)
     {
         pAdvertising->stop();
-        ESP_LOGI(TAG_BLE, "BLE advertising manually stopped");
+        LOG_I(TAG, "Advertising stopped");
     }
 }
 
@@ -217,11 +237,11 @@ void BLEManager::disconnect()
 {
     if (!isConnected())
     {
-        ESP_LOGW(TAG_BLE, "Disconnect requested but no BLE client is connected");
+        LOG_W(TAG, "Disconnect requested but no client is connected");
         return;
     }
 
-    ESP_LOGI(TAG_BLE, "Disconnecting BLE client...");
+    LOG_I(TAG, "Disconnecting client...");
 
     if (pServer)
     {
@@ -231,39 +251,40 @@ void BLEManager::disconnect()
         }
         else
         {
-            ESP_LOGW(TAG_BLE, "Warning: No active connection handle tracked; disconnect request skipped");
+            LOG_W(TAG, "No active connection handle tracked; disconnect request skipped");
         }
     }
     else
     {
-        ESP_LOGW(TAG_BLE, "Warning: BLE server not initialized; cannot issue disconnect");
+        LOG_W(TAG, "Server not initialized; cannot issue disconnect");
     }
 }
 
 void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
 {
-    ESP_LOGI(TAG_BLE, "Parsing BLE message, length: %d", length);
+    LOG_D(TAG, "Parsing message, length: %d", length);
 
     Message msg;
     if (msg.deserialize(data, length))
     {
-        ESP_LOGI(TAG_BLE, "Deserialized message type: %d", (int)msg.type);
-        // Send to queue instead of storing internally
-        if (xQueueSend(bleToLoraQueue, &msg, 0) != pdTRUE)
+        LOG_D(TAG, "Deserialized message type: %d", (int)msg.type);
+
+        // Push message to queue for processing in main loop
+        if (bleToLoraQueue != nullptr)
         {
-            ESP_LOGW(TAG_BLE, "Warning: BLE to LoRa queue full, message dropped");
+            if (!bleToLoraQueue->push(msg))
+            {
+                LOG_E(TAG, "Queue full, message dropped");
+            }
         }
         else
         {
-            ESP_LOGI(TAG_BLE, "Message forwarded from BLE to LoRa queue");
-
-            // Notify LoRa task that a message is ready
-            LoraTask::notifyMessageQueued();
+            LOG_W(TAG, "No message queue configured, message dropped");
         }
     }
     else
     {
-        ESP_LOGE(TAG_BLE, "Failed to deserialize message from BLE");
+        LOG_E(TAG, "Failed to deserialize message");
     }
 }
 
@@ -297,18 +318,25 @@ void BLEManager::onDisconnected(uint16_t connHandle)
 void BLEManager::onNotificationsEnabled(bool enabled)
 {
     notificationsEnabled = enabled;
-    ESP_LOGI(TAG_BLE, "Notifications state changed: %s", enabled ? "ENABLED" : "DISABLED");
-
-    // Notify BLE task to immediately forward buffered messages
-    if (enabled)
-    {
-        BleTask::notifyMessageReceived();
-    }
+    LOG_I(TAG, "Notifications state changed: %s", enabled ? "ENABLED" : "DISABLED");
 }
 
 void BLEManager::setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)())
 {
     connectCallback = onConnect;
     disconnectCallback = onDisconnect;
-    ESP_LOGI(TAG_BLE, "Connection callbacks registered");
+    LOG_D(TAG, "Connection callbacks registered");
+}
+
+void BLEManager::updateBatteryLevel(uint8_t level)
+{
+    if (pBatteryCharacteristic)
+    {
+        pBatteryCharacteristic->setValue(&level, 1);
+        if (isConnected())
+        {
+            pBatteryCharacteristic->notify();
+        }
+        LOG_D(TAG, "Battery level updated: %d%%", level);
+    }
 }

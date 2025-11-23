@@ -3,6 +3,124 @@
 **Note**: Android app was migrated from Java to Kotlin + Jetpack Compose + Clean Architecture.
 Earlier entries refer to the legacy Java implementation.
 
+---
+
+### Firmware v3.2 - Unified Multi-Platform Architecture (November 21, 2025)
+
+#### Major Architecture Refactor
+- **Trait-Based Multi-Platform Support**: Single `unified_main.cpp` for ESP32 and nRF52
+  - Compile-time platform selection via PlatformTraits
+  - Zero runtime overhead (no virtual functions)
+  - Clean separation of platform-specific vs common code
+  - Files: `firmware/src/unified_main.cpp`, `firmware/include/{esp32,nrf52}/PlatformTraits.h`
+
+#### New Platform: nRF52 Support
+- **Seeed XIAO nRF52840** support added
+  - ARM Cortex-M4 @ 64 MHz
+  - 1MB Flash / 256KB RAM
+  - Arduino BLE stack integration
+  - SX1262 LoRa radio support
+  - Loop-based architecture (non-blocking state machines)
+  - Lower power consumption in active mode
+  - Files: `firmware/include/nrf52/`, `firmware/src/nrf52/`
+
+#### ESP32 Implementation
+- **Loop-Based Architecture**: Arduino setup()/loop() pattern
+  - NimBLE integration with callback-based message handling
+  - RadioLib integration for SX1262/SX1278 support
+  - Non-blocking state machines for all operations
+  - Deep sleep support for power optimization
+  - Files: `firmware/include/esp32/`, `firmware/src/esp32/`
+
+#### Hardware Support Matrix
+- **ESP32 Boards**:
+  - LilyGo T-Display S3 (SX1278)
+  - Heltec WiFi LoRa V3 (SX1262 with autonomous duty cycle)
+- **nRF52 Boards**:
+  - Seeed XIAO nRF52840 (SX1262)
+- **Radio Support**:
+  - SX1262: Autonomous duty cycle (~1.5-2mA avg)
+  - SX1278: Continuous RX mode (~12-15mA avg)
+
+#### LoRa Configuration Updates
+- **Spreading Factor**: Changed from SF11 → SF9 for balanced range/speed
+  - Range: 3-10 km (vs 5-15 km @ SF11)
+  - Airtime: ~0.3-0.6s per message (vs ~0.8-1.0s @ SF11)
+  - Duty cycle: 60-180 msgs/hour (vs 36-90 msgs/hour @ SF11)
+- **Maintained**: BW250 kHz, CR4/5, 433.92 MHz, 20 dBm TX
+- **Preamble**: 8 symbols (down from 512, using default RadioLib)
+
+#### BLE Integration
+- **ESP32**: NimBLE-Arduino stack
+  - Lower RAM usage vs ESP-IDF BLE
+  - FreeRTOS task integration
+  - Custom BLE adapter implementation
+  - Files: `firmware/include/esp32/BLEManager.h`, `firmware/src/esp32/BLEManager.cpp`
+- **nRF52**: Arduino BLE stack
+  - SoftDevice integration
+  - Event-driven callbacks
+  - Non-blocking operations
+  - Files: `firmware/include/nrf52/BLEManager.h`, `firmware/src/nrf52/BLEManager.cpp`
+
+#### Code Organization
+- **Directory Structure**:
+  ```
+  firmware/
+  ├── include/
+  │   ├── common/         # Platform-agnostic code (MessageQueue, etc.)
+  │   ├── esp32/          # ESP32-specific headers
+  │   ├── nrf52/          # nRF52-specific headers
+  │   └── Protocol.h      # Shared protocol
+  ├── src/
+  │   ├── unified_main.cpp    # Single entry point
+  │   ├── Protocol.cpp        # Shared implementation
+  │   ├── esp32/              # ESP32 implementations
+  │   └── nrf52/              # nRF52 implementations
+  └── platformio.ini      # Multi-environment build config
+  ```
+
+#### Build System
+- **PlatformIO Environments**:
+  - `lilygo-t-display-s3`: ESP32-S3 with SX1278
+  - `heltec-wifi-lora-v3`: ESP32-S3 with SX1262
+  - `xiao_nrf52840`: nRF52840 with SX1262
+- **Build Flags**: Platform-specific pin definitions and radio types
+- **Device Names**: Auto-generated from chip ID via Python script
+
+#### Performance Improvements
+- **Resource Usage**:
+  - ESP32: ~400-500 KB Flash, ~51 KB RAM (15.6% of 327 KB)
+  - nRF52: ~300-400 KB Flash, ~30-40 KB RAM (12-16% of 256 KB)
+- **Battery Life**:
+  - SX1262 (autonomous duty cycle): Multiple weeks on 2500 mAh
+  - SX1278 (continuous RX): Several days on 2500 mAh
+
+#### Documentation Updates
+- **firmware/ARCHITECTURE.md**: Complete rewrite for multi-platform architecture
+  - Platform comparison tables
+  - Trait system documentation
+  - Resource usage breakdowns
+  - Migration guide from v2.0
+- **protocol.md**: Updated LoRa configuration and timing tables
+- **README.md**: Added platform support matrix and build instructions
+
+#### Testing & Validation
+- **Cross-Platform Protocol**: Verified binary compatibility
+  - ESP32 ↔ nRF52 communication
+  - Android ↔ ESP32/nRF52 BLE
+  - PWA ↔ ESP32/nRF52 Web Bluetooth
+- **Unit Tests**: Protocol serialization tests pass on all platforms
+
+#### Breaking Changes
+**None** - Protocol v3.1 remains unchanged, all platforms compatible
+
+#### Migration Path
+- **From ESP32-only v2.0**: No changes required for ESP32 builds
+- **Code moved**: ESP32-specific code now in `esp32/` subdirectories
+- **Build targets**: Use `-e <environment>` flag with pio
+
+---
+
 ### Android App - Critical Connection State & Message Delivery Fixes (October 23, 2025)
 *Legacy Java implementation - since replaced by Kotlin/Compose version*
 

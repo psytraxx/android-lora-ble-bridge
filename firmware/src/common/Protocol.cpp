@@ -1,4 +1,4 @@
-#include "Protocol.h"
+#include <common/Protocol.h>
 
 /// Convert a character to its 6-bit encoded value
 /// Automatically converts lowercase to uppercase

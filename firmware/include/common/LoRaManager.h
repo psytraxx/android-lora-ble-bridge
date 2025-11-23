@@ -3,16 +3,25 @@
 
 #include <RadioLib.h>
 #include <functional>
-#include "Protocol.h"
-#include "esp_attr.h"
+#include <common/Protocol.h>
+
+// Platform-specific includes and definitions
+#if defined(ARDUINO_ARCH_ESP32)
+#include <esp_attr.h>
+#define LORA_ISR_ATTR IRAM_ATTR
+#elif defined(ARDUINO_ARCH_NRF52)
+#define LORA_ISR_ATTR
+#else
+#error "Unsupported platform"
+#endif
 
 /**
  * @file LoRaManager.h
- * @brief Encapsulates LoRa radio operations and message handling
+ * @brief Unified LoRa radio manager for ESP32 and nRF52 platforms
  *
  * This class provides a high-level interface for LoRa communication,
  * abstracting RadioLib details and providing event-driven packet handling.
- * Designed to reduce coupling and improve testability of the main application.
+ * Works on both ESP32 (SX1278/SX1262) and nRF52 (SX1268).
  */
 
 /// State machine states for LoRa manager
@@ -26,10 +35,12 @@ enum LoRaState : uint8_t
 };
 
 /// Configuration for LoRa radio parameters
+#ifndef LORA_CONFIG_DEFINED
+#define LORA_CONFIG_DEFINED
 struct LoRaConfig
 {
     float frequency;         // MHz (e.g., 433.92)
-    float bandwidth;         // kHz (e.g., 31.25)
+    float bandwidth;         // kHz (e.g., 250)
     uint8_t spreadingFactor; // SF (7-12)
     uint8_t codingRate;      // CR (5-8 for 4/5 to 4/8)
     int8_t txPower;          // dBm (e.g., 20)
@@ -43,6 +54,7 @@ struct LoRaPacket
     int rssi;            // Received Signal Strength Indicator (dBm)
     float snr;           // Signal-to-Noise Ratio (dB)
 };
+#endif
 
 /// Callback type for received packets
 using LoRaReceiveCallback = std::function<void(const LoRaPacket &packet)>;
@@ -85,7 +97,7 @@ public:
     /**
      * @brief Start continuous receive mode or duty-cycled receive mode
      *
-     * For SX1262 Uses hardware-based duty cycle mode
+     * For SX1262/SX1268: Uses hardware-based duty cycle mode
      * where the radio autonomously sleeps between RX windows to save power.
      * For SX1278 or disabled: Uses standard continuous receive mode.
      *
@@ -133,11 +145,11 @@ public:
     void setTransmitCallback(LoRaTransmitCallback callback);
 
     /**
-     * @brief Process LoRa events (call from main loop)
+     * @brief Process LoRa events (call from main loop or task)
      *
      * Checks for received packets and transmission completion,
      * invoking callbacks as needed.
-     * This should be called regularly from the main loop.
+     * This should be called regularly from the main loop or FreeRTOS task.
      */
     void process();
 
@@ -163,13 +175,61 @@ public:
      * @brief Static ISR handler for LoRa DIO0 receive interrupt
      * Must be public to be registered as ISR callback
      */
-    static void IRAM_ATTR onReceiveISR();
+    static void LORA_ISR_ATTR onReceiveISR();
 
     /**
      * @brief Static ISR handler for LoRa DIO0 transmit interrupt
      * Must be public to be registered as ISR callback
      */
-    static void IRAM_ATTR onTransmitISR();
+    static void LORA_ISR_ATTR onTransmitISR();
+
+    /**
+     * @brief Calculates the Time on Air (ToA) for a LoRa packet.
+     *
+     * This function is based on the formulas provided in the Semtech datasheets.
+     *
+     * @param spreadingFactor The spreading factor (7-12).
+     * @param bandwidth The bandwidth in Hz (e.g., 125000).
+     * @param codingRate The coding rate (1-4, corresponding to 4/5 to 4/8).
+     * @param preambleLength The number of preamble symbols.
+     * @param payloadLength The length of the payload in bytes.
+     * @param explicitHeader True if an explicit header is used, false for implicit.
+     * @param crcEnabled True if CRC is enabled.
+     * @param lowDataRateOptimize True if low data rate optimization is enabled.
+     * @return The Time on Air in milliseconds.
+     */
+    static inline double calculateToA_ms(
+        uint8_t spreadingFactor,
+        double bandwidth,
+        uint8_t codingRate,
+        uint16_t preambleLength,
+        uint8_t payloadLength,
+        bool explicitHeader = true,
+        bool crcEnabled = true,
+        bool lowDataRateOptimize = false)
+    {
+        // Symbol duration
+        double t_sym = std::pow(2, spreadingFactor) / (bandwidth / 1000.0);
+
+        // Preamble duration
+        double t_preamble = (preambleLength + 4.25) * t_sym;
+
+        // Payload number of symbols
+        int8_t header = explicitHeader ? 0 : 1;
+        int8_t crc = crcEnabled ? 16 : 0;
+        int8_t de = lowDataRateOptimize ? 1 : 0;
+
+        double payload_numerator = 8.0 * payloadLength - 4.0 * spreadingFactor + 28.0 + crc - 20.0 * header;
+        double payload_denominator = 4.0 * (spreadingFactor - 2.0 * de);
+
+        double n_payload = 8.0 + std::max(0.0, std::ceil(payload_numerator / payload_denominator) * (codingRate + 4.0));
+
+        // Payload duration
+        double t_payload = n_payload * t_sym;
+
+        // Total ToA
+        return t_preamble + t_payload;
+    }
 
 private:
     // GPIO pin configuration
@@ -186,18 +246,14 @@ private:
     SX1278 *radio;
 #elif defined(RADIO_SX1262)
     SX1262 *radio;
+#elif defined(RADIO_SX1268)
+    SX1268 *radio;
 #else
-#error "No supported RADIO defined! Please define RADIO_SX1278 or RADIO_SX1262"
+#error "No supported RADIO defined! Please define RADIO_SX1278, RADIO_SX1262, or RADIO_SX1268"
 #endif
 
     // State machine
     volatile LoRaState state;
-
-    // ISR tracking
-    volatile uint32_t rxInterruptCount;
-    volatile uint32_t txInterruptCount;
-    uint32_t rxProcessedCount;
-    uint32_t txProcessedCount;
 
     // Callbacks
     LoRaReceiveCallback receiveCallback;

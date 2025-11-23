@@ -1,11 +1,10 @@
 #ifndef BLE_MANAGER_H
 #define BLE_MANAGER_H
 
-#include "esp_log.h"
 #include <NimBLEDevice.h>
-#include <freertos/queue.h>
-#include "Protocol.h"
-#include "FirmwareConfig.h"
+#include <common/Protocol.h>
+#include <common/FirmwareConfig.h>
+#include <common/MessageQueue.h>
 
 /**
  * @file BLEManager.h
@@ -109,17 +108,17 @@ public:
  * Responsibilities:
  *  - Initialize NimBLE and configure the service/characteristics used by the
  *    application
- *  - Accept writes to the RX characteristic and push messages into the
- *    provided FreeRTOS queue for forwarding to LoRa
+ *  - Accept writes to the RX characteristic and push to message queue
  *  - Notify a connected client via the TX characteristic
  *  - Expose a small API used by the rest of the firmware (start/stop,
- *    sendMessage, process loop integration, activity callbacks)
+ *    sendMessage, activity callbacks)
  */
 class BLEManager
 {
 public:
-    /// Construct with a FreeRTOS queue to post incoming BLE messages to (LoRa side)
-    explicit BLEManager(QueueHandle_t bleToLoraQueue);
+    /// Construct BLE manager with message queue for received messages
+    /// @param bleToLoraQueue Queue to push received BLE messages
+    BLEManager(MessageQueue *bleToLoraQueue);
 
     /// Initialize BLE stack and create service/characteristics.
     /// @param deviceName The BLE device name to advertise (defined in platformio.ini)
@@ -165,6 +164,10 @@ public:
     /// @param onDisconnect Callback when client disconnects
     void setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)());
 
+    /// Update battery level characteristic
+    /// @param level Battery percentage (0-100)
+    void updateBatteryLevel(uint8_t level);
+
 private:
     static constexpr uint16_t kInvalidConnHandle = 0xFFFF;
 
@@ -174,7 +177,6 @@ private:
     NimBLECharacteristic *pBatteryCharacteristic{nullptr};
     NimBLEAdvertising *pAdvertising{nullptr};
 
-    QueueHandle_t bleToLoraQueue;
     std::string deviceNameStr; // Store device name for debugging/logs
 
     MyServerCallbacks *serverCallbacks{nullptr};
@@ -183,6 +185,9 @@ private:
 
     uint16_t currentConnHandle{kInvalidConnHandle};
     bool notificationsEnabled{false};
+
+    // Message queue for received BLE messages
+    MessageQueue *bleToLoraQueue{nullptr};
 
     // Connection state callbacks
     void (*connectCallback)(){nullptr};

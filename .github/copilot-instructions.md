@@ -2,25 +2,44 @@
 
 ## Project Overview
 
-This is a long-range messaging system bridging BLE (Android ↔ ESP32) with LoRa radio (ESP32 ↔ ESP32) for 5-15 km communication. The system uses custom 6-bit character encoding to minimize LoRa airtime and supports deep sleep for power optimization.
+This is a long-range messaging system bridging BLE (Android ↔ ESP32/nRF52) with LoRa radio for 3-10 km communication. The system uses custom 6-bit character encoding to minimize LoRa airtime and supports multiple hardware platforms through a unified trait-based architecture.
 
 **Key Architecture:**
 - **Android App** (Kotlin/Compose): BLE client, GPS source, message UI
-- **ESP32 Firmware** (C++/Arduino): BLE server ↔ LoRa bridge with deep sleep
+- **Unified Firmware** (C++/Arduino): Multi-platform support (ESP32, nRF52)
+  - ESP32: FreeRTOS tasks, NimBLE, deep sleep capable
+  - nRF52: Loop-based, Arduino BLE, low power modes
 - **Shared Protocol** (C++): Binary message serialization, 6-bit text packing
+- **PWA** (TypeScript): Web Bluetooth support for browser access
 
 ## Critical Build Commands
 
 ```bash
-# ESP32 firmware (use full PlatformIO path on macOS)
+# Firmware (unified multi-platform)
 cd firmware
-~/.platformio/penv/bin/pio run              # Build
-~/.platformio/penv/bin/pio run --target upload --target monitor
+
+# ESP32 (LilyGo T-Display S3 with SX1278)
+~/.platformio/penv/bin/pio run -e lilygo-t-display-s3
+~/.platformio/penv/bin/pio run -e lilygo-t-display-s3 --target upload --target monitor
+
+# ESP32 (Heltec WiFi LoRa V3 with SX1262)
+~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3
+~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3 --target upload --target monitor
+
+# nRF52 (Seeed XIAO nRF52840 with SX1262)
+~/.platformio/penv/bin/pio run -e xiao_nrf52840
+~/.platformio/penv/bin/pio run -e xiao_nrf52840 --target upload --target monitor
 
 # Android app
 cd android
 ./gradlew assembleDebug installDebug        # Build + install
 ./gradlew test                              # 74 unit tests
+
+# PWA
+cd pwa
+npm install
+npm run dev                                  # Development server
+npm run build                                # Production build
 ```
 
 ## Protocol v3.0 Essentials
@@ -66,23 +85,36 @@ switch(reason) {
 
 **RTC Memory:** `RTC_DATA_ATTR int bootCount` persists across deep sleep for debugging.
 
-## ESP32 Architecture Patterns
+## Firmware Architecture
 
-**State Machine:** `ApplicationController` (see `firmware/include/ApplicationController.h`)
-- `DISCONNECTED_ADVERTISING` → `CONNECTED_ACTIVE` (via BLE events)
-- Handles advertising timeout (30s), inactivity timeout (60s), deep sleep trigger
-- Manages `MessageBuffer` (10 message queue when BLE disconnected)
+**Unified Loop-Based Design:**
+- **Single `unified_main.cpp`** with `setup()` and `loop()` for all platforms
+- **Platform traits** - Compile-time polymorphism (no virtual functions)
+- **Zero runtime overhead** - All platform selection done at compile-time
+- **Non-blocking architecture** - All operations polled in main loop
 
-**Message Flow:**
-1. Android writes to BLE RX characteristic → `bleToLoraQueue`
-2. `ApplicationController::update()` dequeues → `LoRaManager::send()`
-3. LoRa RX callback → `loraToBleQueue`
-4. `ApplicationController::update()` forwards to BLE or `MessageBuffer`
+**Platform-Specific Implementations:**
 
-**Critical Timing:**
-- **ACK delay:** 500ms before sending ACK (allows TX→RX mode switch)
-- **RX settle:** 50ms after `startReceive()` (hardware stabilization)
-- Location: `firmware/src/LoRaManager.cpp`
+**ESP32:**
+- Loop-based execution (Arduino framework)
+- NimBLE stack (callback-based)
+- Deep sleep capable
+- Files: `firmware/include/esp32/`, `firmware/src/esp32/`
+
+**nRF52:**
+- Loop-based execution (Arduino framework)
+- Arduino BLE stack (polling-based)
+- SoftDevice power modes
+- Files: `firmware/include/nrf52/`, `firmware/src/nrf52/`
+
+**Message Flow (Both Platforms):**
+1. Android writes to BLE RX characteristic
+2. Platform-specific handling:
+   - ESP32: NimBLE callback → `bleToLoraQueue.push()`
+   - nRF52: loop() polls BLE → `bleToLoraQueue.push()`
+3. loop() processes `bleToLoraQueue` → `LoRaManager::send()`
+4. LoRa RX interrupt → callback → `loraToBleQueue.push()`
+5. loop() processes `loraToBleQueue` → `BLEManager::sendMessage()`
 
 ## Android Clean Architecture
 
@@ -115,7 +147,8 @@ switch(reason) {
 
 **Changing LoRa Parameters:**
 - Edit `firmware/platformio.ini` (frequency, SF, BW, TX power)
-- **Current settings:** 433.92 MHz, BW250 kHz, SF11, CR4/5, 20dBm TX, 512-symbol preamble
+- **Current settings:** 433.92 MHz, BW250 kHz, SF9, CR4/5, 20dBm TX, 8-symbol preamble
+- **For longer range:** Change `-DLORA_SPREADING_FACTOR=9` to `11` (reduces speed, increases range 50%)
 - Reflash ALL devices (must use same parameters for interoperability)
 - Verify with serial monitor: `~/.platformio/penv/bin/pio device monitor`
 
@@ -126,12 +159,19 @@ switch(reason) {
 
 ## Power Optimization
 
+**ESP32:**
 - CPU: 160 MHz (not 240 MHz) via `CPU_FREQ_MHZ` in platformio.ini
 - WiFi disabled in `setup()`: `esp_wifi_stop()` + `esp_wifi_deinit()`
 - BT Classic released: `esp_bt_mem_release(ESP_BT_MODE_CLASSIC_BT)`
-- **LoRa:** BW250 kHz @ SF11 for fast airtime (~0.8s) + good range
-- **Autonomous Duty Cycle (SX1262):** ~1.5-2mA average (vs 12mA continuous RX)
-- Deep sleep: ~52 days on 2500 mAh with SX1262 duty cycle (vs ~9 days continuous)
+- **LoRa:** BW250 kHz @ SF9 for fast airtime (~0.3-0.6s) + good range
+- **Autonomous Duty Cycle (SX1262):** ~1.5-2mA average (vs 12-15mA continuous RX on SX1278)
+- Deep sleep: Multiple weeks on 2500 mAh with SX1262
+
+**nRF52:**
+- SoftDevice power modes for BLE
+- WFI (Wait For Interrupt) during idle
+- Lower active power consumption than ESP32
+- SX1262 autonomous duty cycle for ultra-low power
 
 ## Regulatory Compliance
 
@@ -140,16 +180,32 @@ switch(reason) {
 
 ## Project-Specific Conventions
 
-- **No backward compatibility:** Protocol v3.0 breaks v2.0 (separate TEXT/GPS → unified)
+- **Multi-platform firmware:** Single codebase supports ESP32 and nRF52 via platform traits
 - **Protocol C++:** Uses standard headers (`<cstdint>`, `<cstring>`) not Arduino-specific for portability
-- **Android package:** `com.example.lorabridge` (not `.lorabridge.app` or similar)
-- **ESP32 targets:** `esp32dev` and `lilygo-t-display-s3` in `platformio.ini`
+- **Android package:** `com.example.lorabridge` (Kotlin + Jetpack Compose)
+- **PlatformIO targets:** `lilygo-t-display-s3`, `heltec-wifi-lora-v3`, `xiao_nrf52840`
+- **Radio support:** SX1262 (autonomous duty cycle), SX1278 (continuous RX)
+- **Compile-time platform selection:** Platform-specific code isolated to `esp32/` and `nrf52/` directories
 
 ## Key Files Reference
 
-- **Protocol spec:** `protocol.md`, `firmware/include/Protocol.h`, `firmware/src/Protocol.cpp`
-- **ESP32 entry:** `firmware/src/main.cpp` (setup/loop pattern)
-- **State machine:** `firmware/include/ApplicationController.h`
-- **Power mgmt:** `firmware/include/PowerManager.h`
-- **Android protocol:** `android/app/src/main/java/com/example/lorabridge/data/protocol/LoRaProtocol.kt`
-- **Android UI:** `android/app/src/main/java/com/example/lorabridge/presentation/chat/ChatScreen.kt`
+**Firmware:**
+- **Unified entry:** `firmware/src/unified_main.cpp` (single entry point for all platforms)
+- **Protocol:** `firmware/include/Protocol.h`, `firmware/src/Protocol.cpp` (shared across platforms)
+- **Platform traits:**
+  - `firmware/include/esp32/PlatformTraits.h`
+  - `firmware/include/nrf52/PlatformTraits.h`
+- **ESP32 implementations:** `firmware/include/esp32/`, `firmware/src/esp32/`
+- **nRF52 implementations:** `firmware/include/nrf52/`, `firmware/src/nrf52/`
+- **Build config:** `firmware/platformio.ini` (multi-environment setup)
+
+**Android:**
+- **Protocol:** `android/app/src/main/java/com/example/lorabridge/data/protocol/LoRaProtocol.kt`
+- **UI:** `android/app/src/main/java/com/example/lorabridge/presentation/chat/ChatScreen.kt`
+- **BLE:** `android/app/src/main/java/com/example/lorabridge/data/ble/BleRepository.kt`
+
+**Documentation:**
+- **Protocol spec:** `protocol.md`
+- **Firmware architecture:** `firmware/ARCHITECTURE.md` (v3.0 - unified multi-platform)
+- **Android docs:** `android/README.md`, `android/docs/`
+- **Changelog:** `CHANGELOG.md`

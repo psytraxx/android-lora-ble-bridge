@@ -172,43 +172,65 @@ Note: LoRa-only, never sent via BLE
 ## Performance Characteristics
 
 ### LoRa Configuration
-- **Spreading Factor**: SF11 (excellent sensitivity)
+
+**Current Settings (as of Nov 2025):**
+- **Spreading Factor**: SF9 (balanced range/speed)
 - **Bandwidth**: 250 kHz (fast airtime)
 - **Coding Rate**: 4/5
 - **Frequency**: 433.92 MHz (default, configurable)
 - **TX Power**: 20 dBm / ~100 mW (default, configurable -4 to 20 dBm)
-- **Preamble**: 512 symbols (~2.5s at SF11/BW250, for duty cycle compatibility)
+- **Preamble**: 8 symbols (default RadioLib)
+
+**Note:** Settings optimized for moderate range (3-10 km) with fast airtime. For longer range, increase SF to 10-12 (reduces speed).
 
 ### Time on Air (ToA)
 
-| Message Size | Content | ToA @ SF11 BW250 | Example |
-|--------------|---------|------------------|---------|
-| 5 bytes | Empty text (no GPS) | ~0.5 s | "" |
-| 8 bytes | 3-char text (no GPS) | ~0.5 s | "SOS" |
-| 17 bytes | 15-char text (no GPS) | ~0.7 s | "AT CHECKPOINT 2" |
-| 26 bytes | 15-char text + GPS | ~0.8 s | "AT CHECKPOINT 2" with location |
-| 43 bytes | 50-char text (no GPS) | ~0.9 s | Maximum length text only |
-| 51 bytes | 50-char text + GPS | ~1.0 s | Maximum length with GPS |
-| 2 bytes | ACK | ~0.4 s | Acknowledgment |
+**At SF9, BW250 kHz (current configuration):**
 
-**Benefits of current configuration:**
+| Message Size | Content | ToA @ SF9 BW250 | Example |
+|--------------|---------|------------------|---------|
+| 5 bytes | Empty text (no GPS) | ~0.2 s | "" |
+| 8 bytes | 3-char text (no GPS) | ~0.2 s | "SOS" |
+| 17 bytes | 15-char text (no GPS) | ~0.3 s | "AT CHECKPOINT 2" |
+| 26 bytes | 15-char text + GPS | ~0.4 s | "AT CHECKPOINT 2" with location |
+| 43 bytes | 50-char text (no GPS) | ~0.5 s | Maximum length text only |
+| 51 bytes | 50-char text + GPS | ~0.6 s | Maximum length with GPS |
+| 2 bytes | ACK | ~0.2 s | Acknowledgment |
+
+**At SF11, BW250 kHz (for maximum range):**
+
+| Message Size | Content | ToA @ SF11 BW250 | Range Benefit |
+|--------------|---------|------------------|--------------|
+| 8 bytes | 3-char text (no GPS) | ~0.5 s | +50% range vs SF9 |
+| 26 bytes | 15-char text + GPS | ~0.8 s | +50% range vs SF9 |
+| 51 bytes | 50-char text + GPS | ~1.0 s | +50% range vs SF9 |
+
+**Benefits of current configuration (SF9):**
 - One unified message (text + GPS optional)
 - Fast airtime with BW250 kHz
-- 512-symbol preamble ensures duty-cycled receivers detect packets
-- No separate wake-up packets needed
+- Good balance of range (3-10 km) and speed
+- Lower duty cycle impact (more messages per hour)
 
 ### Duty Cycle Compliance (EU: 1% = 36 seconds/hour)
 
-**Based on SF11, BW250 kHz configuration**
+**Based on SF9, BW250 kHz (current configuration):**
 
 | Scenario | Per Message | Messages/Hour | Use Case |
 |----------|-------------|---------------|----------|
-| Text only (50 char) | ~0.9 s | ~40 | Detailed updates without GPS |
-| Text only (25 char) | ~0.7 s | ~51 | Normal messages |
-| Text (10 char) + GPS | ~0.7 s | ~51 | Status with location |
-| Text (50 char) + GPS | ~1.0 s | ~36 | Full message with location |
-| Emergency (5 char) | ~0.5 s | ~72 | SOS messages |
-| ACK | ~0.4 s | ~90 | Acknowledgments |
+| Text only (50 char) | ~0.5 s | ~72 | Detailed updates without GPS |
+| Text only (25 char) | ~0.3 s | ~120 | Normal messages |
+| Text (10 char) + GPS | ~0.3 s | ~120 | Status with location |
+| Text (50 char) + GPS | ~0.6 s | ~60 | Full message with location |
+| Emergency (5 char) | ~0.2 s | ~180 | SOS messages |
+| ACK | ~0.2 s | ~180 | Acknowledgments |
+
+**Based on SF11, BW250 kHz (maximum range configuration):**
+
+| Scenario | Per Message | Messages/Hour | Range Improvement |
+|----------|-------------|---------------|------------------|
+| Text only (50 char) | ~0.9 s | ~40 | +50% vs SF9 |
+| Text (50 char) + GPS | ~1.0 s | ~36 | +50% vs SF9 |
+| Emergency (5 char) | ~0.5 s | ~72 | +50% vs SF9 |
 
 **Note:** Use [LoRa Calculator](https://www.loratools.nl/#/airtime) to calculate exact ToA for your specific messages.
 
@@ -263,13 +285,23 @@ Note: LoRa-only, never sent via BLE
 
 ## Compatibility
 
-### Cross-Platform
-- ✅ Rust (ESP32 firmware)
-- ✅ C++ (ESP32 Arduino, ESP32S3 Debugger)
-- ✅ Java (Android app)
-- ✅ Binary compatible (verified via unit tests)
-- ✅ Same byte order (little-endian)
-- ✅ 6-bit packing implemented consistently
+### Cross-Platform Implementation
+- ✅ **C++ (Unified Firmware)** - ESP32 and nRF52 support
+- ✅ **Kotlin (Android App)** - Modern implementation
+- ✅ **TypeScript (PWA)** - Web Bluetooth support
+- ✅ **Binary compatible** - Verified via unit tests across all platforms
+- ✅ **Same byte order** - Little-endian on all platforms
+- ✅ **6-bit packing** - Consistent implementation
+
+### Platform Support Matrix
+
+| Platform | Language | Status | Notes |
+|----------|----------|--------|-------|
+| ESP32 (LilyGo T-Display S3) | C++ | ✅ Active | SX1278, FreeRTOS tasks |
+| ESP32 (Heltec WiFi LoRa V3) | C++ | ✅ Active | SX1262, autonomous duty cycle |
+| nRF52 (Seeed XIAO) | C++ | ✅ Active | SX1262, loop-based |
+| Android | Kotlin | ✅ Active | Jetpack Compose UI |
+| Web (PWA) | TypeScript | ✅ Active | Web Bluetooth API |
 
 ### Message Type Usage
 - **TEXT (0x01)**: Both LoRa and BLE
@@ -278,7 +310,7 @@ Note: LoRa-only, never sent via BLE
 
 ### Version History
 - **v1.0** (Oct 2025): Initial protocol with UTF-8 encoding, combined text+GPS (DataMessage)
-- **v2.0** (Oct 2025): 
+- **v2.0** (Oct 2025):
   - Separated messages: TextMessage (0x01), GpsMessage (0x02), AckMessage (0x03)
   - Changed to 6-bit character packing for bandwidth efficiency
   - Uppercase-only charset (lowercase auto-converted)
@@ -299,6 +331,13 @@ Note: LoRa-only, never sent via BLE
   - LoRa-only message (never transmitted via BLE)
   - Used to wake ESP32 devices from deep sleep
   - Minimal 1-byte payload for efficiency
+- **v3.2** (Nov 2025):
+  - **Multi-platform firmware**: Unified C++ codebase for ESP32 and nRF52
+  - Platform traits for compile-time polymorphism
+  - Support for SX1262 (autonomous duty cycle) and SX1278 (continuous RX)
+  - Optimized LoRa settings: SF9 for balanced range/speed
+  - Android app updated to Kotlin + Jetpack Compose
+  - Protocol remains compatible across all platforms
 
 ### Breaking Changes in v3.0
 - ⚠️ **Not backward compatible** with v2.0 or v1.0

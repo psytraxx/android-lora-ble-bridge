@@ -1,8 +1,8 @@
-#include "ApplicationController.h"
-#include <esp_timer.h>
-#include "esp_log.h"
+#include "common/ApplicationController.h"
+#include "common/Logging.h"
+#include <Arduino.h>
 
-static const char *TAG = "AppState";
+static const char *TAG = "App";
 
 ApplicationController::ApplicationController()
     : stateMutex(nullptr),
@@ -15,7 +15,7 @@ ApplicationController::ApplicationController()
     stateMutex = xSemaphoreCreateMutex();
     if (stateMutex == nullptr)
     {
-        ESP_LOGE(TAG, "Failed to create state mutex!");
+        LOG_E(TAG, "Failed to create state mutex!");
     }
 }
 
@@ -31,7 +31,7 @@ void ApplicationController::begin()
 
     xSemaphoreGive(stateMutex);
 
-    ESP_LOGI(TAG, "ApplicationController initialized (pure state machine)");
+    LOG_I(TAG, "Initialized (pure state machine)");
 }
 
 // ============================================================================
@@ -61,7 +61,7 @@ void ApplicationController::onBleConnected()
 
     if (state != AppState::CONNECTED_ACTIVE)
     {
-        ESP_LOGI(TAG, "State transition: DISCONNECTED_ADVERTISING → CONNECTED_ACTIVE");
+        LOG_I(TAG, "State transition: DISCONNECTED_ADVERTISING → CONNECTED_ACTIVE");
         state = AppState::CONNECTED_ACTIVE;
         connectionEstablishedMillis = getCurrentTimeMillis();
         lastActivityMillis = getCurrentTimeMillis();
@@ -76,7 +76,7 @@ void ApplicationController::onBleDisconnected()
 
     if (state != AppState::DISCONNECTED_ADVERTISING)
     {
-        ESP_LOGI(TAG, "State transition: CONNECTED_ACTIVE → DISCONNECTED_ADVERTISING");
+        LOG_I(TAG, "State transition: CONNECTED_ACTIVE → DISCONNECTED_ADVERTISING");
         state = AppState::DISCONNECTED_ADVERTISING;
         advertiseStartMillis = getCurrentTimeMillis(); // Restart advertising timer
         connectionEstablishedMillis = 0;
@@ -134,7 +134,7 @@ unsigned long ApplicationController::getConnectionDuration() const
 
 bool ApplicationController::isAndroidReady() const
 {
-    return getConnectionDuration() >= BLEConstants::CONNECTION_SETUP_DELAY_MS;
+    return getConnectionDuration() >= 1000; // 1000ms delay for Android GATT setup
 }
 
 // ============================================================================
@@ -143,5 +143,5 @@ bool ApplicationController::isAndroidReady() const
 
 unsigned long ApplicationController::getCurrentTimeMillis() const
 {
-    return esp_timer_get_time() / 1000ULL;
+    return millis();
 }
