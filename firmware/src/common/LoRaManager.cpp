@@ -286,16 +286,17 @@ void LoRaManager::process()
             LOG_E(TAG, "Read failed, code %d", rxState);
         }
 
-#if defined(ARDUINO_ARCH_ESP32)
-        // ESP32: Radio remains in RX mode after readData()
-        state = STATE_IDLE;
-        LOG_I(TAG, "RX packet processing complete (radio still in RX mode)");
-#elif defined(ARDUINO_ARCH_NRF52)
-        // nRF52: Manually restart receive mode
-        radio->startReceive();
-        state = STATE_IDLE;
-        LOG_I(TAG, "RX packet processing complete, receive mode restarted");
-#endif
+        // Restart RX mode if callback didn't start a transmission
+        if (state == STATE_PACKET_RECEIVED)
+        {
+            radio->startReceive();
+            state = STATE_IDLE;
+            LOG_I(TAG, "RX packet processing complete, receive mode restarted");
+        }
+        else if (state == STATE_TRANSMITTING)
+        {
+            LOG_I(TAG, "RX packet processing complete, transmission queued");
+        }
         return;
     }
 
