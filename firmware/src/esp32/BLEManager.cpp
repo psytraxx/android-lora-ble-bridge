@@ -188,7 +188,7 @@ bool BLEManager::sendMessage(const Message &msg)
         return false;
     }
 
-    uint8_t buf[64];
+    uint8_t buf[BufferConstants::MAX_PROTOCOL_MESSAGE];
     int len = msg.serialize(buf, sizeof(buf));
 
     if (len < 0)
@@ -201,13 +201,15 @@ bool BLEManager::sendMessage(const Message &msg)
 
     // Check if notify() succeeds - it returns false if client hasn't enabled notifications
     // or if the notification queue is full
-    if (!pTxCharacteristic->notify())
+    bool success = pTxCharacteristic->notify();
+    if (success)
     {
-        LOG_W(TAG, "Notify failed - client may not be subscribed or queue full");
-        return false;
+        LOG_D(TAG, "Sent message, type: %d, seq: %d", (int)msg.type, (int)msg.textData.seq);
     }
-
-    LOG_D(TAG, "Notify sent (%d bytes)", len);
+    else
+    {
+        LOG_E(TAG, "Failed to send notification");
+    }
     return true;
 }
 

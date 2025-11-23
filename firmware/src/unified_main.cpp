@@ -300,7 +300,7 @@ void onLoRaReceived(const LoRaPacket &packet)
             LOG_D(TAG, "Sending ACK for seq %d", msg.textData.seq);
 
             Message ackMsg = Message::createAck(msg.textData.seq);
-            uint8_t ackBuffer[64];
+            uint8_t ackBuffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
             int ackLen = ackMsg.serialize(ackBuffer, sizeof(ackBuffer));
 
             if (ackLen > 0)
@@ -312,7 +312,7 @@ void onLoRaReceived(const LoRaPacket &packet)
                 // Send ACK (will be queued after current RX processing completes)
                 if (loraManager->startTransmit(ackBuffer, (size_t)ackLen))
                 {
-                    LOG_I(TAG, "ACK transmission started");
+                    LOG_I(TAG, "ACK transmission started for seq %d", msg.textData.seq);
                 }
                 else
                 {
@@ -359,7 +359,7 @@ void handleBleMessage(const Message &msg)
 {
     LOG_D(TAG, "BLE message queued for LoRa, type: %d", (int)msg.type);
 
-    uint8_t buffer[256];
+    uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
     int length = msg.serialize(buffer, sizeof(buffer));
 
     if (length > 0)

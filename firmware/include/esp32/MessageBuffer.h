@@ -18,8 +18,6 @@
 class MessageBuffer
 {
 public:
-    static constexpr size_t MAX_MESSAGES = BufferConstants::MAX_BUFFERED_MESSAGES;
-    static constexpr size_t MAX_MESSAGE_SIZE = BufferConstants::MAX_PROTOCOL_MESSAGE;
     static constexpr const char *NVS_NAMESPACE = "msg_buffer";
     static constexpr const char *NVS_KEY_COUNT = "count";
     static constexpr const char *NVS_KEY_HEAD = "head";
@@ -79,7 +77,7 @@ public:
     /**
      * @brief Check if buffer is full
      */
-    bool isFull() const { return m_count >= (int)MAX_MESSAGES; }
+    bool isFull() const { return m_count >= (int)BufferConstants::MAX_BUFFERED_MESSAGES; }
 
     /**
      * @brief Clear all messages from buffer and NVS

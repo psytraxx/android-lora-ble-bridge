@@ -102,7 +102,7 @@ void MessageBuffer::saveState()
 
 void MessageBuffer::getMessageKey(size_t index, char *keyBuf, size_t keyBufSize)
 {
-    snprintf(keyBuf, keyBufSize, "msg_%zu", index % MAX_MESSAGES);
+    snprintf(keyBuf, keyBufSize, "msg_%zu", index % BufferConstants::MAX_BUFFERED_MESSAGES);
 }
 
 bool MessageBuffer::add(const Message &msg)
@@ -114,7 +114,7 @@ bool MessageBuffer::add(const Message &msg)
     }
 
     // Serialize message
-    uint8_t buffer[MAX_MESSAGE_SIZE];
+    uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
     int len = msg.serialize(buffer, sizeof(buffer));
 
     if (len < 0)
@@ -136,10 +136,10 @@ bool MessageBuffer::add(const Message &msg)
     }
 
     // Update buffer state (drop-oldest if full)
-    if (m_count >= (int)MAX_MESSAGES)
+    if (m_count >= (int)BufferConstants::MAX_BUFFERED_MESSAGES)
     {
         // Buffer full - overwrite oldest message
-        m_head = (m_head + 1) % MAX_MESSAGES;
+        m_head = (m_head + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
         LOG_W(TAG, "Buffer full, dropping oldest message (head moved to %d)", m_head);
     }
     else
@@ -147,7 +147,7 @@ bool MessageBuffer::add(const Message &msg)
         m_count++;
     }
 
-    m_tail = (m_tail + 1) % MAX_MESSAGES;
+    m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
 
     // Persist state
     saveState();
@@ -175,7 +175,7 @@ bool MessageBuffer::peek(Message &msg)
     getMessageKey(m_head, key, sizeof(key));
 
     // Read serialized message from NVS
-    uint8_t buffer[MAX_MESSAGE_SIZE];
+    uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
     size_t len = sizeof(buffer);
 
     esp_err_t err = nvs_get_blob(m_nvsHandle, key, buffer, &len);
@@ -246,7 +246,7 @@ bool MessageBuffer::popFront()
     }
 
     // Update buffer state
-    m_head = (m_head + 1) % MAX_MESSAGES;
+    m_head = (m_head + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
     m_count--;
 
     // Persist state
@@ -266,7 +266,7 @@ void MessageBuffer::clear()
     }
 
     // Erase all message keys
-    for (size_t i = 0; i < MAX_MESSAGES; i++)
+    for (size_t i = 0; i < BufferConstants::MAX_BUFFERED_MESSAGES; i++)
     {
         char key[16];
         getMessageKey(i, key, sizeof(key));

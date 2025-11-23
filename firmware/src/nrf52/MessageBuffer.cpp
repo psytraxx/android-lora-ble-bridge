@@ -52,7 +52,7 @@ bool MessageBuffer::add(const Message &msg)
     }
 
     // Serialize message
-    uint8_t buffer[MAX_MESSAGE_SIZE];
+    uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
     int len = msg.serialize(buffer, sizeof(buffer));
 
     if (len <= 0)
@@ -82,7 +82,7 @@ bool MessageBuffer::add(const Message &msg)
     }
 
     // Update buffer state
-    m_head = (m_head + 1) % MAX_MESSAGES;
+    m_head = (m_head + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
     m_count++;
     saveState();
 
@@ -110,9 +110,10 @@ bool MessageBuffer::peek(Message &msg)
         // File is missing but state says it should exist - corruption detected
         // Remove this entry from the queue and reset count
         LOG_I(TAG, "Auto-recovering: removing missing entry from queue");
-        m_tail = (m_tail + 1) % MAX_MESSAGES;
+        m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
         m_count--;
-        if (m_count < 0) m_count = 0;
+        if (m_count < 0)
+            m_count = 0;
         saveState();
 
         return false;
@@ -126,7 +127,7 @@ bool MessageBuffer::peek(Message &msg)
     }
 
     // Read message data
-    uint8_t buffer[MAX_MESSAGE_SIZE];
+    uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
     size_t len = file.read(buffer, sizeof(buffer));
     file.close();
 
@@ -135,9 +136,10 @@ bool MessageBuffer::peek(Message &msg)
         LOG_W(TAG, "Empty message file - removing corrupt entry");
         // Remove corrupt empty file
         InternalFS.remove(filename);
-        m_tail = (m_tail + 1) % MAX_MESSAGES;
+        m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
         m_count--;
-        if (m_count < 0) m_count = 0;
+        if (m_count < 0)
+            m_count = 0;
         saveState();
         return false;
     }
@@ -148,9 +150,10 @@ bool MessageBuffer::peek(Message &msg)
         LOG_W(TAG, "Failed to deserialize buffered message - removing corrupt entry");
         // Remove corrupt unreadable file
         InternalFS.remove(filename);
-        m_tail = (m_tail + 1) % MAX_MESSAGES;
+        m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
         m_count--;
-        if (m_count < 0) m_count = 0;
+        if (m_count < 0)
+            m_count = 0;
         saveState();
         return false;
     }
@@ -176,7 +179,7 @@ bool MessageBuffer::popFront()
     }
 
     // Update buffer state
-    m_tail = (m_tail + 1) % MAX_MESSAGES;
+    m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
     m_count--;
     saveState();
 
@@ -193,7 +196,7 @@ void MessageBuffer::clear()
     LOG_I(TAG, "Clearing message buffer");
 
     // Delete all message files
-    for (size_t i = 0; i < MAX_MESSAGES; i++)
+    for (size_t i = 0; i < BufferConstants::MAX_BUFFERED_MESSAGES; i++)
     {
         char filename[32];
         getMessageFilename(i, filename, sizeof(filename));
@@ -252,9 +255,9 @@ void MessageBuffer::loadState()
     memcpy(&m_count, &state[8], 4);
 
     // Validate state
-    if (m_head < 0 || m_head >= (int)MAX_MESSAGES ||
-        m_tail < 0 || m_tail >= (int)MAX_MESSAGES ||
-        m_count < 0 || m_count > (int)MAX_MESSAGES)
+    if (m_head < 0 || m_head >= (int)BufferConstants::MAX_BUFFERED_MESSAGES ||
+        m_tail < 0 || m_tail >= (int)BufferConstants::MAX_BUFFERED_MESSAGES ||
+        m_count < 0 || m_count > (int)BufferConstants::MAX_BUFFERED_MESSAGES)
     {
         LOG_W(TAG, "Corrupt buffer state (invalid indices), resetting");
         m_head = 0;
@@ -280,7 +283,7 @@ void MessageBuffer::loadState()
                 missingFiles++;
             }
 
-            idx = (idx + 1) % MAX_MESSAGES;
+            idx = (idx + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
         }
 
         if (missingFiles > 0)

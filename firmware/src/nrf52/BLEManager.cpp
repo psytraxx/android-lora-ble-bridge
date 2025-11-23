@@ -124,7 +124,7 @@ bool BLEManager::sendMessage(const Message &msg)
 
     if (success)
     {
-        LOG_D(TAG, "Sent message, type: %d", (int)msg.type);
+        LOG_D(TAG, "Sent message, type: %d, seq: %d", (int)msg.type, (int)msg.textData.seq);
     }
     else
     {

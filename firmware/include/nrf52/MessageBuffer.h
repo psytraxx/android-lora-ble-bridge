@@ -23,8 +23,6 @@ using namespace Adafruit_LittleFS_Namespace;
 class MessageBuffer
 {
 public:
-    static constexpr size_t MAX_MESSAGES = BufferConstants::MAX_BUFFERED_MESSAGES;
-    static constexpr size_t MAX_MESSAGE_SIZE = BufferConstants::MAX_PROTOCOL_MESSAGE;
     static constexpr const char *BUFFER_DIR = "/msgbuf";
     static constexpr const char *STATE_FILE = "/msgbuf/state.bin";
 
@@ -82,7 +80,7 @@ public:
     /**
      * @brief Check if buffer is full
      */
-    bool isFull() const { return m_count >= (int)MAX_MESSAGES; }
+    bool isFull() const { return m_count >= (int)BufferConstants::MAX_BUFFERED_MESSAGES; }
 
     /**
      * @brief Clear all messages from buffer and flash
