@@ -15,6 +15,7 @@
 #include "common/ApplicationController.h"
 #include "common/LoRaManager.h"
 #include "common/MessageQueue.h"
+#include "common/FirmwareConfig.h"
 
 static const char *TAG = "Main";
 
@@ -316,6 +317,10 @@ void onLoRaReceived(const LoRaPacket &packet)
 
             if (ackLen > 0)
             {
+                // Wait for sender to switch to RX mode before sending ACK
+                // This delay ensures reliable ACK delivery
+                delay(LoRaConstants::ACK_DELAY_MS);
+
                 // Send ACK (will be queued after current RX processing completes)
                 if (loraManager->startTransmit(ackBuffer, (size_t)ackLen))
                 {

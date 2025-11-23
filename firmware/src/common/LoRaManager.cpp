@@ -1,5 +1,6 @@
 #include <common/LoRaManager.h>
 #include "common/Logging.h"
+#include "common/FirmwareConfig.h"
 #include <Arduino.h>
 #include <SPI.h>
 
@@ -210,8 +211,8 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
         }
 
         // Wait for receiver to wake up and switch to continuous RX
-        const int WAKEUP_TO_MESSAGE_DELAY_MS = 100;
-        delay(WAKEUP_TO_MESSAGE_DELAY_MS);
+        // This delay accounts for: WakeUp ToA + Deep Sleep Wake Time + RX Settle + Margin
+        delay(LoRaConstants::WAKEUP_TO_MESSAGE_DELAY_MS);
     }
     else
     {
@@ -309,7 +310,11 @@ void LoRaManager::process()
             transmitCallback(true);
         }
 
-        // Restart RX mode immediately for all platforms
+        // Allow radio hardware to settle before switching to RX mode
+        // This prevents timing issues with rapid TX->RX transitions
+        delay(LoRaConstants::RX_SETTLE_TIME_MS);
+
+        // Restart RX mode for all platforms
         startReceive();
         state = STATE_IDLE;
         LOG_I(TAG, "Now in RX mode");
