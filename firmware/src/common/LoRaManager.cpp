@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 
-static const char* TAG = "LoRa";
+static const char *TAG = "LoRa";
 
 // Platform-specific includes will be handled via FirmwareConfig later
 // For now, we'll use conditional compilation for constants
@@ -21,10 +21,6 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
       pinBusy(busy),
       radio(nullptr),
       state(STATE_UNINITIALIZED),
-      rxInterruptCount(0),
-      txInterruptCount(0),
-      rxProcessedCount(0),
-      txProcessedCount(0),
       receiveCallback(nullptr),
       transmitCallback(nullptr)
 {
@@ -260,7 +256,6 @@ void LoRaManager::process()
     // Check for received packets
     if (state == STATE_PACKET_RECEIVED)
     {
-        rxProcessedCount++;
         LOG_I(TAG, "RX packet detected, processing");
 
         // Read packet data
@@ -307,7 +302,6 @@ void LoRaManager::process()
     if (state == STATE_PACKET_SENT)
     {
         LOG_I(TAG, "TX complete");
-        txProcessedCount++;
 
         // Invoke transmit callback
         if (transmitCallback)
@@ -342,7 +336,6 @@ void LORA_ISR_ATTR LoRaManager::onReceiveISR()
 {
     if (instance)
     {
-        instance->rxInterruptCount++;
         instance->state = STATE_PACKET_RECEIVED;
     }
 }
@@ -351,7 +344,6 @@ void LORA_ISR_ATTR LoRaManager::onTransmitISR()
 {
     if (instance)
     {
-        instance->txInterruptCount++;
         instance->state = STATE_PACKET_SENT;
     }
 }

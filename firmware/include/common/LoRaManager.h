@@ -27,11 +27,11 @@
 /// State machine states for LoRa manager
 enum LoRaState : uint8_t
 {
-    STATE_UNINITIALIZED,        // Radio not yet initialized
-    STATE_IDLE,                 // Initialized and ready (in RX mode)
-    STATE_TRANSMITTING,         // Transmission in progress
-    STATE_PACKET_RECEIVED,      // Packet ready to read in process()
-    STATE_PACKET_SENT           // Transmission completed, ready to process in process()
+    STATE_UNINITIALIZED,   // Radio not yet initialized
+    STATE_IDLE,            // Initialized and ready (in RX mode)
+    STATE_TRANSMITTING,    // Transmission in progress
+    STATE_PACKET_RECEIVED, // Packet ready to read in process()
+    STATE_PACKET_SENT      // Transmission completed, ready to process in process()
 };
 
 /// Configuration for LoRa radio parameters
@@ -206,12 +206,6 @@ private:
 
     // State machine
     volatile LoRaState state;
-
-    // ISR tracking
-    volatile uint32_t rxInterruptCount;
-    volatile uint32_t txInterruptCount;
-    uint32_t rxProcessedCount;
-    uint32_t txProcessedCount;
 
     // Callbacks
     LoRaReceiveCallback receiveCallback;
