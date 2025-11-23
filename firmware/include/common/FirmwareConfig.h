@@ -80,11 +80,6 @@ namespace LoRaConstants
         RX_SETTLE_TIME_MS +
         TIMING_MARGIN_MS;
 
-#if defined(ARDUINO_ARCH_NRF52)
-    /// Use DIO2 for RF switch control (SX1262/SX1268 feature)
-    constexpr bool USE_DIO2_AS_RF_SWITCH = true;
-#endif
-
     /// Number of retry attempts for LoRa initialization
     constexpr int INIT_RETRY_COUNT = 3;
 

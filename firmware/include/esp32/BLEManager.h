@@ -4,6 +4,7 @@
 #include <NimBLEDevice.h>
 #include <common/Protocol.h>
 #include <common/FirmwareConfig.h>
+#include <common/MessageQueue.h>
 
 /**
  * @file BLEManager.h
@@ -107,7 +108,7 @@ public:
  * Responsibilities:
  *  - Initialize NimBLE and configure the service/characteristics used by the
  *    application
- *  - Accept writes to the RX characteristic and call message callback
+ *  - Accept writes to the RX characteristic and push to message queue
  *  - Notify a connected client via the TX characteristic
  *  - Expose a small API used by the rest of the firmware (start/stop,
  *    sendMessage, activity callbacks)
@@ -115,8 +116,9 @@ public:
 class BLEManager
 {
 public:
-    /// Construct BLE manager
-    BLEManager();
+    /// Construct BLE manager with message queue for received messages
+    /// @param bleToLoraQueue Queue to push received BLE messages
+    BLEManager(MessageQueue *bleToLoraQueue);
 
     /// Initialize BLE stack and create service/characteristics.
     /// @param deviceName The BLE device name to advertise (defined in platformio.ini)
@@ -162,10 +164,6 @@ public:
     /// @param onDisconnect Callback when client disconnects
     void setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)());
 
-    /// Set callback for when BLE message is received
-    /// @param callback Function to call with received message
-    void setMessageCallback(void (*callback)(const Message &msg));
-
     /// Update battery level characteristic
     /// @param level Battery percentage (0-100)
     void updateBatteryLevel(uint8_t level);
@@ -188,10 +186,12 @@ private:
     uint16_t currentConnHandle{kInvalidConnHandle};
     bool notificationsEnabled{false};
 
-    // Callbacks
+    // Message queue for received BLE messages
+    MessageQueue *bleToLoraQueue{nullptr};
+
+    // Connection state callbacks
     void (*connectCallback)(){nullptr};
     void (*disconnectCallback)(){nullptr};
-    void (*messageCallback)(const Message &msg){nullptr};
 };
 
 #endif // BLE_MANAGER_H

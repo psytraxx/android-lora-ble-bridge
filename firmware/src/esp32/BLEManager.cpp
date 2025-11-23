@@ -67,14 +67,15 @@ void BatteryCharacteristicCallbacks::onRead(NimBLECharacteristic *pCharacteristi
 }
 
 // BLEManager implementation
-BLEManager::BLEManager()
+BLEManager::BLEManager(MessageQueue *bleToLoraQueue)
     : pServer(nullptr),
       pTxCharacteristic(nullptr),
       pRxCharacteristic(nullptr),
       pAdvertising(nullptr),
       deviceNameStr(""),
       serverCallbacks(nullptr),
-      rxCallbacks(nullptr)
+      rxCallbacks(nullptr),
+      bleToLoraQueue(bleToLoraQueue)
 {
 }
 
@@ -252,14 +253,17 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
     {
         Serial.printf("Deserialized message type: %d\n", (int)msg.type);
 
-        // Call message callback if registered
-        if (messageCallback)
+        // Push message to queue for processing in main loop
+        if (bleToLoraQueue != nullptr)
         {
-            messageCallback(msg);
+            if (!bleToLoraQueue->push(msg))
+            {
+                Serial.println("BLE->LoRa queue full, message dropped");
+            }
         }
         else
         {
-            Serial.println("Warning: No message callback registered, message dropped");
+            Serial.println("Warning: No message queue configured, message dropped");
         }
     }
     else
@@ -306,12 +310,6 @@ void BLEManager::setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect
     connectCallback = onConnect;
     disconnectCallback = onDisconnect;
     Serial.println("Connection callbacks registered");
-}
-
-void BLEManager::setMessageCallback(void (*callback)(const Message &msg))
-{
-    messageCallback = callback;
-    Serial.println("Message callback registered");
 }
 
 void BLEManager::updateBatteryLevel(uint8_t level)

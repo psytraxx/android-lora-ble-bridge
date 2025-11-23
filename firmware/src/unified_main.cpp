@@ -113,13 +113,8 @@ void setup()
 #endif
 
     // Initialize BLE manager (heap allocation required due to different constructors)
-#if defined(ARDUINO_ARCH_NRF52)
-    // nRF52: BLEManager needs queue pointer
+    // Both platforms now use queue-based message handling
     bleManager = new typename Platform::BLEManager(&bleToLoraQueue);
-#else
-    // ESP32: BLEManager uses callbacks
-    bleManager = new typename Platform::BLEManager();
-#endif
 
     if (!bleManager->setup(DEVICE_NAME))
     {
@@ -128,12 +123,6 @@ void setup()
             ;
     }
     bleManager->setConnectionCallbacks(onBleConnected, onBleDisconnected);
-
-#if !defined(ARDUINO_ARCH_NRF52)
-    // ESP32: Set message callback
-    bleManager->setMessageCallback(handleBleMessage);
-#endif
-
     bleManager->startAdvertising();
 
     // Initialize LoRa manager (heap allocation required due to runtime pin configuration)
@@ -191,13 +180,11 @@ void loop()
     // Message variable for queue operations
     Message msg;
 
-    // Process BLE incoming messages (nRF52 only - polls queue)
-#if defined(ARDUINO_ARCH_NRF52)
+    // Process BLE incoming messages (both platforms use queue-based approach)
     while (bleToLoraQueue.pop(msg))
     {
         handleBleMessage(msg);
     }
-#endif
 
     // Forward LoRa → BLE
     if (!loraToBleQueue.isEmpty())

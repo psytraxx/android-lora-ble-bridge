@@ -81,7 +81,7 @@ bool LoRaManager::begin(const LoRaConfig &config)
         const uint8_t SYNC_WORD = 0x12;
         const uint8_t PREAMBLE_LENGTH = 8;
         const float TCXO_VOLTAGE = 1.8;
-        const bool USE_DIO2_AS_RF_SWITCH = false;
+        const bool USE_REGULATOR_LDO = false;
         state = radio->begin(
             config.frequency,
             config.bandwidth,
@@ -91,7 +91,7 @@ bool LoRaManager::begin(const LoRaConfig &config)
             config.txPower,
             PREAMBLE_LENGTH,
             TCXO_VOLTAGE,
-            USE_DIO2_AS_RF_SWITCH);
+            USE_REGULATOR_LDO);
 #endif
 
         if (state == RADIOLIB_ERR_NONE)
