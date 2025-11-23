@@ -210,7 +210,7 @@ bool BLEManager::sendMessage(const Message &msg)
     {
         LOG_E(TAG, "Failed to send notification");
     }
-    return true;
+    return success;
 }
 
 bool BLEManager::isConnected() const
