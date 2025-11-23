@@ -164,7 +164,7 @@ void setup()
     loraManager->setReceiveCallback(onLoRaReceived);
     loraManager->setTransmitCallback(onLoRaTransmitted);
 
-    if (!loraManager->startReceive(true))
+    if (!loraManager->startReceive())
     {
         Serial.println("Failed to start LoRa receive mode!");
     }
@@ -273,6 +273,12 @@ void loop()
         delay(100); // Allow serial output to complete
 
         Platform::ledOff();
+
+        if (!loraManager->startReceive(true))
+        {
+            Serial.println("Failed to start LoRa continuous receive mode!");
+        }
+        bleManager->stopAdvertising();
 
 #if defined(ARDUINO_ARCH_ESP32)
         PowerManager::enterDeepSleep();

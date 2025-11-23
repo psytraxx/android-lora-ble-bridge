@@ -18,9 +18,6 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
       pinBusy(busy),
       radio(nullptr),
       state(STATE_UNINITIALIZED),
-#if defined(ARDUINO_ARCH_NRF52)
-      txCompleteTime(0),
-#endif
       rxInterruptCount(0),
       txInterruptCount(0),
       rxProcessedCount(0),
@@ -341,33 +338,12 @@ void LoRaManager::process()
             transmitCallback(true);
         }
 
-#if defined(ARDUINO_ARCH_ESP32)
-        // ESP32: Immediately restart RX
+        // Restart RX mode immediately for all platforms
         startReceive();
         state = STATE_IDLE;
         Serial.println("Now in RX mode");
-#elif defined(ARDUINO_ARCH_NRF52)
-        // nRF52: Wait for radio to settle before restarting RX
-        state = STATE_WAITING_FOR_RX_SETTLE;
-        txCompleteTime = millis();
-        Serial.println("Waiting for RX settle");
-#endif
         return;
     }
-
-#if defined(ARDUINO_ARCH_NRF52)
-    // nRF52 only: Handle RX settle delay
-    if (state == STATE_WAITING_FOR_RX_SETTLE)
-    {
-        const unsigned long RX_SETTLE_TIME_MS = 50;
-        if (millis() - txCompleteTime >= RX_SETTLE_TIME_MS)
-        {
-            Serial.println("RX settle time elapsed, restarting receive mode");
-            radio->startReceive();
-            state = STATE_IDLE;
-        }
-    }
-#endif
 }
 
 int LoRaManager::getRSSI() const
