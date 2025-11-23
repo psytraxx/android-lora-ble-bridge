@@ -4,7 +4,6 @@
 #include "esp32/BLEManager.h"
 #include "esp32/MessageBuffer.h"
 #include "esp32/PowerManager.h"
-#include "esp32/LEDManager.h"
 #include "common/FirmwareConfig.h"
 #include "common/Logging.h"
 #include <Adafruit_SleepyDog.h>
@@ -24,22 +23,7 @@ struct ESP32PlatformTraits
 
     using BLEManager = ::BLEManager;
     using StorageManager = ::MessageBuffer;
-
-    // ========================================================================
-    // Platform Capabilities
-    // ========================================================================
-
-    static constexpr bool HAS_WATCHDOG = true;
-    static constexpr bool HAS_LED_MANAGER = true;
-    static constexpr bool BLE_USES_QUEUE = false; // ESP32 uses callbacks
-
-    // ========================================================================
-    // Constants
-    // ========================================================================
-
-    static constexpr unsigned long INACTIVITY_TIMEOUT_MS = PowerConstants::INACTIVITY_TIMEOUT_MS;
-    static constexpr int LED_RX_BLINKS = LEDConstants::RX_BLINKS;
-    static constexpr int LED_TX_BLINKS = LEDConstants::TX_BLINKS;
+    using PowerManager = ::PowerManager;
 
     // ========================================================================
     // Platform-Specific Initialization
@@ -80,34 +64,6 @@ struct ESP32PlatformTraits
     {
         PowerManager::enterDeepSleep();
     }
-
-    // ========================================================================
-    // LED Control
-    // ========================================================================
-
-#ifdef LED_PIN
-    static LEDManager ledManager;
-
-    static void initializeLED()
-    {
-        ledManager.setup();
-    }
-
-    static void ledOn() { ledManager.setOn(); }
-    static void ledOff() { ledManager.setOff(); }
-    static void ledBlink(int count) { ledManager.blink(count); }
-    static void updateLED() { ledManager.update(); }
-#else
-    static void initializeLED() {}
-    static void ledOn() {}
-    static void ledOff() {}
-    static void ledBlink(int count) { (void)count; }
-    static void updateLED() {}
-#endif
 };
-
-#ifdef LED_PIN
-LEDManager ESP32PlatformTraits::ledManager(LED_PIN);
-#endif
 
 #endif // ESP32_PLATFORM_TRAITS_H

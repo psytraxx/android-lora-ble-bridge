@@ -1,7 +1,7 @@
 #ifndef LED_MANAGER_H
 #define LED_MANAGER_H
 
-#include "driver/gpio.h"
+#include <Arduino.h>
 
 /**
  * @file LEDManager.h
@@ -9,7 +9,7 @@
  *
  * The LEDManager is intentionally minimal: it provides setup, on/off and a
  * convenience blink method used for user-visible status indications. The
- * implementation uses ESP-IDF GPIO driver APIs for ESP32 builds.
+ * implementation uses Arduino GPIO APIs.
  */
 
 class LEDManager
@@ -28,8 +28,8 @@ public:
      */
     void setup()
     {
-        gpio_set_direction((gpio_num_t)ledPin, GPIO_MODE_OUTPUT);
-        gpio_set_level((gpio_num_t)ledPin, 0); // Ensure LED is off initially
+        pinMode(ledPin, OUTPUT);
+        digitalWrite(ledPin, LOW); // Ensure LED is off initially
     }
 
     /**
@@ -96,7 +96,7 @@ public:
      */
     void setOn()
     {
-        gpio_set_level((gpio_num_t)ledPin, 1);
+        digitalWrite(ledPin, HIGH);
     }
 
     /**
@@ -104,7 +104,7 @@ public:
      */
     void setOff()
     {
-        gpio_set_level((gpio_num_t)ledPin, 0);
+        digitalWrite(ledPin, LOW);
     }
 
 private:

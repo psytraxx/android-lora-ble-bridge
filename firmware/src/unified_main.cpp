@@ -16,6 +16,7 @@
 #include "common/LoRaManager.h"
 #include "common/MessageQueue.h"
 #include "common/FirmwareConfig.h"
+#include "common/LEDManager.h"
 
 static const char *TAG = "Main";
 
@@ -52,6 +53,10 @@ static ApplicationController appControllerInstance;
 static MessageQueue bleToLoraQueue;
 static MessageQueue loraToBleQueue;
 
+#ifdef LED_PIN
+LEDManager *ledManager = new LEDManager(LED_PIN);
+#endif
+
 // Timing
 static unsigned long lastBatteryUpdate = 0;
 static constexpr unsigned long BATTERY_UPDATE_INTERVAL = 60000; // 1 minute
@@ -85,8 +90,10 @@ void setup()
     // Platform-specific initialization
     Platform::initializeWatchdog();
     Platform::initializePower();
-    Platform::initializeLED();
-    Platform::ledOn();
+
+#ifdef LED_PIN
+    ledManager->setup();
+#endif
 
     // Initialize application controller (static allocation)
     appController = &appControllerInstance;
@@ -144,8 +151,9 @@ void setup()
     {
         LOG_I(TAG, "Failed to start LoRa receive mode!");
     }
-
-    Platform::ledOff();
+#ifdef LED_PIN
+    ledManager->setOff();
+#endif
     LOG_I(TAG, "Setup complete!");
 }
 
@@ -158,8 +166,10 @@ void loop()
     // Reset watchdog
     Platform::resetWatchdog();
 
-    // Update LED state machine (non-blocking)
-    Platform::updateLED();
+// Update LED state machine (non-blocking)
+#ifdef LED_PIN
+    ledManager->update();
+#endif
 
     // Process LoRa events
     loraManager->process();
@@ -233,12 +243,13 @@ void loop()
     // Inactivity timeout - enter deep sleep to save power
     unsigned long inactiveTime = appController->getInactivityDuration();
 
-    if (inactiveTime > Platform::INACTIVITY_TIMEOUT_MS)
+    if (inactiveTime > PowerConstants::INACTIVITY_TIMEOUT_MS)
     {
         LOG_I(TAG, "Inactivity timeout - entering deep sleep...");
 
-        Platform::ledOff();
-
+#ifdef LED_PIN
+        ledManager->setOff();
+#endif
         if (!loraManager->startReceive(true))
         {
             LOG_I(TAG, "Failed to start LoRa continuous receive mode!");
@@ -261,14 +272,12 @@ void onBleConnected()
 {
     LOG_I(TAG, "BLE connected");
     appController->onBleConnected();
-    Platform::ledOn();
 }
 
 void onBleDisconnected()
 {
     LOG_I(TAG, "BLE disconnected");
     appController->onBleDisconnected();
-    Platform::ledOff();
 
     // Restart advertising for next connection
     bleManager->startAdvertising();
@@ -328,8 +337,9 @@ void onLoRaReceived(const LoRaPacket &packet)
     {
         LOG_I(TAG, "Failed to deserialize LoRa message");
     }
-
-    Platform::ledBlink(Platform::LED_RX_BLINKS);
+#ifdef LED_PIN
+    ledManager->blink(LEDConstants::RX_BLINKS);
+#endif
 }
 
 void onLoRaTransmitted(bool success)
@@ -337,7 +347,9 @@ void onLoRaTransmitted(bool success)
     if (success)
     {
         LOG_I(TAG, "LoRa transmission successful");
-        Platform::ledBlink(Platform::LED_TX_BLINKS);
+#ifdef LED_PIN
+        ledManager->blink(LEDConstants::TX_BLINKS);
+#endif
     }
     else
     {

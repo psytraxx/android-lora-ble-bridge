@@ -26,22 +26,6 @@ struct NRF52PlatformTraits
     using PowerManager = ::PowerManager;
 
     // ========================================================================
-    // Platform Capabilities
-    // ========================================================================
-
-    static constexpr bool HAS_WATCHDOG = true;
-    static constexpr bool HAS_LED_MANAGER = false; // Uses direct GPIO
-    static constexpr bool BLE_USES_QUEUE = true;   // nRF52 uses queue
-
-    // ========================================================================
-    // Constants
-    // ========================================================================
-
-    static constexpr unsigned long INACTIVITY_TIMEOUT_MS = PowerConstants::INACTIVITY_TIMEOUT_MS;
-    static constexpr int LED_RX_BLINKS = LEDConstants::RX_BLINKS;
-    static constexpr int LED_TX_BLINKS = LEDConstants::TX_BLINKS;
-
-    // ========================================================================
     // Platform-Specific Initialization
     // ========================================================================
 
@@ -70,84 +54,5 @@ struct NRF52PlatformTraits
     {
         PowerManager::enterLowPowerMode();
     }
-
-    // ========================================================================
-    // LED Control (Direct GPIO) - Non-blocking
-    // ========================================================================
-
-    static bool blinkActive;
-    static int blinkCount;
-    static int blinkTarget;
-    static unsigned long lastBlinkChange;
-    static bool blinkLedState;
-
-    static void initializeLED()
-    {
-        pinMode(LED_PIN, OUTPUT);
-        digitalWrite(LED_PIN, LOW);
-        blinkActive = false;
-        blinkCount = 0;
-        blinkTarget = 0;
-        lastBlinkChange = 0;
-        blinkLedState = false;
-    }
-
-    static void ledOn() { digitalWrite(LED_PIN, HIGH); }
-    static void ledOff() { digitalWrite(LED_PIN, LOW); }
-
-    static void ledBlink(int count)
-    {
-        blinkActive = true;
-        blinkTarget = count;
-        blinkCount = 0;
-        blinkLedState = false;
-        lastBlinkChange = millis();
-        digitalWrite(LED_PIN, HIGH); // Start first blink
-        blinkLedState = true;
-    }
-
-    static void updateLED()
-    {
-        if (!blinkActive)
-            return;
-
-        unsigned long now = millis();
-        unsigned long elapsed = (unsigned long)(now - lastBlinkChange);
-
-        if (blinkLedState)
-        {
-            // LED is currently ON
-            if (elapsed >= LEDConstants::BLINK_DURATION_MS)
-            {
-                digitalWrite(LED_PIN, LOW);
-                blinkLedState = false;
-                lastBlinkChange = now;
-                blinkCount++;
-
-                if (blinkCount >= blinkTarget)
-                {
-                    blinkActive = false; // Completed all blinks
-                }
-            }
-        }
-        else
-        {
-            // LED is currently OFF (between blinks)
-            if (elapsed >= LEDConstants::BLINK_DELAY_MS && blinkCount < blinkTarget)
-            {
-                digitalWrite(LED_PIN, HIGH);
-                blinkLedState = true;
-                lastBlinkChange = now;
-            }
-        }
-    }
 };
-
-// Define static LED state variables
-bool NRF52PlatformTraits::blinkActive = false;
-int NRF52PlatformTraits::blinkCount = 0;
-int NRF52PlatformTraits::blinkTarget = 0;
-unsigned long NRF52PlatformTraits::lastBlinkChange = 0;
-bool NRF52PlatformTraits::blinkLedState = false;
-
 #endif // NRF52_PLATFORM_TRAITS_H
