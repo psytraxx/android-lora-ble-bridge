@@ -2,8 +2,7 @@
 #include "common/Logging.h"
 #include <Arduino.h>
 
-
-static const char* TAG = "App";
+static const char *TAG = "App";
 
 ApplicationController::ApplicationController()
     : stateMutex(nullptr),

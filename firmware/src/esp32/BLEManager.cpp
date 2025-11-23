@@ -179,6 +179,15 @@ bool BLEManager::sendMessage(const Message &msg)
         return false;
     }
 
+    // Do not attempt to send notifications until the client has enabled them.
+    // This prevents messages from being queued internally by NimBLE and left
+    // in a pending/buffered state which was observed on ESP32 but not on nRF52.
+    if (!areNotificationsEnabled())
+    {
+        LOG_W(TAG, "Cannot send message: notifications not enabled by client");
+        return false;
+    }
+
     uint8_t buf[64];
     int len = msg.serialize(buf, sizeof(buf));
 
