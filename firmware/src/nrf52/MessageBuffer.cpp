@@ -1,5 +1,8 @@
 #include "nrf52/MessageBuffer.h"
+#include "common/Logging.h"
 #include <Arduino.h>
+
+static const char *TAG = "MsgBuf";
 
 MessageBuffer::MessageBuffer()
     : m_head(0), m_tail(0), m_count(0), m_initialized(false)
@@ -12,7 +15,7 @@ MessageBuffer::~MessageBuffer()
 
 bool MessageBuffer::begin()
 {
-    Serial.println("Initializing MessageBuffer with LittleFS");
+    LOG_I(TAG, "Initializing MessageBuffer with LittleFS");
 
     // Initialize Internal File System
     InternalFS.begin();
@@ -20,7 +23,7 @@ bool MessageBuffer::begin()
     // Create buffer directory if it doesn't exist
     if (!InternalFS.exists(BUFFER_DIR))
     {
-        Serial.println("Creating message buffer directory");
+        LOG_I(TAG, "Creating message buffer directory");
         InternalFS.mkdir(BUFFER_DIR);
     }
 
@@ -28,9 +31,7 @@ bool MessageBuffer::begin()
     loadState();
 
     m_initialized = true;
-    Serial.print("MessageBuffer initialized: ");
-    Serial.print(m_count);
-    Serial.println(" messages in buffer");
+    LOG_I(TAG, "MessageBuffer initialized: %d messages in buffer", m_count);
 
     return true;
 }
@@ -39,14 +40,14 @@ bool MessageBuffer::add(const Message &msg)
 {
     if (!m_initialized)
     {
-        Serial.println("MessageBuffer not initialized");
+        LOG_E(TAG, "MessageBuffer not initialized");
         return false;
     }
 
     // If buffer is full, remove oldest message (drop-oldest policy)
     if (isFull())
     {
-        Serial.println("Buffer full, dropping oldest message");
+        LOG_W(TAG, "Buffer full, dropping oldest message");
         popFront();
     }
 
@@ -56,7 +57,7 @@ bool MessageBuffer::add(const Message &msg)
 
     if (len <= 0)
     {
-        Serial.println("Failed to serialize message for buffering");
+        LOG_E(TAG, "Failed to serialize message for buffering");
         return false;
     }
 
@@ -67,8 +68,7 @@ bool MessageBuffer::add(const Message &msg)
     File file = InternalFS.open(filename, FILE_O_WRITE);
     if (!file)
     {
-        Serial.print("Failed to open file for writing: ");
-        Serial.println(filename);
+        LOG_E(TAG, "Failed to open file for writing: %s", filename);
         return false;
     }
 
@@ -77,7 +77,7 @@ bool MessageBuffer::add(const Message &msg)
 
     if (written != (size_t)len)
     {
-        Serial.println("Failed to write complete message to flash");
+        LOG_E(TAG, "Failed to write complete message to flash");
         return false;
     }
 
@@ -86,8 +86,7 @@ bool MessageBuffer::add(const Message &msg)
     m_count++;
     saveState();
 
-    Serial.print("Message buffered to flash: ");
-    Serial.println(filename);
+    LOG_I(TAG, "Message buffered to flash: %s", filename);
 
     return true;
 }
@@ -106,12 +105,11 @@ bool MessageBuffer::peek(Message &msg)
     // Check if file exists before trying to open
     if (!InternalFS.exists(filename))
     {
-        Serial.print("Message file missing (possible corruption): ");
-        Serial.println(filename);
+        LOG_W(TAG, "Message file missing (possible corruption): %s", filename);
 
         // File is missing but state says it should exist - corruption detected
         // Remove this entry from the queue and reset count
-        Serial.println("Auto-recovering: removing missing entry from queue");
+        LOG_I(TAG, "Auto-recovering: removing missing entry from queue");
         m_tail = (m_tail + 1) % MAX_MESSAGES;
         m_count--;
         if (m_count < 0) m_count = 0;
@@ -123,8 +121,7 @@ bool MessageBuffer::peek(Message &msg)
     File file = InternalFS.open(filename, FILE_O_READ);
     if (!file)
     {
-        Serial.print("Failed to open file for reading: ");
-        Serial.println(filename);
+        LOG_E(TAG, "Failed to open file for reading: %s", filename);
         return false;
     }
 
@@ -135,7 +132,7 @@ bool MessageBuffer::peek(Message &msg)
 
     if (len == 0)
     {
-        Serial.println("Empty message file - removing corrupt entry");
+        LOG_W(TAG, "Empty message file - removing corrupt entry");
         // Remove corrupt empty file
         InternalFS.remove(filename);
         m_tail = (m_tail + 1) % MAX_MESSAGES;
@@ -148,7 +145,7 @@ bool MessageBuffer::peek(Message &msg)
     // Deserialize
     if (!msg.deserialize(buffer, len))
     {
-        Serial.println("Failed to deserialize buffered message - removing corrupt entry");
+        LOG_W(TAG, "Failed to deserialize buffered message - removing corrupt entry");
         // Remove corrupt unreadable file
         InternalFS.remove(filename);
         m_tail = (m_tail + 1) % MAX_MESSAGES;
@@ -175,8 +172,7 @@ bool MessageBuffer::popFront()
     if (InternalFS.exists(filename))
     {
         InternalFS.remove(filename);
-        Serial.print("Removed buffered message: ");
-        Serial.println(filename);
+        LOG_I(TAG, "Removed buffered message: %s", filename);
     }
 
     // Update buffer state
@@ -194,7 +190,7 @@ void MessageBuffer::clear()
         return;
     }
 
-    Serial.println("Clearing message buffer");
+    LOG_I(TAG, "Clearing message buffer");
 
     // Delete all message files
     for (size_t i = 0; i < MAX_MESSAGES; i++)
@@ -219,7 +215,7 @@ void MessageBuffer::loadState()
 {
     if (!InternalFS.exists(STATE_FILE))
     {
-        Serial.println("No saved buffer state, starting fresh");
+        LOG_I(TAG, "No saved buffer state, starting fresh");
         m_head = 0;
         m_tail = 0;
         m_count = 0;
@@ -229,7 +225,7 @@ void MessageBuffer::loadState()
     File file = InternalFS.open(STATE_FILE, FILE_O_READ);
     if (!file)
     {
-        Serial.println("Failed to open state file");
+        LOG_E(TAG, "Failed to open state file");
         m_head = 0;
         m_tail = 0;
         m_count = 0;
@@ -243,7 +239,7 @@ void MessageBuffer::loadState()
 
     if (len != sizeof(state))
     {
-        Serial.println("Invalid state file size");
+        LOG_W(TAG, "Invalid state file size");
         m_head = 0;
         m_tail = 0;
         m_count = 0;
@@ -260,7 +256,7 @@ void MessageBuffer::loadState()
         m_tail < 0 || m_tail >= (int)MAX_MESSAGES ||
         m_count < 0 || m_count > (int)MAX_MESSAGES)
     {
-        Serial.println("Corrupt buffer state (invalid indices), resetting");
+        LOG_W(TAG, "Corrupt buffer state (invalid indices), resetting");
         m_head = 0;
         m_tail = 0;
         m_count = 0;
@@ -280,8 +276,7 @@ void MessageBuffer::loadState()
 
             if (!InternalFS.exists(filename))
             {
-                Serial.print("Warning: Expected message file missing: ");
-                Serial.println(filename);
+                LOG_W(TAG, "Expected message file missing: %s", filename);
                 missingFiles++;
             }
 
@@ -290,9 +285,7 @@ void MessageBuffer::loadState()
 
         if (missingFiles > 0)
         {
-            Serial.print("Found ");
-            Serial.print(missingFiles);
-            Serial.println(" missing message files - clearing corrupt state");
+            LOG_W(TAG, "Found %d missing message files - clearing corrupt state", missingFiles);
 
             // Clear all message files and reset state
             clear();
@@ -304,7 +297,7 @@ void MessageBuffer::loadState()
         }
         else
         {
-            Serial.println("All expected message files verified");
+            LOG_I(TAG, "All expected message files verified");
         }
     }
 }
@@ -319,7 +312,7 @@ void MessageBuffer::saveState()
     File file = InternalFS.open(STATE_FILE, FILE_O_WRITE);
     if (!file)
     {
-        Serial.println("Failed to save buffer state");
+        LOG_E(TAG, "Failed to save buffer state");
         return;
     }
 

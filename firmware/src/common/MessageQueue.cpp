@@ -1,5 +1,8 @@
 #include "common/MessageQueue.h"
+#include "common/Logging.h"
 #include <Arduino.h>
+
+static const char* TAG = "MsgQ";
 
 MessageQueue::MessageQueue()
     : queueHandle(nullptr)
@@ -9,7 +12,7 @@ MessageQueue::MessageQueue()
 
     if (queueHandle == NULL)
     {
-        Serial.println("ERROR: Failed to create message queue!");
+        LOG_E(TAG, "Failed to create message queue!");
     }
 }
 

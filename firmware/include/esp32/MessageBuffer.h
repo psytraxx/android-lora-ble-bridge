@@ -93,8 +93,6 @@ private:
     int m_count; // Number of messages in buffer
     bool m_initialized;
 
-    static const char *TAG;
-
     /**
      * @brief Load buffer state from NVS (head, tail, count)
      */

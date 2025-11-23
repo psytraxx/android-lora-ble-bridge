@@ -1,6 +1,9 @@
 #include "nrf52/PowerManager.h"
 #include "common/FirmwareConfig.h"
+#include "common/Logging.h"
 #include <Arduino.h>
+
+static const char* TAG = "Power";
 
 // nRF52 power management includes
 #ifdef ARDUINO_ARCH_NRF52
@@ -27,7 +30,7 @@ bool PowerManager::begin()
     // Enable only when reading battery voltage
     pinMode(BATTERY_ADC_CTRL, OUTPUT);
     digitalWrite(BATTERY_ADC_CTRL, HIGH);
-    Serial.printf("Battery ADC control pin (GPIO %d) initialized to disabled\n", BATTERY_ADC_CTRL);
+    LOG_I(TAG, "Battery ADC control pin (GPIO %d) initialized to disabled", BATTERY_ADC_CTRL);
 #endif
 
 #ifdef ARDUINO_ARCH_NRF52
@@ -36,15 +39,15 @@ bool PowerManager::begin()
     if (nrf_power_dcdcen_get(NRF_POWER) == false)
     {
         nrf_power_dcdcen_set(NRF_POWER, true);
-        Serial.println("DC/DC regulator enabled (20-30% power savings)");
+        LOG_I(TAG, "DC/DC regulator enabled (20-30%% power savings)");
     }
     else
     {
-        Serial.println("DC/DC regulator already enabled");
+        LOG_I(TAG, "DC/DC regulator already enabled");
     }
 #endif
 
-    Serial.println("PowerManager initialized");
+    LOG_I(TAG, "PowerManager initialized");
     return true;
 }
 
@@ -155,8 +158,8 @@ uint16_t PowerManager::readBatteryVoltage()
         static uint32_t last_log = 0;
         if (millis() - last_log > 30000)
         {
-            Serial.printf("Battery: adc=%d, voltage=%u mV, filtered=%u mV\n",
-                          adcValue, (uint16_t)voltage_mv, (uint16_t)last_read_value);
+            LOG_D(TAG, "Battery: adc=%d, voltage=%u mV, filtered=%u mV",
+                  adcValue, (uint16_t)voltage_mv, (uint16_t)last_read_value);
             last_log = millis();
         }
     }
@@ -186,20 +189,20 @@ uint8_t PowerManager::readBatteryLevel()
 
 void PowerManager::enterLowPowerMode()
 {
-    Serial.println("Entering System OFF mode...");
+    LOG_I(TAG, "Entering System OFF mode...");
 
 #ifdef ARDUINO_ARCH_NRF52
     // Configure LoRa DIO0 interrupt pin as wake-up source
     // DIO0 goes HIGH when packet is received (matches ESP32 configuration)
     pinMode(LORA_DIO0, INPUT_SENSE_HIGH);
     nrf_gpio_cfg_sense_input(LORA_DIO0, NRF_GPIO_PIN_PULLDOWN, NRF_GPIO_PIN_SENSE_HIGH);
-    Serial.printf("Wake source: LoRa DIO0 (GPIO %d) - wake on HIGH\n", LORA_DIO0);
+    LOG_I(TAG, "Wake source: LoRa DIO0 (GPIO %d) - wake on HIGH", LORA_DIO0);
 
     // Configure wake button pin mode before sense setup
     pinMode(WAKE_BUTTON, INPUT_PULLUP);
     // Configure wake button as wake-up source (wake on LOW)
     nrf_gpio_cfg_sense_input(WAKE_BUTTON, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
-    Serial.printf("Wake source: Wake button (GPIO %d) - wake on LOW\n", WAKE_BUTTON);
+    LOG_I(TAG, "Wake source: Wake button (GPIO %d) - wake on LOW", WAKE_BUTTON);
 
     // Flush serial output
     Serial.flush();
@@ -214,8 +217,8 @@ void PowerManager::enterLowPowerMode()
     NRF_POWER->SYSTEMOFF = 1;
 
     // This line should never be reached
-    Serial.println("ERROR: Failed to enter System OFF mode");
+    LOG_E(TAG, "Failed to enter System OFF mode");
 #else
-    Serial.println("System OFF mode only available on nRF52");
+    LOG_W(TAG, "System OFF mode only available on nRF52");
 #endif
 }

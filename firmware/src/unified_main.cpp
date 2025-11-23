@@ -10,10 +10,13 @@
 //! - Clean separation of platform-specific vs common code
 
 #include <Arduino.h>
+#include "common/Logging.h"
 #include "common/Protocol.h"
 #include "common/ApplicationController.h"
 #include "common/LoRaManager.h"
 #include "common/MessageQueue.h"
+
+static const char *TAG = "Main";
 
 // Select platform traits based on build target
 #if defined(ARDUINO_ARCH_ESP32)
@@ -80,11 +83,9 @@ void setup()
         ;
     delay(500);
 
-    Serial.println("\n\n=== LoRa-BLE Bridge (Trait-Based) ===");
-    Serial.print("Platform: ");
-    Serial.println(PLATFORM_NAME);
-    Serial.print("Device: ");
-    Serial.println(DEVICE_NAME);
+    LOG_I(TAG, "\n\n=== LoRa-BLE Bridge (Trait-Based) ===");
+    LOG_I(TAG, "Platform: %s", PLATFORM_NAME);
+    LOG_I(TAG, "Device: %s", DEVICE_NAME);
 
     // Platform-specific initialization
     Platform::initializeWatchdog();
@@ -100,7 +101,7 @@ void setup()
     storageManager = &storageManagerInstance;
     if (!storageManager->begin())
     {
-        Serial.println("Storage initialization failed!");
+        LOG_I(TAG, "Storage initialization failed!");
     }
 
     // Initialize power manager (nRF52 only, static allocation)
@@ -108,7 +109,7 @@ void setup()
     powerManager = &powerManagerInstance;
     if (!powerManager->begin())
     {
-        Serial.println("Power manager initialization failed!");
+        LOG_I(TAG, "Power manager initialization failed!");
     }
 #endif
 
@@ -118,7 +119,7 @@ void setup()
 
     if (!bleManager->setup(DEVICE_NAME))
     {
-        Serial.println("BLE initialization failed!");
+        LOG_I(TAG, "BLE initialization failed!");
         while (1)
             ;
     }
@@ -145,7 +146,7 @@ void setup()
 
     if (!loraManager->begin(loraConfig))
     {
-        Serial.println("LoRa initialization failed!");
+        LOG_I(TAG, "LoRa initialization failed!");
         while (1)
             ;
     }
@@ -155,11 +156,11 @@ void setup()
 
     if (!loraManager->startReceive())
     {
-        Serial.println("Failed to start LoRa receive mode!");
+        LOG_I(TAG, "Failed to start LoRa receive mode!");
     }
 
     Platform::ledOff();
-    Serial.println("Setup complete!");
+    LOG_I(TAG, "Setup complete!");
 }
 
 // ============================================================================
@@ -199,12 +200,12 @@ void loop()
                 }
                 else
                 {
-                    Serial.println("Failed to send message to BLE");
+                    LOG_I(TAG, "Failed to send message to BLE");
                 }
             }
             else
             {
-                Serial.println("BLE not connected, buffering message");
+                LOG_I(TAG, "BLE not connected, buffering message");
                 storageManager->add(msg);
             }
         }
@@ -219,14 +220,12 @@ void loop()
             if (bleManager->sendMessage(bufferedMsg))
             {
                 storageManager->popFront();
-                Serial.print("Sent buffered message, ");
-                Serial.print(storageManager->getCount());
-                Serial.println(" remaining");
+                LOG_I(TAG, "Sent buffered message, %d remaining", storageManager->getCount());
                 appController->notifyActivity();
             }
             else
             {
-                Serial.println("Failed to send buffered message (notify failed), will retry");
+                LOG_I(TAG, "Failed to send buffered message (notify failed), will retry");
             }
         }
     }
@@ -243,9 +242,7 @@ void loop()
 #endif
         bleManager->updateBatteryLevel(batteryLevel);
 
-        Serial.print("Battery: ");
-        Serial.print(batteryLevel);
-        Serial.println("%");
+        LOG_D(TAG, "Battery: %d%%", batteryLevel);
 
         lastBatteryUpdate = now;
     }
@@ -255,15 +252,13 @@ void loop()
 
     if (inactiveTime > Platform::INACTIVITY_TIMEOUT_MS)
     {
-        Serial.println("Inactivity timeout - entering deep sleep...");
-        Serial.flush();
-        delay(100); // Allow serial output to complete
+        LOG_I(TAG, "Inactivity timeout - entering deep sleep...");
 
         Platform::ledOff();
 
         if (!loraManager->startReceive(true))
         {
-            Serial.println("Failed to start LoRa continuous receive mode!");
+            LOG_I(TAG, "Failed to start LoRa continuous receive mode!");
         }
         bleManager->stopAdvertising();
 
@@ -285,14 +280,14 @@ void loop()
 
 void onBleConnected()
 {
-    Serial.println("BLE connected");
+    LOG_I(TAG, "BLE connected");
     appController->onBleConnected();
     Platform::ledOn();
 }
 
 void onBleDisconnected()
 {
-    Serial.println("BLE disconnected");
+    LOG_I(TAG, "BLE disconnected");
     appController->onBleDisconnected();
     Platform::ledOff();
 
@@ -302,25 +297,18 @@ void onBleDisconnected()
 
 void onLoRaReceived(const LoRaPacket &packet)
 {
-    Serial.print("LoRa packet received: ");
-    Serial.print(packet.len);
-    Serial.print(" bytes, RSSI: ");
-    Serial.print(packet.rssi);
-    Serial.print(" dBm, SNR: ");
-    Serial.print(packet.snr);
-    Serial.println(" dB");
+    LOG_I(TAG, "LoRa packet received: %d bytes, RSSI: %d dBm, SNR: %.1f dB",
+          packet.len, packet.rssi, packet.snr);
 
     Message msg;
     if (msg.deserialize(packet.buffer, packet.len))
     {
-        Serial.print("Message type: ");
-        Serial.println((int)msg.type);
+        LOG_D(TAG, "Message type: %d", (int)msg.type);
 
         // Send ACK for Text messages
         if (msg.type == MessageType::Text)
         {
-            Serial.print("Sending ACK for seq ");
-            Serial.println(msg.textData.seq);
+            LOG_D(TAG, "Sending ACK for seq %d", msg.textData.seq);
 
             Message ackMsg = Message::createAck(msg.textData.seq);
             uint8_t ackBuffer[64];
@@ -331,16 +319,16 @@ void onLoRaReceived(const LoRaPacket &packet)
                 // Send ACK (will be queued after current RX processing completes)
                 if (loraManager->startTransmit(ackBuffer, (size_t)ackLen))
                 {
-                    Serial.println("ACK transmission started");
+                    LOG_I(TAG, "ACK transmission started");
                 }
                 else
                 {
-                    Serial.println("Failed to start ACK transmission");
+                    LOG_I(TAG, "Failed to start ACK transmission");
                 }
             }
             else
             {
-                Serial.println("Failed to serialize ACK");
+                LOG_I(TAG, "Failed to serialize ACK");
             }
         }
 
@@ -350,12 +338,12 @@ void onLoRaReceived(const LoRaPacket &packet)
         }
         else
         {
-            Serial.println("LoRa->BLE queue full!");
+            LOG_I(TAG, "LoRa->BLE queue full!");
         }
     }
     else
     {
-        Serial.println("Failed to deserialize LoRa message");
+        LOG_I(TAG, "Failed to deserialize LoRa message");
     }
 
     Platform::ledBlink(Platform::LED_RX_BLINKS);
@@ -365,19 +353,18 @@ void onLoRaTransmitted(bool success)
 {
     if (success)
     {
-        Serial.println("LoRa transmission successful");
+        LOG_I(TAG, "LoRa transmission successful");
         Platform::ledBlink(Platform::LED_TX_BLINKS);
     }
     else
     {
-        Serial.println("LoRa transmission failed");
+        LOG_I(TAG, "LoRa transmission failed");
     }
 }
 
 void handleBleMessage(const Message &msg)
 {
-    Serial.print("BLE message queued for LoRa, type: ");
-    Serial.println((int)msg.type);
+    LOG_D(TAG, "BLE message queued for LoRa, type: %d", (int)msg.type);
 
     uint8_t buffer[256];
     int length = msg.serialize(buffer, sizeof(buffer));
@@ -390,11 +377,11 @@ void handleBleMessage(const Message &msg)
         }
         else
         {
-            Serial.println("Failed to start LoRa transmission");
+            LOG_I(TAG, "Failed to start LoRa transmission");
         }
     }
     else
     {
-        Serial.println("Failed to serialize message");
+        LOG_I(TAG, "Failed to serialize message");
     }
 }

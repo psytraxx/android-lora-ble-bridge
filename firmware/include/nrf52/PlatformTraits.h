@@ -5,7 +5,10 @@
 #include "nrf52/MessageBuffer.h"
 #include "nrf52/PowerManager.h"
 #include "common/FirmwareConfig.h"
+#include "common/Logging.h"
 #include <Adafruit_SleepyDog.h>
+
+static const char* PLATFORM_TAG = "nRF52";
 
 /**
  * @brief nRF52 Platform Traits
@@ -45,9 +48,7 @@ struct NRF52PlatformTraits
     static void initializeWatchdog()
     {
         int watchdogMS = Watchdog.enable(WatchdogConstants::TIMEOUT_SECONDS * 1000);
-        Serial.print("Watchdog enabled: ");
-        Serial.print(watchdogMS);
-        Serial.println(" ms");
+        LOG_I(PLATFORM_TAG, "Watchdog enabled: %d ms", watchdogMS);
     }
 
     static void resetWatchdog()

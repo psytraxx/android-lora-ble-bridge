@@ -1,6 +1,9 @@
 #include <common/LoRaManager.h>
+#include "common/Logging.h"
 #include <Arduino.h>
 #include <SPI.h>
+
+static const char* TAG = "LoRa";
 
 // Platform-specific includes will be handled via FirmwareConfig later
 // For now, we'll use conditional compilation for constants
@@ -42,7 +45,7 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
 
 bool LoRaManager::begin(const LoRaConfig &config)
 {
-    Serial.println("Initializing LoRa radio");
+    LOG_I(TAG, "Initializing LoRa radio");
 
 #if defined(ARDUINO_ARCH_ESP32)
     // ESP32: Initialize SPI with custom pins
@@ -57,10 +60,7 @@ bool LoRaManager::begin(const LoRaConfig &config)
 
     for (int attempt = 1; attempt <= INIT_RETRY_COUNT; attempt++)
     {
-        Serial.print("Setup attempt ");
-        Serial.print(attempt);
-        Serial.print("/");
-        Serial.println(INIT_RETRY_COUNT);
+        LOG_I(TAG, "Setup attempt %d/%d", attempt, INIT_RETRY_COUNT);
 
         // Initialize radio based on chip type
         int state;
@@ -101,41 +101,31 @@ bool LoRaManager::begin(const LoRaConfig &config)
             int res = radio->setCurrentLimit(140);
             if (res != RADIOLIB_ERR_NONE)
             {
-                Serial.print("Failed to set current limit, code ");
-                Serial.println(res);
+                LOG_E(TAG, "Failed to set current limit, code %d", res);
                 return false;
             }
 #endif
 
             this->state = STATE_IDLE;
-            Serial.println("LoRa setup successful");
-            Serial.print("  Frequency: ");
-            Serial.print(config.frequency);
-            Serial.println(" MHz");
-            Serial.print("  Bandwidth: ");
-            Serial.print(config.bandwidth);
-            Serial.println(" kHz");
-            Serial.print("  Spreading Factor: ");
-            Serial.println(config.spreadingFactor);
-            Serial.print("  Coding Rate: 4/");
-            Serial.println(config.codingRate);
-            Serial.print("  TX Power: ");
-            Serial.print(config.txPower);
-            Serial.println(" dBm");
+            LOG_I(TAG, "LoRa setup successful");
+            LOG_I(TAG, "  Frequency: %.2f MHz", config.frequency);
+            LOG_I(TAG, "  Bandwidth: %.1f kHz", config.bandwidth);
+            LOG_I(TAG, "  Spreading Factor: %d", config.spreadingFactor);
+            LOG_I(TAG, "  Coding Rate: 4/%d", config.codingRate);
+            LOG_I(TAG, "  TX Power: %d dBm", config.txPower);
             return true;
         }
 
-        Serial.print("Setup failed, code ");
-        Serial.println(state);
+        LOG_E(TAG, "Setup failed, code %d", state);
 
         if (attempt < INIT_RETRY_COUNT)
         {
-            Serial.println("Retrying in 1 second...");
+            LOG_I(TAG, "Retrying in 1 second...");
             delay(INIT_RETRY_DELAY_MS);
         }
     }
 
-    Serial.println("Setup failed permanently");
+    LOG_I(TAG, "Setup failed permanently");
     return false;
 }
 
@@ -143,7 +133,7 @@ bool LoRaManager::startReceive(bool dutyCycle)
 {
     if (state == STATE_UNINITIALIZED)
     {
-        Serial.println("Cannot start receive - not initialized");
+        LOG_I(TAG, "Cannot start receive - not initialized");
         return false;
     }
 
@@ -154,7 +144,7 @@ bool LoRaManager::startReceive(bool dutyCycle)
     if (dutyCycle)
     {
         // SX1262/SX1268: Hardware-based duty cycle mode
-        Serial.println("Starting duty cycle RX mode");
+        LOG_I(TAG, "Starting duty cycle RX mode");
         const uint8_t PREAMBLE_LENGTH = 8;
         int rxState = radio->startReceiveDutyCycleAuto(
             PREAMBLE_LENGTH,
@@ -162,11 +152,10 @@ bool LoRaManager::startReceive(bool dutyCycle)
             (RADIOLIB_IRQ_RX_DEFAULT_FLAGS | (1 << RADIOLIB_IRQ_PREAMBLE_DETECTED)));
         if (rxState != RADIOLIB_ERR_NONE)
         {
-            Serial.print("Failed to start duty cycle RX mode, code ");
-            Serial.println(rxState);
+            LOG_E(TAG, "Failed to start duty cycle RX mode, code %d", rxState);
             return false;
         }
-        Serial.println("Duty cycle receive mode started");
+        LOG_I(TAG, "Duty cycle receive mode started");
     }
     else
     {
@@ -175,11 +164,10 @@ bool LoRaManager::startReceive(bool dutyCycle)
         int rxState = radio->startReceive();
         if (rxState != RADIOLIB_ERR_NONE)
         {
-            Serial.print("Failed to start continuous receive mode, code ");
-            Serial.println(rxState);
+            LOG_E(TAG, "Failed to start continuous receive mode, code %d", rxState);
             return false;
         }
-        Serial.println("Continuous receive mode started");
+        LOG_I(TAG, "Continuous receive mode started");
 #if defined(RADIO_SX1262) || defined(RADIO_SX1268)
     }
 #endif
@@ -192,18 +180,18 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 {
     if (state == STATE_UNINITIALIZED)
     {
-        Serial.println("Cannot transmit - not initialized");
+        LOG_I(TAG, "Cannot transmit - not initialized");
         return false;
     }
 
     if (state == STATE_TRANSMITTING)
     {
-        Serial.println("Transmission already in progress");
+        LOG_I(TAG, "Transmission already in progress");
         return false;
     }
 
     // Step 1: Send WakeUp message (blocking) to wake duty-cycled receivers
-    Serial.println("Sending WakeUp message...");
+    LOG_I(TAG, "Sending WakeUp message...");
     Message wakeUpMsg = Message::createWakeUp();
     uint8_t wakeUpBuf[64];
     int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
@@ -218,13 +206,11 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 
         if (wakeUpState != RADIOLIB_ERR_NONE)
         {
-            Serial.print("WakeUp transmission failed, code ");
-            Serial.print(wakeUpState);
-            Serial.println(" - continuing anyway");
+            LOG_W(TAG, "WakeUp transmission failed, code %d - continuing anyway", wakeUpState);
         }
         else
         {
-            Serial.println("WakeUp sent successfully");
+            LOG_I(TAG, "WakeUp sent successfully");
         }
 
         // Wait for receiver to wake up and switch to continuous RX
@@ -233,13 +219,11 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
     }
     else
     {
-        Serial.println("Failed to serialize WakeUp message");
+        LOG_I(TAG, "Failed to serialize WakeUp message");
     }
 
     // Step 2: Send actual message (non-blocking)
-    Serial.print("Starting transmission of ");
-    Serial.print(len);
-    Serial.println(" bytes");
+    LOG_I(TAG, "Starting transmission of %d bytes", len);
 
     // Switch to transmit mode with interrupt
     radio->clearPacketReceivedAction();
@@ -251,14 +235,13 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 
     if (txState != RADIOLIB_ERR_NONE)
     {
-        Serial.print("Failed to start transmission, code ");
-        Serial.println(txState);
+        LOG_E(TAG, "Failed to start transmission, code %d", txState);
         startReceive();
         state = STATE_IDLE;
         return false;
     }
 
-    Serial.println("Transmission started (non-blocking)");
+    LOG_I(TAG, "Transmission started (non-blocking)");
     return true;
 }
 
@@ -278,7 +261,7 @@ void LoRaManager::process()
     if (state == STATE_PACKET_RECEIVED)
     {
         rxProcessedCount++;
-        Serial.println("RX packet detected, processing");
+        LOG_I(TAG, "RX packet detected, processing");
 
         // Read packet data
         LoRaPacket packet;
@@ -290,13 +273,8 @@ void LoRaManager::process()
             packet.rssi = radio->getRSSI();
             packet.snr = radio->getSNR();
 
-            Serial.print("Packet received (");
-            Serial.print(packet.len);
-            Serial.print(" bytes, RSSI: ");
-            Serial.print(packet.rssi);
-            Serial.print(" dBm, SNR: ");
-            Serial.print(packet.snr);
-            Serial.println(" dB)");
+            LOG_I(TAG, "Packet received (%d bytes, RSSI: %d dBm, SNR: %.1f dB)",
+                  packet.len, packet.rssi, packet.snr);
 
             if (receiveCallback)
             {
@@ -305,23 +283,22 @@ void LoRaManager::process()
         }
         else if (rxState == RADIOLIB_ERR_CRC_MISMATCH)
         {
-            Serial.println("CRC error");
+            LOG_I(TAG, "CRC error");
         }
         else
         {
-            Serial.print("Read failed, code ");
-            Serial.println(rxState);
+            LOG_E(TAG, "Read failed, code %d", rxState);
         }
 
 #if defined(ARDUINO_ARCH_ESP32)
         // ESP32: Radio remains in RX mode after readData()
         state = STATE_IDLE;
-        Serial.println("RX packet processing complete (radio still in RX mode)");
+        LOG_I(TAG, "RX packet processing complete (radio still in RX mode)");
 #elif defined(ARDUINO_ARCH_NRF52)
         // nRF52: Manually restart receive mode
         radio->startReceive();
         state = STATE_IDLE;
-        Serial.println("RX packet processing complete, receive mode restarted");
+        LOG_I(TAG, "RX packet processing complete, receive mode restarted");
 #endif
         return;
     }
@@ -329,7 +306,7 @@ void LoRaManager::process()
     // Check for completed transmission
     if (state == STATE_PACKET_SENT)
     {
-        Serial.println("TX complete");
+        LOG_I(TAG, "TX complete");
         txProcessedCount++;
 
         // Invoke transmit callback
@@ -341,7 +318,7 @@ void LoRaManager::process()
         // Restart RX mode immediately for all platforms
         startReceive();
         state = STATE_IDLE;
-        Serial.println("Now in RX mode");
+        LOG_I(TAG, "Now in RX mode");
         return;
     }
 }

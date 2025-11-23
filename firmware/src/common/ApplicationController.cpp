@@ -1,5 +1,9 @@
 #include "common/ApplicationController.h"
+#include "common/Logging.h"
 #include <Arduino.h>
+
+
+static const char* TAG = "App";
 
 ApplicationController::ApplicationController()
     : stateMutex(nullptr),
@@ -12,7 +16,7 @@ ApplicationController::ApplicationController()
     stateMutex = xSemaphoreCreateMutex();
     if (stateMutex == nullptr)
     {
-        Serial.println("Failed to create state mutex!");
+        LOG_E(TAG, "Failed to create state mutex!");
     }
 }
 
@@ -28,7 +32,7 @@ void ApplicationController::begin()
 
     xSemaphoreGive(stateMutex);
 
-    Serial.println("ApplicationController initialized (pure state machine)");
+    LOG_I(TAG, "Initialized (pure state machine)");
 }
 
 // ============================================================================
@@ -58,7 +62,7 @@ void ApplicationController::onBleConnected()
 
     if (state != AppState::CONNECTED_ACTIVE)
     {
-        Serial.println("State transition: DISCONNECTED_ADVERTISING → CONNECTED_ACTIVE");
+        LOG_I(TAG, "State transition: DISCONNECTED_ADVERTISING → CONNECTED_ACTIVE");
         state = AppState::CONNECTED_ACTIVE;
         connectionEstablishedMillis = getCurrentTimeMillis();
         lastActivityMillis = getCurrentTimeMillis();
@@ -73,7 +77,7 @@ void ApplicationController::onBleDisconnected()
 
     if (state != AppState::DISCONNECTED_ADVERTISING)
     {
-        Serial.println("State transition: CONNECTED_ACTIVE → DISCONNECTED_ADVERTISING");
+        LOG_I(TAG, "State transition: CONNECTED_ACTIVE → DISCONNECTED_ADVERTISING");
         state = AppState::DISCONNECTED_ADVERTISING;
         advertiseStartMillis = getCurrentTimeMillis(); // Restart advertising timer
         connectionEstablishedMillis = 0;

@@ -1,5 +1,6 @@
 #include "esp32/PowerManager.h"
 #include "common/FirmwareConfig.h"
+#include "common/Logging.h"
 #include <Arduino.h>
 #include <esp_sleep.h>
 #include <esp_wifi.h>
@@ -10,6 +11,8 @@
 #include <esp_adc/adc_oneshot.h>
 #include <esp_adc/adc_cali.h>
 #include <esp_adc/adc_cali_scheme.h>
+
+static const char* TAG = "Power";
 
 // Static variables for ADC calibration and filtering
 static adc_oneshot_unit_handle_t adc1_handle = nullptr;
@@ -28,15 +31,15 @@ void PowerManager::configurePowerManagement()
     esp_err_t rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
     {
-        Serial.printf("Failed to configure power management (err=%d) - continuing anyway\n", rv);
+        LOG_W(TAG, "Failed to configure power management (err=%d) - continuing anyway", rv);
         setCpuFrequencyMhz(160); // Fallback to fixed 160 MHz
         // Don't return early - ADC calibration still needs to be initialized
     }
     else
     {
-        Serial.printf("Power management configured: CPU freq %d-%d MHz\n",
-                      pm_config.min_freq_mhz,
-                      pm_config.max_freq_mhz);
+        LOG_I(TAG, "Power management configured: CPU freq %d-%d MHz",
+              pm_config.min_freq_mhz,
+              pm_config.max_freq_mhz);
     }
 
 #ifdef BATTERY_ADC_PIN
@@ -48,7 +51,7 @@ void PowerManager::configurePowerManagement()
     esp_err_t err = adc_oneshot_new_unit(&init_config, &adc1_handle);
     if (err != ESP_OK)
     {
-        Serial.printf("Failed to initialize ADC unit (err=%d)\n", err);
+        LOG_E(TAG, "Failed to initialize ADC unit (err=%d)", err);
         return;
     }
 
@@ -64,7 +67,7 @@ void PowerManager::configurePowerManagement()
     }
     else
     {
-        Serial.printf("WARNING: Unknown ADC channel for GPIO %d\n", BATTERY_ADC_PIN);
+        LOG_W(TAG, "Unknown ADC channel for GPIO %d", BATTERY_ADC_PIN);
         adc_channel = ADC_CHANNEL_0; // Fallback
     }
 
@@ -76,7 +79,7 @@ void PowerManager::configurePowerManagement()
     err = adc_oneshot_config_channel(adc1_handle, adc_channel, &config);
     if (err != ESP_OK)
     {
-        Serial.printf("Failed to configure ADC channel (err=%d)\n", err);
+        LOG_E(TAG, "Failed to configure ADC channel (err=%d)", err);
         return;
     }
 
@@ -89,15 +92,15 @@ void PowerManager::configurePowerManagement()
     err = adc_cali_create_scheme_curve_fitting(&cali_config, &adc_cali_handle);
     if (err == ESP_OK)
     {
-        Serial.println("ADC calibration: Curve Fitting scheme initialized");
+        LOG_I(TAG, "ADC calibration: Curve Fitting scheme initialized");
     }
     else
     {
-        Serial.printf("ADC calibration failed (err=%d), readings will be uncalibrated\n", err);
+        LOG_W(TAG, "ADC calibration failed (err=%d), readings will be uncalibrated", err);
     }
 #endif
 
-    Serial.println("Power management configured");
+    LOG_I(TAG, "Power management configured");
 }
 
 void PowerManager::battery_adcEnable()
@@ -171,7 +174,7 @@ uint16_t PowerManager::readBatteryVoltage()
     // Check if ADC is initialized
     if (adc1_handle == nullptr)
     {
-        Serial.println("WARNING: ADC not initialized, returning default voltage");
+        LOG_W(TAG, "ADC not initialized, returning default voltage");
         return 3700; // Default 3.7V
     }
 
@@ -227,8 +230,8 @@ uint16_t PowerManager::readBatteryVoltage()
         static uint32_t last_log = 0;
         if (millis() - last_log > 30000)
         {
-            Serial.printf("Battery: raw=%lu, cal=%lu mV, scaled=%lu mV, filtered=%lu mV\n",
-                          (unsigned long)raw, (unsigned long)voltage_mv, (unsigned long)scaled, (unsigned long)last_read_value);
+            LOG_D(TAG, "Battery: raw=%lu, cal=%lu mV, scaled=%lu mV, filtered=%lu mV",
+                  (unsigned long)raw, (unsigned long)voltage_mv, (unsigned long)scaled, (unsigned long)last_read_value);
             last_log = millis();
         }
     }
@@ -300,7 +303,7 @@ void PowerManager::disableWiFi()
     // Disable WiFi and free resources
     esp_wifi_stop();
     esp_wifi_deinit();
-    Serial.println("WiFi disabled to save power");
+    LOG_I(TAG, "WiFi disabled to save power");
 }
 
 void PowerManager::disableBluetoothClassic()
@@ -308,23 +311,23 @@ void PowerManager::disableBluetoothClassic()
     // Disable Bluetooth Classic (BLE is handled separately by NimBLE)
     esp_bt_controller_disable();
     esp_bt_controller_deinit();
-    Serial.println("Bluetooth Classic disabled");
+    LOG_I(TAG, "Bluetooth Classic disabled");
 }
 
 void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
 {
-    Serial.println("Configuring deep sleep wake sources...");
+    LOG_I(TAG, "Configuring deep sleep wake sources...");
 
     // Configure LoRa DIO0 as EXT0 wake source (wake on HIGH level)
     // When LoRa receives a packet, DIO0 goes HIGH and wakes the device
     esp_sleep_enable_ext0_wakeup((gpio_num_t)loraDio0, HIGH);
-    Serial.printf("  EXT0: LoRa DIO0 (GPIO %d) - wake on HIGH\n", loraDio0);
+    LOG_I(TAG, "  EXT0: LoRa DIO0 (GPIO %d) - wake on HIGH", loraDio0);
 
     // Configure wake button as EXT1 wake source (wake on LOW level)
     // Button pressed = LOW (with internal pull-up)
     uint64_t buttonMask = 1ULL << wakeButton;
     esp_sleep_enable_ext1_wakeup(buttonMask, ESP_EXT1_WAKEUP_ANY_LOW);
-    Serial.printf("  EXT1: Wake button (GPIO %d) - wake on LOW\n", wakeButton);
+    LOG_I(TAG, "  EXT1: Wake button (GPIO %d) - wake on LOW", wakeButton);
 
     // Enable RTC GPIO for wake sources
     rtc_gpio_pullup_en((gpio_num_t)wakeButton);
@@ -333,7 +336,7 @@ void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
     rtc_gpio_pulldown_en((gpio_num_t)loraDio0);
     rtc_gpio_pullup_dis((gpio_num_t)loraDio0);
 
-    Serial.println("Wake sources configured");
+    LOG_I(TAG, "Wake sources configured");
 }
 
 void PowerManager::disableExternalPeripherals()
@@ -341,7 +344,7 @@ void PowerManager::disableExternalPeripherals()
 #ifdef VEXT_PIN
     // Set VEXT to input mode to cut power to external peripherals
     pinMode(VEXT_PIN, INPUT);
-    Serial.println("External peripherals disabled (VEXT)");
+    LOG_I(TAG, "External peripherals disabled (VEXT)");
 #endif
 }
 
@@ -349,7 +352,7 @@ void PowerManager::setUnusedGPIOsToInput()
 {
     // Set unused GPIOs to input mode to minimize leakage current
     // This is a simplified version - in production, carefully review which pins to isolate
-    Serial.println("Setting unused GPIOs to input mode for power savings");
+    LOG_D(TAG, "Setting unused GPIOs to input mode for power savings");
 
     // Note: Be careful not to set pins that are actively used:
     // - LoRa SPI pins (LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS)
@@ -362,7 +365,7 @@ void PowerManager::setUnusedGPIOsToInput()
 
 void PowerManager::enterDeepSleep()
 {
-    Serial.println("Entering deep sleep...");
+    LOG_I(TAG, "Entering deep sleep...");
 
     // Disable external peripherals to save power
     disableExternalPeripherals();
@@ -381,27 +384,26 @@ void PowerManager::printWakeupReason()
 {
     esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
-    Serial.print("Wakeup reason: ");
     switch (wakeup_reason)
     {
     case ESP_SLEEP_WAKEUP_EXT0:
-        Serial.println("EXT0 (LoRa DIO0)");
+        LOG_I(TAG, "Wakeup reason: EXT0 (LoRa DIO0)");
         break;
     case ESP_SLEEP_WAKEUP_EXT1:
-        Serial.println("EXT1 (Wake button)");
+        LOG_I(TAG, "Wakeup reason: EXT1 (Wake button)");
         break;
     case ESP_SLEEP_WAKEUP_TIMER:
-        Serial.println("Timer");
+        LOG_I(TAG, "Wakeup reason: Timer");
         break;
     case ESP_SLEEP_WAKEUP_TOUCHPAD:
-        Serial.println("Touchpad");
+        LOG_I(TAG, "Wakeup reason: Touchpad");
         break;
     case ESP_SLEEP_WAKEUP_ULP:
-        Serial.println("ULP coprocessor");
+        LOG_I(TAG, "Wakeup reason: ULP coprocessor");
         break;
     case ESP_SLEEP_WAKEUP_UNDEFINED:
     default:
-        Serial.println("Power-on reset or other");
+        LOG_I(TAG, "Wakeup reason: Power-on reset or other");
         break;
     }
 }
