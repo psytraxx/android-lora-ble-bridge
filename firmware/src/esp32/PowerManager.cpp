@@ -26,14 +26,13 @@ bool PowerManager::configurePowerManagement()
     esp_pm_config_t pm_config = {
         .max_freq_mhz = CONFIG_ESP32S3_DEFAULT_CPU_FREQ_MHZ,
         .min_freq_mhz = 80,
-        .light_sleep_enable = false}; // Disable light sleep to avoid issues with peripherals
+        .light_sleep_enable = true}; // Try to enable light sleep
 
     esp_err_t rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
     {
-        LOG_W(TAG, "Failed to configure power management (err=%d) - continuing anyway", rv);
-        setCpuFrequencyMhz(160); // Fallback to fixed 160 MHz
-        // Don't return early - ADC calibration still needs to be initialized
+        LOG_W(TAG, "Failed to configure power management (err=%d) - falling back to 80MHz", rv);
+        setCpuFrequencyMhz(80); // Fallback to fixed 80 MHz to save power
     }
     else
     {

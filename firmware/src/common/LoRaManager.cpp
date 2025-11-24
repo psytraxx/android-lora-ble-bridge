@@ -143,9 +143,9 @@ bool LoRaManager::startReceive(bool dutyCycle)
     {
         // SX1262/SX1268: Hardware-based duty cycle mode
         LOG_I(TAG, "Starting duty cycle RX mode");
-        const uint8_t PREAMBLE_LENGTH = 8;
+        // Use configured preamble length (16) to match sender
         int rxState = radio->startReceiveDutyCycleAuto(
-            PREAMBLE_LENGTH,
+            LoRaConstants::PREAMBLE_LENGTH,
             8,
             (RADIOLIB_IRQ_RX_DEFAULT_FLAGS | (1 << RADIOLIB_IRQ_PREAMBLE_DETECTED)));
         if (rxState != RADIOLIB_ERR_NONE)
@@ -297,7 +297,8 @@ void LoRaManager::process()
         // Restart RX mode if callback didn't start a transmission
         if (state == STATE_PACKET_RECEIVED)
         {
-            radio->startReceive();
+            // Use duty cycle mode by default for power savings (SX126x)
+            startReceive(true);
             state = STATE_IDLE;
             LOG_I(TAG, "RX packet processing complete, receive mode restarted");
         }
@@ -323,8 +324,8 @@ void LoRaManager::process()
         // This prevents timing issues with rapid TX->RX transitions
         delay(LoRaConstants::RX_SETTLE_TIME_MS);
 
-        // Restart RX mode for all platforms
-        startReceive();
+        // Restart RX mode for all platforms (preferring duty cycle where supported)
+        startReceive(true);
         state = STATE_IDLE;
         LOG_I(TAG, "Now in RX mode");
         return;

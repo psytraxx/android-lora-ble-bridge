@@ -147,7 +147,8 @@ void setup()
     loraManager->setReceiveCallback(onLoRaReceived);
     loraManager->setTransmitCallback(onLoRaTransmitted);
 
-    if (!loraManager->startReceive())
+    // Start receive in duty cycle mode (power saving) where supported
+    if (!loraManager->startReceive(true))
     {
         LOG_I(TAG, "Failed to start LoRa receive mode!");
     }
@@ -260,7 +261,7 @@ void loop()
         bleManager->startAdvertising(); // Restart advertising on wake
     }
 
-    delay(10);
+    delay(20);
 }
 
 // ============================================================================
