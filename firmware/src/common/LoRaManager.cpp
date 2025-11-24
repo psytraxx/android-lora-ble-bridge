@@ -167,7 +167,7 @@ bool LoRaManager::startReceive(bool dutyCycle)
     return true;
 }
 
-bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
+bool LoRaManager::startTransmit(const uint8_t *data, size_t len, bool sendWakeUp)
 {
     if (state == STATE_UNINITIALIZED)
     {
@@ -181,39 +181,46 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
         return false;
     }
 
-    // Step 1: Send WakeUp message (blocking) to wake duty-cycled receivers
-    LOG_I(TAG, "Sending WakeUp message...");
-    Message wakeUpMsg = Message::createWakeUp();
-    uint8_t wakeUpBuf[64];
-    int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
-
-    if (wakeUpLen > 0)
+    if (sendWakeUp)
     {
-        // Clear RX interrupt temporarily
-        radio->clearPacketReceivedAction();
+        // Send blocking WakeUp message (blocking) to wake duty-cycled receivers
+        LOG_I(TAG, "Sending WakeUp message...");
+        Message wakeUpMsg = Message::createWakeUp();
+        uint8_t wakeUpBuf[64];
+        int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
 
-        // Send WakeUp synchronously (blocking)
-        int wakeUpState = radio->transmit(wakeUpBuf, wakeUpLen);
-
-        if (wakeUpState != RADIOLIB_ERR_NONE)
+        if (wakeUpLen > 0)
         {
-            LOG_W(TAG, "WakeUp transmission failed, code %d - continuing anyway", wakeUpState);
+            // Clear RX interrupt temporarily
+            radio->clearPacketReceivedAction();
+
+            // Send WakeUp synchronously (blocking)
+            int wakeUpState = radio->transmit(wakeUpBuf, wakeUpLen);
+
+            if (wakeUpState != RADIOLIB_ERR_NONE)
+            {
+                LOG_W(TAG, "WakeUp transmission failed, code %d - continuing anyway", wakeUpState);
+            }
+            else
+            {
+                LOG_I(TAG, "WakeUp sent successfully, %d bytes, seq: %d", wakeUpLen, (int)wakeUpMsg.textData.seq);
+            }
+
+            // Wait for receiver to wake up and switch to continuous RX
+            // This delay accounts for: WakeUp ToA + Deep Sleep Wake Time + RX Settle + Margin
+            delay(LoRaConstants::WAKEUP_TO_MESSAGE_DELAY_MS);
         }
         else
         {
-            LOG_I(TAG, "WakeUp sent successfully, %d bytes, seq: %d", wakeUpLen, (int)wakeUpMsg.textData.seq);
+            LOG_W(TAG, "Failed to serialize WakeUp message");
         }
-
-        // Wait for receiver to wake up and switch to continuous RX
-        // This delay accounts for: WakeUp ToA + Deep Sleep Wake Time + RX Settle + Margin
-        delay(LoRaConstants::WAKEUP_TO_MESSAGE_DELAY_MS);
     }
     else
     {
-        LOG_I(TAG, "Failed to serialize WakeUp message");
+        LOG_I(TAG, "Skipping WakeUp message before transmission");
     }
 
-    // Step 2: Send actual message (non-blocking)
+    // Send actual message (non-blocking)
     LOG_I(TAG, "Starting transmission of %d bytes", len);
 
     // Switch to transmit mode with interrupt

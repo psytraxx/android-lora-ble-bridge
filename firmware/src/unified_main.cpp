@@ -310,13 +310,13 @@ void onLoRaReceived(const LoRaPacket &packet)
                 delay(LoRaConstants::ACK_DELAY_MS);
 
                 // Send ACK (will be queued after current RX processing completes)
-                if (loraManager->startTransmit(ackBuffer, (size_t)ackLen))
+                if (loraManager->startTransmit(ackBuffer, (size_t)ackLen, false))
                 {
                     LOG_I(TAG, "ACK transmission started for seq %d", msg.textData.seq);
                 }
                 else
                 {
-                    LOG_I(TAG, "Failed to start ACK transmission");
+                    LOG_W(TAG, "Failed to start ACK transmission");
                 }
             }
             else
@@ -359,12 +359,12 @@ void handleBleMessage(const Message &msg)
 {
     LOG_D(TAG, "BLE message queued for LoRa, type: %d", (int)msg.type);
 
-    uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
-    int length = msg.serialize(buffer, sizeof(buffer));
+    uint8_t msgBuffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
+    int msgLen = msg.serialize(msgBuffer, sizeof(msgBuffer));
 
-    if (length > 0)
+    if (msgLen > 0)
     {
-        if (loraManager->startTransmit(buffer, (size_t)length))
+        if (loraManager->startTransmit(msgBuffer, (size_t)msgLen))
         {
             appController->notifyActivity();
         }

@@ -114,9 +114,10 @@ public:
      *
      * @param data Pointer to data buffer
      * @param len Length of data to transmit
+     * @param sendWakeUp Whether to send a WakeUp message before transmission (default: true)
      * @return true if transmission started successfully, false otherwise
      */
-    bool startTransmit(const uint8_t *data, size_t len);
+    bool startTransmit(const uint8_t *data, size_t len, bool sendWakeUp = true);
 
     /**
      * @brief Check if transmission is in progress
