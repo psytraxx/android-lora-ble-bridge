@@ -22,7 +22,11 @@ bool BLEManager::setup(const char *deviceName)
 
     // Initialize Bluefruit with max bandwidth (which also sets max MTU)
     Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
-    Bluefruit.begin();
+    if (!Bluefruit.begin())
+    {
+        LOG_E(TAG, "Failed to initialize Bluefruit");
+        return false;
+    }
     Bluefruit.setTxPower(BLEConstants::TX_POWER_DBM);
     Bluefruit.setName(deviceName);
 

@@ -99,7 +99,12 @@ void setup()
 
     // Initialize application controller (static allocation)
     appController = &appControllerInstance;
-    appController->begin();
+    if (!appController->begin())
+    {
+        LOG_I(TAG, "Application controller initialization failed!");
+        while (1)
+            ;
+    }
 
     // Initialize storage manager (static allocation)
     storageManager = &storageManagerInstance;

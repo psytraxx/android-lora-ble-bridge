@@ -65,8 +65,9 @@ public:
 
     /**
      * @brief Initialize state machine
+     * @return true if initialization successful, false if mutex creation failed
      */
-    void begin();
+    bool begin();
 
     // ========================================================================
     // State Queries (Thread-Safe)
