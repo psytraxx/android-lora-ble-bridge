@@ -22,7 +22,11 @@ bool BLEManager::setup(const char *deviceName)
 
     // Initialize Bluefruit with max bandwidth (which also sets max MTU)
     Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
-    Bluefruit.begin();
+    if (!Bluefruit.begin())
+    {
+        LOG_E(TAG, "Failed to initialize Bluefruit");
+        return false;
+    }
     Bluefruit.setTxPower(BLEConstants::TX_POWER_DBM);
     Bluefruit.setName(deviceName);
 
@@ -48,7 +52,7 @@ bool BLEManager::setup(const char *deviceName)
     // Use variable-length characteristic (default) for efficient BLE bandwidth usage
     // Removes fixed-length padding - matches ESP32 implementation
     txCharacteristic.setCccdWriteCallback(BLEManager::cccdCallback);
-    txCharacteristic.setFixedLen(BufferConstants::MAX_PROTOCOL_MESSAGE); // Set max length for MTU negotiation
+    txCharacteristic.setMaxLen(BufferConstants::MAX_PROTOCOL_MESSAGE); // Set max length for MTU negotiation
     txCharacteristic.begin();
 
     // Configure RX Characteristic (Android -> ESP32)
@@ -57,7 +61,7 @@ bool BLEManager::setup(const char *deviceName)
     // Use variable-length characteristic (default) for efficient BLE bandwidth usage
     // Allows messages of any size up to MTU - matches ESP32 implementation
     rxCharacteristic.setWriteCallback(BLEManager::rxWriteCallback);
-    rxCharacteristic.setFixedLen(BufferConstants::MAX_PROTOCOL_MESSAGE); // Set max length for MTU negotiation
+    rxCharacteristic.setMaxLen(BufferConstants::MAX_PROTOCOL_MESSAGE); // Set max length for MTU negotiation
     rxCharacteristic.begin();
 
     LOG_I(TAG, "Initialized successfully");

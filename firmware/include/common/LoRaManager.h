@@ -37,14 +37,6 @@ enum LoRaState : uint8_t
 /// Configuration for LoRa radio parameters
 #ifndef LORA_CONFIG_DEFINED
 #define LORA_CONFIG_DEFINED
-struct LoRaConfig
-{
-    float frequency;         // MHz (e.g., 433.92)
-    float bandwidth;         // kHz (e.g., 250)
-    uint8_t spreadingFactor; // SF (7-12)
-    uint8_t codingRate;      // CR (5-8 for 4/5 to 4/8)
-    int8_t txPower;          // dBm (e.g., 20)
-};
 
 /// LoRa packet with metadata (RSSI, SNR)
 struct LoRaPacket
@@ -88,11 +80,10 @@ public:
     LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy);
 
     /**
-     * @brief Initialize LoRa radio with configuration
-     * @param config LoRa parameters (frequency, SF, BW, etc.)
+     * @brief Initialize LoRa radio
      * @return true on success, false on failure
      */
-    bool begin(const LoRaConfig &config);
+    bool begin();
 
     /**
      * @brief Start continuous receive mode or duty-cycled receive mode

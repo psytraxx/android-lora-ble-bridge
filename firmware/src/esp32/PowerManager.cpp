@@ -12,7 +12,7 @@
 #include <esp_adc/adc_cali.h>
 #include <esp_adc/adc_cali_scheme.h>
 
-static const char* TAG = "Power";
+static const char *TAG = "Power";
 
 // Static variables for ADC calibration and filtering
 static adc_oneshot_unit_handle_t adc1_handle = nullptr;
@@ -21,19 +21,18 @@ static bool initial_read_done = false;
 static float last_read_value = 3300.0; // Start at reasonable 3.3V
 static uint32_t last_read_time_ms = 0;
 
-void PowerManager::configurePowerManagement()
+bool PowerManager::configurePowerManagement()
 {
     esp_pm_config_t pm_config = {
         .max_freq_mhz = CONFIG_ESP32S3_DEFAULT_CPU_FREQ_MHZ,
         .min_freq_mhz = 80,
-        .light_sleep_enable = false}; // Disable light sleep to avoid issues with peripherals
+        .light_sleep_enable = true}; // Try to enable light sleep
 
     esp_err_t rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
     {
-        LOG_W(TAG, "Failed to configure power management (err=%d) - continuing anyway", rv);
-        setCpuFrequencyMhz(160); // Fallback to fixed 160 MHz
-        // Don't return early - ADC calibration still needs to be initialized
+        LOG_W(TAG, "Failed to configure power management (err=%d) - falling back to 80MHz", rv);
+        setCpuFrequencyMhz(80); // Fallback to fixed 80 MHz to save power
     }
     else
     {
@@ -52,7 +51,7 @@ void PowerManager::configurePowerManagement()
     if (err != ESP_OK)
     {
         LOG_E(TAG, "Failed to initialize ADC unit (err=%d)", err);
-        return;
+        return false;
     }
 
     // Determine ADC channel from GPIO pin number
@@ -80,7 +79,7 @@ void PowerManager::configurePowerManagement()
     if (err != ESP_OK)
     {
         LOG_E(TAG, "Failed to configure ADC channel (err=%d)", err);
-        return;
+        return false;
     }
 
     // Initialize ADC calibration
@@ -101,6 +100,7 @@ void PowerManager::configurePowerManagement()
 #endif
 
     LOG_I(TAG, "Power management configured");
+    return true;
 }
 
 void PowerManager::battery_adcEnable()

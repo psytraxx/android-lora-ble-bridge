@@ -99,7 +99,12 @@ void setup()
 
     // Initialize application controller (static allocation)
     appController = &appControllerInstance;
-    appController->begin();
+    if (!appController->begin())
+    {
+        LOG_I(TAG, "Application controller initialization failed!");
+        while (1)
+            ;
+    }
 
     // Initialize storage manager (static allocation)
     storageManager = &storageManagerInstance;
@@ -132,14 +137,7 @@ void setup()
         LORA_DIO0,
         LORA_BUSY);
 
-    LoRaConfig loraConfig = {
-        .frequency = LORA_FREQUENCY,
-        .bandwidth = LORA_BANDWIDTH,
-        .spreadingFactor = LORA_SPREADING_FACTOR,
-        .codingRate = LORA_CODING_RATE,
-        .txPower = LORA_TX_POWER};
-
-    if (!loraManager->begin(loraConfig))
+    if (!loraManager->begin())
     {
         LOG_I(TAG, "LoRa initialization failed!");
         while (1)
@@ -149,7 +147,8 @@ void setup()
     loraManager->setReceiveCallback(onLoRaReceived);
     loraManager->setTransmitCallback(onLoRaTransmitted);
 
-    if (!loraManager->startReceive())
+    // Start receive in duty cycle mode (power saving) where supported
+    if (!loraManager->startReceive(true))
     {
         LOG_I(TAG, "Failed to start LoRa receive mode!");
     }
@@ -255,10 +254,14 @@ void loop()
 
         Platform::sleep();
 
-        // Should not reach here (device resets on wake)
+        // Code reached here ONLY on nRF52 (ESP32 resets on wake)
+        // We must reset activity timer to prevent immediate re-sleep
+        LOG_I(TAG, "Resumed from sleep");
+        appController->notifyActivity();
+        bleManager->startAdvertising(); // Restart advertising on wake
     }
 
-    delay(10);
+    delay(20);
 }
 
 // ============================================================================

@@ -156,17 +156,14 @@ uint8_t PowerManager::readBatteryLevel()
 
 void PowerManager::enterLowPowerMode()
 {
-    LOG_I(TAG, "Entering System OFF mode...");
+    LOG_I(TAG, "Entering System ON sleep mode...");
 
 #ifdef ARDUINO_ARCH_NRF52
     // Configure LoRa DIO0 interrupt pin as wake-up source
     // DIO0 goes HIGH when packet is received (matches ESP32 configuration)
-    pinMode(LORA_DIO0, INPUT_SENSE_HIGH);
     nrf_gpio_cfg_sense_input(LORA_DIO0, NRF_GPIO_PIN_PULLDOWN, NRF_GPIO_PIN_SENSE_HIGH);
     LOG_I(TAG, "Wake source: LoRa DIO0 (GPIO %d) - wake on HIGH", LORA_DIO0);
 
-    // Configure wake button pin mode before sense setup
-    pinMode(WAKE_BUTTON, INPUT_PULLUP);
     // Configure wake button as wake-up source (wake on LOW)
     nrf_gpio_cfg_sense_input(WAKE_BUTTON, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
     LOG_I(TAG, "Wake source: Wake button (GPIO %d) - wake on LOW", WAKE_BUTTON);
@@ -175,17 +172,16 @@ void PowerManager::enterLowPowerMode()
     Serial.flush();
     delay(100); // Allow time for serial transmission
 
-    // Enter System OFF mode (lowest power state)
-    // Current: ~0.2µA (all RAM and peripherals powered down)
-    // Device will perform full reset on wake (execution starts from setup())
-    //
-    // Note: Use sd_power_system_off() if SoftDevice (BLE stack) is active
-    // For now, we shut down BLE before entering sleep, so direct register access is safe
-    NRF_POWER->SYSTEMOFF = 1;
+    // Enter System ON sleep mode.
+    // This is a low-power mode where the CPU is asleep, but RAM and peripherals are retained.
+    // The device will wake up from any configured interrupt.
+    // sd_app_evt_wait() is the recommended way to sleep when the SoftDevice is enabled.
+    sd_app_evt_wait();
 
-    // This line should never be reached
-    LOG_E(TAG, "Failed to enter System OFF mode");
+    // After waking up, the code execution will continue from here.
+    LOG_I(TAG, "Woke up from sleep.");
+
 #else
-    LOG_W(TAG, "System OFF mode only available on nRF52");
+    LOG_W(TAG, "System ON sleep mode only available on nRF52");
 #endif
 }

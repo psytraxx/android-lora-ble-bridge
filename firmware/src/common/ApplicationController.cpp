@@ -19,8 +19,15 @@ ApplicationController::ApplicationController()
     }
 }
 
-void ApplicationController::begin()
+bool ApplicationController::begin()
 {
+    // Check if mutex was created successfully in constructor
+    if (stateMutex == nullptr)
+    {
+        LOG_E(TAG, "Cannot initialize - mutex creation failed");
+        return false;
+    }
+
     xSemaphoreTake(stateMutex, portMAX_DELAY);
 
     // Initialize state
@@ -32,6 +39,7 @@ void ApplicationController::begin()
     xSemaphoreGive(stateMutex);
 
     LOG_I(TAG, "Initialized (pure state machine)");
+    return true;
 }
 
 // ============================================================================

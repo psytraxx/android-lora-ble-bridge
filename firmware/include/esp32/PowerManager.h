@@ -35,7 +35,7 @@ public:
      *
      * Call this once during setup() before other initialization.
      */
-    static void configurePowerManagement();
+    static bool configurePowerManagement();
 
     /**
      * @brief Configure GPIO pins for wakeup from deep sleep
