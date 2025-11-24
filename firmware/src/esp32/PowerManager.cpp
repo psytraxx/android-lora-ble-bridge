@@ -24,7 +24,7 @@ static uint32_t last_read_time_ms = 0;
 bool PowerManager::configurePowerManagement()
 {
     esp_pm_config_t pm_config = {
-        .max_freq_mhz = CONFIG_ESP32S3_DEFAULT_CPU_FREQ_MHZ,
+        .max_freq_mhz = 160,
         .min_freq_mhz = 80,
         .light_sleep_enable = true}; // Try to enable light sleep
 
