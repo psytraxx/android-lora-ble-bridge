@@ -42,6 +42,14 @@
 
 namespace LoRaConstants
 {
+    constexpr float FREQUENCY = 433.92; ///< LoRa frequency in MHz
+
+    constexpr float BANDWIDTH = 250.0; ///< LoRa bandwidth in kHz
+
+    constexpr uint8_t SPREADING_FACTOR = 9; ///< LoRa spreading factor (7-12)
+
+    constexpr uint8_t CODING_RATE = 5; ///< LoRa coding rate (5=4/5, 6=4/6, 7=4/7, 8=4/8)
+
     /// Default LoRa sync word (0x12 = private network, 0x34 = public LoRaWAN)
     constexpr uint8_t SYNC_WORD = 0x12;
 
@@ -59,9 +67,9 @@ namespace LoRaConstants
     /// This ensures the receiver has ample time to wake up and switch to RX mode.
     const int WAKEUP_TO_MESSAGE_DELAY_MS =
         static_cast<int>(LoRaManager::calculateToA_ms(
-            LORA_SPREADING_FACTOR,
-            LORA_BANDWIDTH * 1000,
-            LORA_CODING_RATE,
+            LoRaConstants::SPREADING_FACTOR,
+            LoRaConstants::BANDWIDTH * 1000,
+            LoRaConstants::CODING_RATE,
             LoRaConstants::PREAMBLE_LENGTH,
             1)) +
         600 + // Estimated deep sleep wake time
@@ -72,9 +80,9 @@ namespace LoRaConstants
     /// Calculated as: ToA(Max_Message) + TX->RX Switch Time + Margin
     const int ACK_DELAY_MS =
         static_cast<int>(LoRaManager::calculateToA_ms(
-            LORA_SPREADING_FACTOR,
-            LORA_BANDWIDTH * 1000,
-            LORA_CODING_RATE,
+            LoRaConstants::SPREADING_FACTOR,
+            LoRaConstants::BANDWIDTH * 1000,
+            LoRaConstants::CODING_RATE,
             LoRaConstants::PREAMBLE_LENGTH,
             64)) + // Max expected payload
         RX_SETTLE_TIME_MS +

@@ -137,14 +137,7 @@ void setup()
         LORA_DIO0,
         LORA_BUSY);
 
-    LoRaConfig loraConfig = {
-        .frequency = LORA_FREQUENCY,
-        .bandwidth = LORA_BANDWIDTH,
-        .spreadingFactor = LORA_SPREADING_FACTOR,
-        .codingRate = LORA_CODING_RATE,
-        .txPower = LORA_TX_POWER};
-
-    if (!loraManager->begin(loraConfig))
+    if (!loraManager->begin())
     {
         LOG_I(TAG, "LoRa initialization failed!");
         while (1)

@@ -40,7 +40,7 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
 #endif
 }
 
-bool LoRaManager::begin(const LoRaConfig &config)
+bool LoRaManager::begin()
 {
     LOG_I(TAG, "Initializing LoRa radio");
 
@@ -55,55 +55,62 @@ bool LoRaManager::begin(const LoRaConfig &config)
 
         // Initialize radio based on chip type
         int state;
-#if defined(RADIO_SX1278)
-        // SX1278: Basic initialization (no TCXO)
-        const uint8_t SYNC_WORD = 0x12;
-        const uint8_t PREAMBLE_LENGTH = 8;
+        // SX12XX: Basic initialization
         state = radio->begin(
-            config.frequency,
-            config.bandwidth,
-            config.spreadingFactor,
-            config.codingRate,
-            SYNC_WORD,
-            config.txPower,
-            PREAMBLE_LENGTH);
-#elif defined(RADIO_SX1262) || defined(RADIO_SX1268)
-        // SX1262/SX1268: Extended initialization with TCXO
-        const uint8_t SYNC_WORD = 0x12;
-        const uint8_t PREAMBLE_LENGTH = 8;
-        const float TCXO_VOLTAGE = 1.8;
-        const bool USE_REGULATOR_LDO = false;
-        state = radio->begin(
-            config.frequency,
-            config.bandwidth,
-            config.spreadingFactor,
-            config.codingRate,
-            SYNC_WORD,
-            config.txPower,
-            PREAMBLE_LENGTH,
-            TCXO_VOLTAGE,
-            USE_REGULATOR_LDO);
-#endif
+            LoRaConstants::FREQUENCY,
+            LoRaConstants::BANDWIDTH,
+            LoRaConstants::SPREADING_FACTOR,
+            LoRaConstants::CODING_RATE,
+            LoRaConstants::SYNC_WORD,
+            LORA_TX_POWER,
+            LoRaConstants::PREAMBLE_LENGTH);
+
+        this->state = STATE_IDLE;
+        LOG_I(TAG, "LoRa setup successful");
+        LOG_I(TAG, "  Frequency: %.2f MHz", LoRaConstants::FREQUENCY);
+        LOG_I(TAG, "  Bandwidth: %.1f kHz", LoRaConstants::BANDWIDTH);
+        LOG_I(TAG, "  Spreading Factor: %d", LoRaConstants::SPREADING_FACTOR);
+        LOG_I(TAG, "  Coding Rate: 4/%d", LoRaConstants::CODING_RATE);
+        LOG_I(TAG, "  TX Power: %d dBm", LORA_TX_POWER);
 
         if (state == RADIOLIB_ERR_NONE)
         {
 #if defined(RADIO_SX1262) || defined(RADIO_SX1268)
+            // Explicitly set TCXO control via DIO3 (redundant if begin() does it, but safe)
+            // This sends the SetDio3AsTcxoCtrl command
+            int res = radio->setTCXO(LoRaConstants::TCXO_VOLTAGE);
+            if (res != RADIOLIB_ERR_NONE)
+            {
+                LOG_E(TAG, "Failed to configure TCXO, code %d", res);
+            }
+            else
+            {
+                LOG_I(TAG, "TCXO configured at %.1fV via DIO3", LoRaConstants::TCXO_VOLTAGE);
+            }
+
+#if defined(LORA_RXEN) && defined(LORA_TXEN)
+            // The SX1280 version needs to set RX, TX antenna switching pins
+            radio->setRfSwitchPins(LORA_RXEN, LORA_TXEN);
+            LOG_I(TAG, "RF switch pins configured");
+
+#endif
+
+#if defined(LORA_MAX_CURRENT)
             // Set current limit for PA (important for SX126x family)
-            int res = radio->setCurrentLimit(140);
+            res = radio->setCurrentLimit(LORA_MAX_CURRENT);
             if (res != RADIOLIB_ERR_NONE)
             {
                 LOG_E(TAG, "Failed to set current limit, code %d", res);
                 return false;
             }
+            else
+            {
+                LOG_I(TAG, "PA current limit set to %d mA", LORA_MAX_CURRENT);
+            }
 #endif
 
-            this->state = STATE_IDLE;
-            LOG_I(TAG, "LoRa setup successful");
-            LOG_I(TAG, "  Frequency: %.2f MHz", config.frequency);
-            LOG_I(TAG, "  Bandwidth: %.1f kHz", config.bandwidth);
-            LOG_I(TAG, "  Spreading Factor: %d", config.spreadingFactor);
-            LOG_I(TAG, "  Coding Rate: 4/%d", config.codingRate);
-            LOG_I(TAG, "  TX Power: %d dBm", config.txPower);
+#endif
+
             return true;
         }
 
