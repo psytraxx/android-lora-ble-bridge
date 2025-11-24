@@ -52,7 +52,7 @@ bool BLEManager::setup(const char *deviceName)
     // Use variable-length characteristic (default) for efficient BLE bandwidth usage
     // Removes fixed-length padding - matches ESP32 implementation
     txCharacteristic.setCccdWriteCallback(BLEManager::cccdCallback);
-    txCharacteristic.setFixedLen(BufferConstants::MAX_PROTOCOL_MESSAGE); // Set max length for MTU negotiation
+    txCharacteristic.setMaxLen(BufferConstants::MAX_PROTOCOL_MESSAGE); // Set max length for MTU negotiation
     txCharacteristic.begin();
 
     // Configure RX Characteristic (Android -> ESP32)
@@ -61,7 +61,7 @@ bool BLEManager::setup(const char *deviceName)
     // Use variable-length characteristic (default) for efficient BLE bandwidth usage
     // Allows messages of any size up to MTU - matches ESP32 implementation
     rxCharacteristic.setWriteCallback(BLEManager::rxWriteCallback);
-    rxCharacteristic.setFixedLen(BufferConstants::MAX_PROTOCOL_MESSAGE); // Set max length for MTU negotiation
+    rxCharacteristic.setMaxLen(BufferConstants::MAX_PROTOCOL_MESSAGE); // Set max length for MTU negotiation
     rxCharacteristic.begin();
 
     LOG_I(TAG, "Initialized successfully");

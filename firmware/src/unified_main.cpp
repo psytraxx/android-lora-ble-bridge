@@ -253,7 +253,11 @@ void loop()
 
         Platform::sleep();
 
-        // Should not reach here (device resets on wake)
+        // Code reached here ONLY on nRF52 (ESP32 resets on wake)
+        // We must reset activity timer to prevent immediate re-sleep
+        LOG_I(TAG, "Resumed from sleep");
+        appController->notifyActivity();
+        bleManager->startAdvertising(); // Restart advertising on wake
     }
 
     delay(10);
