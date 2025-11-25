@@ -60,7 +60,8 @@ namespace LoRaConstants
     constexpr int TIMING_MARGIN_MS = 500;
 
     /// Preamble length for WakeUp messages to wake duty-cycled receivers
-    constexpr int PREAMBLE_LENGTH = 16;
+    /// Increased to 32 to enable effective duty cycling (Sleep Period > 0)
+    constexpr int PREAMBLE_LENGTH = 32;
 
     /// Delay after sending WakeUp message before sending actual message.
     /// Calculated as: ToA(WakeUp) + Deep Sleep Wake Time + RX Settle Time + Margin
