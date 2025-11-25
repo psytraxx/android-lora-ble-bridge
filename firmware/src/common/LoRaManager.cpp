@@ -72,6 +72,7 @@ bool LoRaManager::begin()
         LOG_I(TAG, "  Spreading Factor: %d", LoRaConstants::SPREADING_FACTOR);
         LOG_I(TAG, "  Coding Rate: 4/%d", LoRaConstants::CODING_RATE);
         LOG_I(TAG, "  TX Power: %d dBm", LORA_TX_POWER);
+        LOG_I(TAG, "  Preamble Length: %d symbols", LoRaConstants::PREAMBLE_LENGTH);
 
         if (state == RADIOLIB_ERR_NONE)
         {
@@ -143,11 +144,11 @@ bool LoRaManager::startReceive(bool dutyCycle)
     {
         // SX1262/SX1268: Hardware-based duty cycle mode
         LOG_I(TAG, "Starting duty cycle RX mode");
-        // Use configured preamble length (16) to match sender
+        // Use configured preamble length to match sender
+        // Pass 0 for minSymbols to let RadioLib calculate it based on Spreading Factor
         int rxState = radio->startReceiveDutyCycleAuto(
             LoRaConstants::PREAMBLE_LENGTH,
-            8,
-            (RADIOLIB_IRQ_RX_DEFAULT_FLAGS | (1 << RADIOLIB_IRQ_PREAMBLE_DETECTED)));
+            0);
         if (rxState != RADIOLIB_ERR_NONE)
         {
             LOG_E(TAG, "Failed to start duty cycle RX mode, code %d", rxState);
