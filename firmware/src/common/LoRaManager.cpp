@@ -72,6 +72,7 @@ bool LoRaManager::begin()
         LOG_I(TAG, "  Spreading Factor: %d", LoRaConstants::SPREADING_FACTOR);
         LOG_I(TAG, "  Coding Rate: 4/%d", LoRaConstants::CODING_RATE);
         LOG_I(TAG, "  TX Power: %d dBm", LORA_TX_POWER);
+        LOG_I(TAG, "  Preamble Length: %d symbols", LoRaConstants::PREAMBLE_LENGTH);
 
         if (state == RADIOLIB_ERR_NONE)
         {
