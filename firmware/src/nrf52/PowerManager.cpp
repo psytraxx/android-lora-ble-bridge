@@ -9,6 +9,7 @@ static const char *TAG = "Power";
 #ifdef ARDUINO_ARCH_NRF52
 #include "nrf_power.h"
 #include "nrf_gpio.h"
+#include "nrf_soc.h"
 #endif
 
 bool PowerManager::configurePowerManagement()
@@ -156,32 +157,87 @@ uint8_t PowerManager::readBatteryLevel()
 
 void PowerManager::enterLowPowerMode()
 {
-    LOG_I(TAG, "Entering System ON sleep mode...");
+    LOG_I(TAG, "Entering low-power mode (System OFF)...");
+
+    // Flush logs before sleep
+    Serial.flush();
 
 #ifdef ARDUINO_ARCH_NRF52
-    // Configure LoRa DIO0 interrupt pin as wake-up source
-    // DIO0 goes HIGH when packet is received (matches ESP32 configuration)
-    nrf_gpio_cfg_sense_input(LORA_DIO0, NRF_GPIO_PIN_PULLDOWN, NRF_GPIO_PIN_SENSE_HIGH);
-    LOG_I(TAG, "Wake source: LoRa DIO0 (GPIO %d) - wake on HIGH", LORA_DIO0);
+    // Configure Wakeup Pins
+    // NOTE: nrf_gpio_cfg_sense_input expects PHYSICAL pin numbers.
+    // Use g_ADigitalPinMap to map Arduino pin numbers to physical pins.
+    uint32_t pinButton = g_ADigitalPinMap[WAKE_BUTTON];
+    uint32_t pinLoRa = g_ADigitalPinMap[LORA_DIO0];
 
-    // Configure wake button as wake-up source (wake on LOW)
-    nrf_gpio_cfg_sense_input(WAKE_BUTTON, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
-    LOG_I(TAG, "Wake source: Wake button (GPIO %d) - wake on LOW", WAKE_BUTTON);
+    // Configure LoRa DIO0 interrupt pin as wake-up source (Wake on HIGH)
+    nrf_gpio_cfg_sense_input(pinLoRa, NRF_GPIO_PIN_PULLDOWN, NRF_GPIO_PIN_SENSE_HIGH);
+    LOG_I(TAG, "Wake source: LoRa DIO0 (Pin %d) - wake on HIGH", pinLoRa);
 
-    // Flush serial output
-    Serial.flush();
-    delay(100); // Allow time for serial transmission
+    // Configure wake button as wake-up source (Wake on LOW)
+    nrf_gpio_cfg_sense_input(pinButton, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
+    LOG_I(TAG, "Wake source: Wake button (Pin %d) - wake on LOW", pinButton);
 
-    // Enter System ON sleep mode.
-    // This is a low-power mode where the CPU is asleep, but RAM and peripherals are retained.
-    // The device will wake up from any configured interrupt.
-    // sd_app_evt_wait() is the recommended way to sleep when the SoftDevice is enabled.
-    sd_app_evt_wait();
+    // Disable Serial to save power
+    Serial.end();
 
-    // After waking up, the code execution will continue from here.
-    LOG_I(TAG, "Woke up from sleep.");
+    // Enter System OFF mode
+    uint8_t sd_en;
+    (void)sd_softdevice_is_enabled(&sd_en);
+
+    if (sd_en)
+    {
+        sd_power_system_off();
+    }
+    else
+    {
+        NRF_POWER->SYSTEMOFF = 1;
+        __DSB(); // Data Synchronization Barrier
+    }
+
+    LOG_E(TAG, "Failed to enter System OFF mode!");
+
+    /*Only for debugging purpose, will not be reached without connected debugger*/
+    while (1)
+        ;
 
 #else
     LOG_W(TAG, "System ON sleep mode only available on nRF52");
+#endif
+}
+
+void PowerManager::printWakeupReason()
+{
+#ifdef ARDUINO_ARCH_NRF52
+    uint32_t resetReason = NRF_POWER->RESETREAS;
+
+    // This was an actual reset (power-on, watchdog, etc.)
+    LOG_I(TAG, "nRF52 Reset Reason: 0x%X", resetReason);
+
+    // Map of reset reason flags to human-readable strings
+    struct ResetReasonEntry
+    {
+        uint32_t mask;
+        const char *msg;
+    };
+
+    ResetReasonEntry reasons[] = {
+        {POWER_RESETREAS_RESETPIN_Msk, "  - Reset Pin"},
+        {POWER_RESETREAS_DOG_Msk, "  - Watchdog Timeout"},
+        {POWER_RESETREAS_SREQ_Msk, "  - Soft Reset (e.g., from NVIC_SystemReset)"},
+        {POWER_RESETREAS_LOCKUP_Msk, "  - CPU Lockup"},
+        {POWER_RESETREAS_OFF_Msk, "  - System OFF Wakeup (e.g., GPIO, LPCOMP)"},
+        {POWER_RESETREAS_LPCOMP_Msk, "  - LPCOMP Wakeup"},
+    };
+
+    for (const auto &entry : reasons)
+    {
+        if (resetReason & entry.mask)
+        {
+            LOG_I(TAG, "%s", entry.msg);
+        }
+    }
+
+#else
+    LOG_W(TAG, "Wakeup reason reporting only available on nRF52");
 #endif
 }

@@ -81,9 +81,6 @@ void setup()
 {
     // Initialize Serial
     Serial.begin(115200);
-    while (!Serial && millis() < 3000)
-        ;
-    delay(500);
 
     LOG_I(TAG, "\n\n=== LoRa-BLE Bridge (Trait-Based) ===");
     LOG_I(TAG, "Platform: %s", PLATFORM_NAME);
