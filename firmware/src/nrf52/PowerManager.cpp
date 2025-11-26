@@ -194,6 +194,8 @@ void PowerManager::enterLowPowerMode()
         __DSB(); // Data Synchronization Barrier
     }
 
+    LOG_E(TAG, "Failed to enter System OFF mode!");
+
     /*Only for debugging purpose, will not be reached without connected debugger*/
     while (1)
         ;
