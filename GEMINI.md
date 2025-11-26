@@ -1,88 +1,112 @@
-# Android LoRa BLE Bridge
+# Gemini Instructions
 
 ## Project Overview
-This project creates a long-range communication system bridging **Bluetooth Low Energy (BLE)** and **LoRa** radio. It enables Android devices or Web browsers to send 6-bit packed text messages and GPS coordinates over LoRa (433 MHz) via an intermediary hardware bridge (ESP32 or nRF52).
 
-**Key Features:**
-*   **Range:** 3-15 km via LoRa (SX1262/SX1278).
-*   **Architecture:** Android/Web App <-> BLE <-> Bridge Firmware <-> LoRa.
-*   **Protocol:** Custom binary protocol (v3.0) with 6-bit text packing for efficiency.
-*   **Hardware Support:** ESP32 (LilyGo T-Display S3, Heltec WiFi LoRa V3), nRF52 (Seeed XIAO nRF52840).
+This is a long-range messaging system bridging BLE (Android ↔ ESP32/nRF52) with LoRa radio for 3-10 km communication. The system uses custom 6-bit character encoding to minimize LoRa airtime and supports multiple hardware platforms through a unified trait-based architecture.
 
-## Project Structure
-*   **`android/`**: Android Application (Kotlin, Jetpack Compose, Clean Architecture).
-*   **`firmware/`**: Unified C++/PlatformIO firmware for ESP32 and nRF52.
-*   **`pwa/`**: Progressive Web App (TypeScript, Lit, Web Bluetooth).
-*   **`protocol.md`**: Specification of the communication protocol.
+**For complete documentation, see [README.md](README.md)**
 
-## Quick Start
-
-### 1. Android App
-**Prerequisites:** JDK 11+, Android SDK.
+## Critical Build Commands
 
 ```bash
-cd android
-# Build Debug APK
-./gradlew assembleDebug
-# Run Unit Tests
-./gradlew test
-# Install to connected device
-./gradlew installDebug
-```
-
-### 2. Firmware (C++)
-**Prerequisites:** PlatformIO Core (CLI).
-
-```bash
+# Firmware (unified multi-platform)
 cd firmware
 
-# Build & Upload for ESP32 (LilyGo T-Display S3)
-~/.platformio/penv/bin/pio run  run -e lilygo-t-display-s3 --target upload --target monitor
+# ESP32 (LilyGo T-Display S3 with SX1278)
+~/.platformio/penv/bin/pio run -e lilygo-t-display-s3
+~/.platformio/penv/bin/pio run -e lilygo-t-display-s3 --target upload --target monitor
 
-# Build & Upload for ESP32 (Heltec WiFi LoRa V3)
-~/.platformio/penv/bin/pio run  run -e heltec-wifi-lora-v3 --target upload --target monitor
+# ESP32 (Heltec WiFi LoRa V3 with SX1262)
+~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3
+~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3 --target upload --target monitor
 
-# Build & Upload for nRF52 (Seeed XIAO)
-~/.platformio/penv/bin/pio run  run -e xiao_nrf52840 --target upload --target monitor
-```
+# nRF52 (Seeed XIAO nRF52840 with SX1262)
+~/.platformio/penv/bin/pio run -e xiao_nrf52840
+~/.platformio/penv/bin/pio run -e xiao_nrf52840 --target upload --target monitor
 
-### 3. Progressive Web App (PWA)
-**Prerequisites:** Node.js 18+.
+# Android app
+cd android
+./gradlew assembleDebug installDebug        # Build + install
+./gradlew test                              # 74 unit tests
 
-```bash
+# PWA
 cd pwa
 npm install
-# Start Development Server
-npm run dev
-# Build for Production
-npm run build
+npm run dev                                  # Development server
+npm run build                                # Production build
 ```
 
-## Architecture & Protocol
+## Protocol Essentials
 
-### System Flow
-1.  **User Input:** Message typed in Android/Web App.
-2.  **BLE Transfer:** App sends data to Bridge via BLE (Characteristic `0x5679`).
-3.  **LoRa TX:** Bridge validates and transmits data via LoRa.
-4.  **LoRa RX:** Receiving Bridge gets packet, validates, sends ACK.
-5.  **BLE Notify:** Receiving Bridge forwards message to its connected App via BLE (Characteristic `0x5678`).
+**Message Types:**
+- `0x01` TextMessage: `[Type][Seq][CharCount][PackedLen][PackedText][HasGPS][Lat?][Lon?]`
+- `0x02` AckMessage: `[Type][Seq]`
+- `0x03` WakeUpMessage: `[Type]` (LoRa-only, sent after button wake, NOT after LoRa wake)
 
-### Protocol v3.0
-*   **Text Message (0x01):** `[Type][Seq][CharCount][PackedLen][PackedText][HasGPS][Lat][Lon]`
-*   **Ack Message (0x02):** `[Type][Seq]`
-*   **Encoding:** 6-bit packing (64-char set), GPS as `int32` (micro-degrees).
+**Character Set (6-bit):** ` ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'"@#$%&*()[]{}=+/<>_`
+- Lowercase auto-converts to uppercase
+- 50 char max → 38 bytes packed (vs 50 bytes UTF-8)
+- See `firmware/include/Protocol.h` for implementation
 
-## Development Conventions
-*   **Branching:** Follow standard git workflows.
-*   **Commits:** Clear, descriptive messages.
-*   **Code Style:**
-    *   **Android:** Kotlin Clean Architecture (Domain/Data/Presentation).
-    *   **Firmware:** Trait-based polymorphism for platform abstraction (`esp32/`, `nrf52/`).
-    *   **PWA:** Modern TypeScript with Lit components.
-*   **Testing:** Run relevant tests before committing (`./gradlew test` for Android, `vitest` for PWA).
+**GPS Encoding:** `lat/lon × 1_000_000 → int32_t` (little-endian, ~1m precision)
 
-## Key Configuration Files
-*   `android/build.gradle.kts`: Android dependencies.
-*   `firmware/platformio.ini`: Firmware build environments & pin definitions.
-*   `firmware/include/Protocol.h`: Single source of truth for protocol structs.
-*   `pwa/package.json`: Web app dependencies.
+## Deep Sleep Pattern (ESP32)
+
+**Critical: Prevent WakeUp Message Loops**
+
+```cpp
+// In setup() after boot/wake:
+esp_sleep_wakeup_cause_t reason = esp_sleep_get_wakeup_cause();
+
+switch(reason) {
+    case ESP_SLEEP_WAKEUP_EXT0:  // LoRa wake - DON'T send WakeUp
+        break;
+    case ESP_SLEEP_WAKEUP_EXT1:  // Button wake - SEND WakeUp
+        sendWakeUpMessage();
+        break;
+    default:  // Cold boot
+        sendWakeUpMessage();
+        break;
+}
+```
+
+## Common Development Tasks
+
+**Changing LoRa Parameters:**
+- Edit `firmware/platformio.ini`
+- Current: 433.92 MHz, BW250 kHz, SF9, CR4/5, 20dBm TX, 8-symbol preamble
+- For longer range: Change SF9 → SF11 (reduces speed, increases range 50%)
+- Reflash ALL devices (must use same parameters)
+
+**Debugging:**
+- ESP32: `ESP_LOGI(TAG, ...)` → serial monitor
+- Android: `adb logcat -s LoRaApp`
+- Monitor: `~/.platformio/penv/bin/pio device monitor`
+
+## Key Files
+
+**Firmware:**
+- `firmware/src/unified_main.cpp` - Single entry point for all platforms
+- `firmware/include/Protocol.h` - Shared protocol
+- `firmware/include/esp32/PlatformTraits.h` - ESP32 platform traits
+- `firmware/include/nrf52/PlatformTraits.h` - nRF52 platform traits
+- `firmware/platformio.ini` - Build configuration
+
+**Android:**
+- `android/app/src/main/java/com/example/lorabridge/data/protocol/LoRaProtocol.kt`
+- `android/app/src/main/java/com/example/lorabridge/presentation/chat/ChatScreen.kt`
+- `android/app/src/main/java/com/example/lorabridge/data/ble/BleRepository.kt`
+
+**Documentation:**
+- `README.md` - Complete project documentation
+- `protocol.md` - Protocol specification
+- `CHANGELOG.md` - Version history
+
+## Project Conventions
+
+- **Multi-platform firmware:** Single codebase for ESP32 and nRF52 via platform traits
+- **Android:** Kotlin + Jetpack Compose + Clean Architecture
+- **BLE Service UUID:** `0x1234` (TX: `0x5678`, RX: `0x5679`)
+- **PlatformIO targets:** `lilygo-t-display-s3`, `heltec-wifi-lora-v3`, `xiao_nrf52840`
+- **Radio support:** SX1262 (autonomous duty cycle), SX1278 (continuous RX)
+- **Power:** 160 MHz CPU, autonomous duty cycle → weeks of battery life (SX1262)

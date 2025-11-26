@@ -88,33 +88,15 @@ A long-range messaging system enabling text messages (up to 50 characters) and G
 
 ---
 
-## 📦 Protocol v3.0
+## 📦 Protocol
 
-### Message Format
+**For complete protocol specification, see [`../protocol.md`](../protocol.md)**
 
-**TextMessage:**
-```
-[Type:1] [Seq:1] [CharCount:1] [PackedLen:1] [PackedText:N] [HasGPS:1] [Lat:4] [Lon:4]
-```
-- Max size: 52 bytes
-- GPS optional
-
-**AckMessage:**
-```
-[Type:1] [Seq:1]
-```
-- Size: 2 bytes
-
-### 6-Bit Character Encoding
-**Charset (64 chars):**
-```
- ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'"@#$%&*()[]{}=+/<>_
-```
-
-**Efficiency:**
-- 50 chars × 6 bits = 300 bits = 38 bytes
-- UTF-8: 50 chars × 8 bits = 50 bytes
-- **Savings:** 24% bandwidth reduction
+**Quick Reference:**
+- TextMessage (0x01): Max 50 chars, 6-bit encoding, optional GPS
+- AckMessage (0x02): Delivery confirmation
+- Character set: ` ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'"@#$%&*()[]{}=+/<>_`
+- Bandwidth savings: 24% vs UTF-8
 
 ---
 
@@ -283,40 +265,17 @@ lorabridge/
 
 ## 🛠️ Hardware Requirements
 
-### Firmware (ESP32/nRF52)
-- **Firmware:** C++/Arduino/PlatformIO (Unified multi-platform)
-- **Location:** `../firmware/`
-- **Supported Platforms:**
-  - ESP32: LilyGo T-Display S3, Heltec WiFi LoRa V3
-  - nRF52: Seeed XIAO nRF52840
-- **BLE Service UUID:** 0x1234
-- **TX Characteristic:** 0x5678 (notifications)
-- **RX Characteristic:** 0x5679 (writes)
+**For complete hardware setup and firmware documentation, see [`../README.md`](../README.md)**
 
-### LoRa Configuration
-- **Frequency:** 433.92 MHz
-- **Bandwidth:** 250 kHz (fast airtime)
-- **Spreading Factor:** 9 (balanced range/speed)
-- **Coding Rate:** 4/5
-- **TX Power:** 20 dBm (check regional limits)
-- **Range:** 3-10 km typical (SF9), up to 15 km (SF11 option)
-- **Radios:** SX1262 (autonomous duty cycle), SX1278 (continuous RX)
+**BLE Connection:**
+- Service UUID: `0x1234`
+- TX Characteristic: `0x5678` (firmware → Android notifications)
+- RX Characteristic: `0x5679` (Android → firmware writes)
+- MTU: 512 bytes
 
----
-
-## ⚠️ Regulatory Compliance
-
-### TX Power Limits
-- **EU/Switzerland 433 MHz:** 2 dBm max (current: 20 dBm exceeds)
-- **US 433 MHz:** 17 dBm max ✅
-- **Australia 433 MHz:** 14 dBm max ✅
-
-### Duty Cycle (EU: 1%)
-- Max 36 seconds transmission per hour
-- Current message: ~1-2 seconds airtime
-- See: https://www.loratools.nl/#/airtime
-
-**Use proper 433 MHz antenna (~17 cm quarter-wave)**
+**Supported Firmware Platforms:**
+- ESP32: LilyGo T-Display S3, Heltec WiFi LoRa V3
+- nRF52: Seeed XIAO nRF52840
 
 ---
 

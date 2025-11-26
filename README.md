@@ -51,11 +51,13 @@ graph TD
 
 ### Firmware Architecture
 
-**Trait-Based Multi-Platform Design:**
+**Trait-Based Multi-Platform Design (v3.3):**
 - **Single unified main.cpp** with `setup()` and `loop()` for all platforms
 - **Platform traits** provide compile-time polymorphism
 - **Zero runtime overhead** (no virtual functions)
 - **Loop-based architecture** - Non-blocking state machines on both platforms
+- **Deep sleep support** - Wake-up reason detection to prevent message loops
+- **Power optimized** - 160 MHz CPU, multiple weeks battery life (SX1262)
 - **Supported platforms:** ESP32, nRF52
 - **Supported radios:** SX1262 (autonomous duty cycle), SX1278 (continuous RX)
 
@@ -167,8 +169,9 @@ cd firmware
 
 **Configuration:**
 - LoRa settings configured in `firmware/platformio.ini`
-- Default: 433.92 MHz, SF9, BW250 kHz, CR4/5
+- Default: 433.92 MHz, SF9, BW250 kHz, CR4/5, 160 MHz CPU
 - Device name auto-generated from chip ID
+- Deep sleep with wake-up reason detection (prevents WakeUp loops)
 - See `firmware/ARCHITECTURE.md` for platform-specific details
 
 ### Android App Build
@@ -247,7 +250,7 @@ cd android
 
 ### LoRa Module Configuration
 
-**Current Configuration (as of Nov 2025):**
+**Current Configuration (v3.3 - November 2025):**
 - **Frequency**: 433.92 MHz (worldwide ISM band)
 - **Bandwidth**: 250 kHz (fast airtime, good range)
 - **Spreading Factor**: 9 (balanced range/speed)
@@ -334,7 +337,62 @@ The firmware (ESP32/nRF52) buffers up to 10 messages when your phone is disconne
 | Flash/RAM | 8MB / 327KB | 1MB / 256KB |
 | Execution Model | setup() + loop() | setup() + loop() |
 
-See **[protocol.md](protocol.md)** for detailed specifications and **[firmware/ARCHITECTURE.md](firmware/ARCHITECTURE.md)** for architecture details.
+See **[protocol.md](protocol.md)** for detailed protocol specifications.
+
+## Deep Sleep & Power Management (ESP32)
+
+### Wake-Up Sources
+
+ESP32 supports two wake-up sources for deep sleep:
+
+**EXT0 (LoRa DIO0/DIO1 HIGH):**
+- Triggered when LoRa radio receives a packet
+- Used for remote wake-up via LoRa messages
+- **Important:** DO NOT send WakeUp message on EXT0 wake
+
+**EXT1 (Button LOW):**
+- Triggered when user presses button
+- Used for manual wake-up
+- **Action:** Send WakeUp message to announce presence
+
+### Wake-Up Reason Detection
+
+```cpp
+// In setup() after boot/wake
+esp_sleep_wakeup_cause_t reason = esp_sleep_get_wakeup_cause();
+
+switch(reason) {
+    case ESP_SLEEP_WAKEUP_EXT0:  // LoRa wake
+        // Silent wake - prevents WakeUp message loops
+        break;
+    case ESP_SLEEP_WAKEUP_EXT1:  // Button wake
+        sendWakeUpMessage();  // Announce presence
+        break;
+    default:  // Cold boot
+        sendWakeUpMessage();
+        break;
+}
+```
+
+### Preventing WakeUp Loops
+
+**Problem:** If Device A sends WakeUp and Device B responds with WakeUp, they create an infinite loop.
+
+**Solution:** Only send WakeUp on button press or cold boot, NOT on LoRa wake (EXT0).
+
+**RTC Memory:** Use `RTC_DATA_ATTR` for variables that persist across deep sleep:
+```cpp
+RTC_DATA_ATTR int bootCount = 0;  // Survives deep sleep
+```
+
+### Power Optimization
+
+**CPU Frequency:** Set to 160 MHz (instead of 240 MHz) for 30-40% power reduction
+**Sleep Method:** Use `enterDeepSleep()` for semantic clarity
+**Battery Life:**
+- SX1262 autonomous duty cycle: Multiple weeks on 2500 mAh
+- SX1278 continuous RX: Several days on 2500 mAh
+- Active mode (160 MHz): ~30-40% less power than 240 MHz
 
 ## Message Flow & ACK Timing
 
