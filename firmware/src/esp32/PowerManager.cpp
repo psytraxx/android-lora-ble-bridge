@@ -103,7 +103,7 @@ bool PowerManager::configurePowerManagement()
     return true;
 }
 
-void PowerManager::battery_adcEnable()
+void PowerManager::batteryAdcEnable()
 {
 #ifdef BATTERY_ADC_CTRL
     // Enable ADC voltage divider (Heltec boards)
@@ -115,7 +115,7 @@ void PowerManager::battery_adcEnable()
 #endif
 }
 
-void PowerManager::battery_adcDisable()
+void PowerManager::batteryAdcDisable()
 {
 #ifdef BATTERY_ADC_CTRL
     // Disable ADC voltage divider to save power
@@ -186,7 +186,7 @@ uint16_t PowerManager::readBatteryVoltage()
         last_read_time_ms = millis();
 
         // Enable ADC voltage divider
-        battery_adcEnable();
+        batteryAdcEnable();
 
         // Read calibrated ADC value with averaging
         uint32_t raw = espAdcRead();
@@ -208,7 +208,7 @@ uint16_t PowerManager::readBatteryVoltage()
         float scaled = voltage_mv * BATTERY_VOLTAGE_DIVIDER;
 
         // Disable ADC to save power
-        battery_adcDisable();
+        batteryAdcDisable();
 
         if (!initial_read_done)
         {
@@ -348,33 +348,20 @@ void PowerManager::disableExternalPeripherals()
 #endif
 }
 
-void PowerManager::setUnusedGPIOsToInput()
-{
-    // Set unused GPIOs to input mode to minimize leakage current
-    // This is a simplified version - in production, carefully review which pins to isolate
-    LOG_D(TAG, "Setting unused GPIOs to input mode for power savings");
-
-    // Note: Be careful not to set pins that are actively used:
-    // - LoRa SPI pins (LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS)
-    // - LoRa control pins (LORA_RST, LORA_DIO0, LORA_BUSY)
-    // - Battery ADC (BATTERY_ADC_PIN, BATTERY_ADC_CTRL)
-    // - Wake button (WAKE_BUTTON)
-    // - LED (LED_PIN)
-    // - VEXT (VEXT_PIN)
-}
-
 void PowerManager::enterDeepSleep()
 {
     LOG_I(TAG, "Entering deep sleep...");
 
+    // Flush serial output to ensure logs are sent
+    Serial.flush();
+
+    delay(100); // Short delay to allow flush
+
     // Disable external peripherals to save power
     disableExternalPeripherals();
 
-    // Set unused GPIOs to input
-    setUnusedGPIOsToInput();
-
-    // Flush serial output to ensure logs are sent
-    Serial.flush();
+    // Disable Serial to save power
+    Serial.end();
 
     // Enter deep sleep (does not return - device resets on wake)
     esp_deep_sleep_start();

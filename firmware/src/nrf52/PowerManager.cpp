@@ -44,7 +44,7 @@ bool PowerManager::configurePowerManagement()
     return true;
 }
 
-void PowerManager::battery_adcEnable()
+void PowerManager::batteryAdcEnable()
 {
 #ifdef BATTERY_ADC_CTRL
     // Enable battery voltage divider (set VBAT_ENABLE LOW)
@@ -54,7 +54,7 @@ void PowerManager::battery_adcEnable()
 #endif
 }
 
-void PowerManager::battery_adcDisable()
+void PowerManager::batteryAdcDisable()
 {
 #ifdef BATTERY_ADC_CTRL
     // Disable battery voltage divider to save power (set VBAT_ENABLE HIGH)
@@ -104,7 +104,7 @@ uint16_t PowerManager::readBatteryVoltage()
     const uint32_t BATTERY_SENSE_SAMPLES = 10;
 
     // Enable battery ADC (set VBAT_ENABLE LOW on Seeed XIAO)
-    battery_adcEnable();
+    batteryAdcEnable();
 
     // Read battery voltage from ADC with averaging
     // XIAO nRF52840: Battery voltage may be divided by hardware
@@ -116,7 +116,7 @@ uint16_t PowerManager::readBatteryVoltage()
     int adcValue = adcSum / BATTERY_SENSE_SAMPLES;
 
     // Disable battery ADC to save power (set VBAT_ENABLE HIGH)
-    battery_adcDisable();
+    batteryAdcDisable();
 
     // Convert ADC value to voltage in millivolts
     // nRF52840: 12-bit ADC (0-4095) with 0.6V internal reference and 1/6 gain
@@ -155,12 +155,14 @@ uint8_t PowerManager::readBatteryLevel()
     return voltageToPercentage(voltage);
 }
 
-void PowerManager::enterLowPowerMode()
+void PowerManager::enterDeepSleep()
 {
-    LOG_I(TAG, "Entering low-power mode (System OFF)...");
+    LOG_I(TAG, "Entering deep sleep (System OFF)...");
 
     // Flush logs before sleep
     Serial.flush();
+
+    delay(100); // Short delay to allow flush
 
 #ifdef ARDUINO_ARCH_NRF52
     // Configure Wakeup Pins
@@ -193,12 +195,6 @@ void PowerManager::enterLowPowerMode()
         NRF_POWER->SYSTEMOFF = 1;
         __DSB(); // Data Synchronization Barrier
     }
-
-    LOG_E(TAG, "Failed to enter System OFF mode!");
-
-    /*Only for debugging purpose, will not be reached without connected debugger*/
-    while (1)
-        ;
 
 #else
     LOG_W(TAG, "System ON sleep mode only available on nRF52");

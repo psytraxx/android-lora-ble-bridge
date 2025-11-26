@@ -130,15 +130,6 @@ private:
     static void disableExternalPeripherals();
 
     /**
-     * @brief Set all unused GPIO pins to input mode
-     *
-     * Setting unused GPIOs to input mode minimizes leakage current during
-     * deep sleep. This excludes pins actively used by LoRa, battery ADC,
-     * button, and LED.
-     */
-    static void setUnusedGPIOsToInput();
-
-    /**
      * @brief Get battery percentage from voltage using OCV lookup table
      *
      * Uses actual LiPo discharge curve data with interpolation between points
@@ -157,7 +148,7 @@ private:
      * On Heltec boards with ADC_CTRL pin, this enables the voltage divider
      * circuit. Waits for voltage to stabilize before reading.
      */
-    static void battery_adcEnable();
+    static void batteryAdcEnable();
 
     /**
      * @brief Disable ADC after battery voltage reading
@@ -165,7 +156,7 @@ private:
      * On Heltec boards with ADC_CTRL pin, this disables the voltage divider
      * circuit to save power.
      */
-    static void battery_adcDisable();
+    static void batteryAdcDisable();
 
     /**
      * @brief Read calibrated ADC value with multiple samples

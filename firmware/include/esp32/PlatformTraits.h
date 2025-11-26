@@ -42,14 +42,14 @@ struct ESP32PlatformTraits
 
     static void initializePower()
     {
+        // Print wakeup reason if resuming from deep sleep
+        PowerManager::printWakeupReason();
+
         PowerManager::configurePowerManagement();
 
         // Disable unused radios to save power
         PowerManager::disableWiFi();
         PowerManager::disableBluetoothClassic();
-
-        // Print wakeup reason if resuming from deep sleep
-        PowerManager::printWakeupReason();
 
         // Configure wake sources for future deep sleep
         PowerManager::configureWakeupSources(WAKE_BUTTON, LORA_DIO0);
@@ -60,7 +60,7 @@ struct ESP32PlatformTraits
         return PowerManager::readBatteryLevel();
     }
 
-    static void sleep()
+    static void enterDeepSleep()
     {
         PowerManager::enterDeepSleep();
     }

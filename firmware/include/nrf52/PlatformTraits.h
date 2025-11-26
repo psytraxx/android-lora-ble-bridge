@@ -52,9 +52,9 @@ struct NRF52PlatformTraits
         return PowerManager::readBatteryLevel();
     }
 
-    static void sleep()
+    static void enterDeepSleep()
     {
-        PowerManager::enterLowPowerMode();
+        PowerManager::enterDeepSleep();
     }
 };
 #endif // NRF52_PLATFORM_TRAITS_H

@@ -249,13 +249,13 @@ void loop()
         }
         bleManager->stopAdvertising();
 
-        Platform::sleep();
+        Platform::enterDeepSleep();
 
-        // Code reached here ONLY on nRF52 (ESP32 resets on wake)
-        // We must reset activity timer to prevent immediate re-sleep
-        LOG_I(TAG, "Resumed from sleep");
-        appController->notifyActivity();
-        bleManager->startAdvertising(); // Restart advertising on wake
+        LOG_E(TAG, "Failed to enter deep sleep mode!");
+
+        /*Only for debugging purpose, will not be reached without connected debugger*/
+        while (1)
+            ;
     }
 
     delay(20);

@@ -22,17 +22,17 @@ public:
     static uint8_t readBatteryLevel();
 
     /// Enter low-power mode (System OFF)
-    static void enterLowPowerMode();
+    static void enterDeepSleep();
 
     /// Print wakeup reason after boot or from sleep
     static void printWakeupReason();
 
 private:
     /// Enable battery ADC (set VBAT_ENABLE low)
-    static void battery_adcEnable();
+    static void batteryAdcEnable();
 
     /// Disable battery ADC to save power (set VBAT_ENABLE high)
-    static void battery_adcDisable();
+    static void batteryAdcDisable();
 
     /// Get battery percentage from voltage using OCV lookup table
     static uint8_t voltageToPercentage(uint16_t voltagePerCellMv);
