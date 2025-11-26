@@ -210,65 +210,31 @@ void PowerManager::printWakeupReason()
 #ifdef ARDUINO_ARCH_NRF52
     uint32_t resetReason = NRF_POWER->RESETREAS;
 
-    // Check if this is an actual reset or just a wakeup from System ON sleep
-    if (resetReason == 0)
+    // This was an actual reset (power-on, watchdog, etc.)
+    LOG_I(TAG, "nRF52 Reset Reason: 0x%X", resetReason);
+
+    // Map of reset reason flags to human-readable strings
+    struct ResetReasonEntry
     {
-        // No reset occurred - this is a wakeup from System ON sleep mode
-        // Check which GPIO triggered the wakeup by reading the pin states
-        bool dio0_high = digitalRead(LORA_DIO0) == HIGH;
-        bool button_low = digitalRead(WAKE_BUTTON) == LOW;
+        uint32_t mask;
+        const char *msg;
+    };
 
-        LOG_I(TAG, "Woke from System ON sleep mode:");
+    ResetReasonEntry reasons[] = {
+        {POWER_RESETREAS_RESETPIN_Msk, "  - Reset Pin"},
+        {POWER_RESETREAS_DOG_Msk, "  - Watchdog Timeout"},
+        {POWER_RESETREAS_SREQ_Msk, "  - Soft Reset (e.g., from NVIC_SystemReset)"},
+        {POWER_RESETREAS_LOCKUP_Msk, "  - CPU Lockup"},
+        {POWER_RESETREAS_OFF_Msk, "  - System OFF Wakeup (e.g., GPIO, LPCOMP)"},
+        {POWER_RESETREAS_LPCOMP_Msk, "  - LPCOMP Wakeup"},
+    };
 
-        if (dio0_high && button_low)
-        {
-            LOG_I(TAG, "  - Both LoRa DIO0 and Wake button triggered");
-        }
-        else if (dio0_high)
-        {
-            LOG_I(TAG, "  - LoRa DIO0 (GPIO %d) triggered wakeup", LORA_DIO0);
-        }
-        else if (button_low)
-        {
-            LOG_I(TAG, "  - Wake button (GPIO %d) triggered wakeup", WAKE_BUTTON);
-        }
-        else
-        {
-            LOG_I(TAG, "  - Unknown wakeup source (both pins idle)");
-        }
-    }
-    else
+    for (const auto &entry : reasons)
     {
-        // This was an actual reset (power-on, watchdog, etc.)
-        LOG_I(TAG, "nRF52 Reset Reason: 0x%X", resetReason);
-
-        if (resetReason & POWER_RESETREAS_RESETPIN_Msk)
+        if (resetReason & entry.mask)
         {
-            LOG_I(TAG, "  - Reset Pin");
+            LOG_I(TAG, "%s", entry.msg);
         }
-        if (resetReason & POWER_RESETREAS_DOG_Msk)
-        {
-            LOG_I(TAG, "  - Watchdog Timeout");
-        }
-        if (resetReason & POWER_RESETREAS_SREQ_Msk)
-        {
-            LOG_I(TAG, "  - Soft Reset (e.g., from NVIC_SystemReset)");
-        }
-        if (resetReason & POWER_RESETREAS_LOCKUP_Msk)
-        {
-            LOG_I(TAG, "  - CPU Lockup");
-        }
-        if (resetReason & POWER_RESETREAS_OFF_Msk)
-        {
-            LOG_I(TAG, "  - System OFF Wakeup (e.g., GPIO, LPCOMP)");
-        }
-        if (resetReason & POWER_RESETREAS_LPCOMP_Msk)
-        {
-            LOG_I(TAG, "  - LPCOMP Wakeup");
-        }
-
-        // Clear reset reasons after reading
-        NRF_POWER->RESETREAS = 0xFFFFFFFF;
     }
 
 #else

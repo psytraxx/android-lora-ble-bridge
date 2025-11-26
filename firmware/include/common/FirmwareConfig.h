@@ -93,7 +93,7 @@ namespace LoRaConstants
     constexpr int INIT_RETRY_COUNT = 3;
 
     /// Delay between LoRa initialization retries (milliseconds)
-    constexpr int INIT_RETRY_DELAY_MS = 1000;
+    constexpr int INIT_RETRY_DELAY_MS = 200;
 
     /// tcxoVoltage for SX1262/SX1268 radios (1.6V, 1.7V, 1.8V, 2.2V, 2.4V, 2.7V, 3.0V, 3.3V)
     constexpr float TCXO_VOLTAGE = 1.8;
