@@ -42,6 +42,8 @@ struct NRF52PlatformTraits
 
     static void initializePower()
     {
+        PowerManager::printWakeupReason();
+
         PowerManager::configurePowerManagement();
     }
 
