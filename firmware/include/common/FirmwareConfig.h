@@ -184,6 +184,13 @@ namespace PowerConstants
 // Battery Monitoring Configuration
 //==============================================================================
 
+namespace BatteryConstants
+{
+    /// Interval between battery level updates (milliseconds)
+    /// Battery level is read and published via BLE every 60 seconds
+    constexpr unsigned long UPDATE_INTERVAL_MS = 60000UL;
+}
+
 /// Number of cells in battery pack (1 for single-cell Li-ion)
 constexpr int NUM_CELLS = 1;
 

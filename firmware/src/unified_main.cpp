@@ -18,6 +18,15 @@
 #include "common/FirmwareConfig.h"
 #include "common/LEDManager.h"
 
+// Platform-specific FreeRTOS includes
+#if defined(ARDUINO_ARCH_ESP32)
+#include <freertos/FreeRTOS.h>
+#include <freertos/timers.h>
+#elif defined(ARDUINO_ARCH_NRF52)
+#include <FreeRTOS.h>
+#include <timers.h>
+#endif
+
 static const char *TAG = "Main";
 
 // Select platform traits based on build target
@@ -59,9 +68,8 @@ static LoRaManager *loraManager = nullptr;
 static LEDManager *ledManager = new LEDManager(LED_PIN);
 #endif
 
-// Timing
-static unsigned long lastBatteryUpdate = 0;
-static constexpr unsigned long BATTERY_UPDATE_INTERVAL = 60000; // 1 minute
+// Battery monitoring timer
+static TimerHandle_t batteryTimerHandle = nullptr;
 
 // ============================================================================
 // Forward Declarations
@@ -72,6 +80,32 @@ void onBleDisconnected();
 void onLoRaReceived(const LoRaPacket &packet);
 void onLoRaTransmitted(bool success);
 void handleBleMessage(const Message &msg);
+
+// ============================================================================
+// Battery Timer Callback
+// ============================================================================
+
+/**
+ * @brief FreeRTOS timer callback for periodic battery level updates
+ *
+ * This callback runs periodically (every 60 seconds) from the timer task context.
+ * It reads the battery level and updates the BLE battery characteristic.
+ *
+ * @param xTimer Handle of the timer that triggered this callback
+ */
+static void batteryTimerCallback(TimerHandle_t xTimer)
+{
+    (void)xTimer; // Unused parameter
+
+    uint8_t batteryLevel = Platform::readBatteryLevel();
+
+    if (bleManager != nullptr)
+    {
+        bleManager->updateBatteryLevel(batteryLevel);
+    }
+
+    LOG_D(TAG, "Battery: %d%%", batteryLevel);
+}
 
 // ============================================================================
 // Setup
@@ -150,6 +184,31 @@ void setup()
         LOG_I(TAG, "Failed to start LoRa receive mode!");
     }
 
+    // Create and start battery monitoring timer (auto-reload, 60 second period)
+    batteryTimerHandle = xTimerCreate(
+        "BatteryTimer",                                      // Timer name (for debugging)
+        pdMS_TO_TICKS(BatteryConstants::UPDATE_INTERVAL_MS), // Period in ticks (60 seconds)
+        pdTRUE,                                              // Auto-reload timer
+        (void *)0,                                           // Timer ID (not used)
+        batteryTimerCallback                                 // Callback function
+    );
+
+    if (batteryTimerHandle != nullptr)
+    {
+        if (xTimerStart(batteryTimerHandle, 0) == pdPASS)
+        {
+            LOG_I(TAG, "Battery monitoring timer started (interval: %lu ms)", BatteryConstants::UPDATE_INTERVAL_MS);
+        }
+        else
+        {
+            LOG_E(TAG, "Failed to start battery monitoring timer!");
+        }
+    }
+    else
+    {
+        LOG_E(TAG, "Failed to create battery monitoring timer!");
+    }
+
     LOG_I(TAG, "Setup complete!");
 }
 
@@ -220,20 +279,6 @@ void loop()
                 LOG_I(TAG, "Failed to send buffered message (notify failed), will retry");
             }
         }
-    }
-
-    // Battery monitoring (rollover-safe comparison)
-    unsigned long now = millis();
-    unsigned long batteryElapsed = (unsigned long)(now - lastBatteryUpdate);
-    if (batteryElapsed >= BATTERY_UPDATE_INTERVAL)
-    {
-        uint8_t batteryLevel = Platform::readBatteryLevel();
-
-        bleManager->updateBatteryLevel(batteryLevel);
-
-        LOG_D(TAG, "Battery: %d%%", batteryLevel);
-
-        lastBatteryUpdate = now;
     }
 
     // Inactivity timeout - enter deep sleep to save power
