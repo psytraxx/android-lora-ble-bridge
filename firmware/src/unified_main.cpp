@@ -12,7 +12,6 @@
 #include <Arduino.h>
 #include "common/Logging.h"
 #include "common/Protocol.h"
-#include "common/ApplicationController.h"
 #include "common/LoRaManager.h"
 #include "common/MessageQueue.h"
 #include "common/FirmwareConfig.h"
@@ -53,10 +52,6 @@ static typename Platform::StorageManager *storageManager = nullptr;
 // Static storage for manager instances (avoids heap allocation)
 static typename Platform::StorageManager storageManagerInstance;
 
-// Application controller (activity tracking and state management)
-static ApplicationController *appController = nullptr;
-static ApplicationController appControllerInstance;
-
 // Message queues
 static MessageQueue bleToLoraQueue;
 static MessageQueue loraToBleQueue;
@@ -71,6 +66,9 @@ static LEDManager *ledManager = new LEDManager(LED_PIN);
 // Battery monitoring timer
 static TimerHandle_t batteryTimerHandle = nullptr;
 
+// Deep sleep inactivity timer
+static TimerHandle_t deepSleepTimerHandle = nullptr;
+
 // ============================================================================
 // Forward Declarations
 // ============================================================================
@@ -80,6 +78,25 @@ void onBleDisconnected();
 void onLoRaReceived(const LoRaPacket &packet);
 void onLoRaTransmitted(bool success);
 void handleBleMessage(const Message &msg);
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/**
+ * @brief Reset inactivity timer on activity (BLE or LoRa events)
+ *
+ * This function resets the deep sleep timer whenever there's device activity.
+ * Should be called when BLE messages are received/sent or LoRa packets arrive.
+ */
+static inline void resetInactivityTimer()
+{
+    if (deepSleepTimerHandle != nullptr)
+    {
+        // Reset timer from any context (ISR-safe version available if needed)
+        xTimerReset(deepSleepTimerHandle, 0);
+    }
+}
 
 // ============================================================================
 // Battery Timer Callback
@@ -107,6 +124,43 @@ static void batteryTimerCallback(TimerHandle_t xTimer)
     LOG_D(TAG, "Battery: %d%%", batteryLevel);
 }
 
+/**
+ * @brief FreeRTOS timer callback for inactivity timeout (deep sleep trigger)
+ *
+ * This one-shot timer expires after the configured inactivity period.
+ * When triggered, it prepares the device and enters deep sleep mode.
+ * The timer is reset on any BLE or LoRa activity.
+ *
+ * @param xTimer Handle of the timer that triggered this callback
+ */
+static void deepSleepTimerCallback(TimerHandle_t xTimer)
+{
+    (void)xTimer; // Unused parameter
+
+    LOG_I(TAG, "Inactivity timeout - entering deep sleep...");
+
+    // Start LoRa in duty cycle mode before sleep
+    if (loraManager != nullptr)
+    {
+        if (!loraManager->startReceive(true))
+        {
+            LOG_E(TAG, "Failed to start LoRa continuous receive mode!");
+        }
+    }
+
+    // Stop BLE advertising
+    if (bleManager != nullptr)
+    {
+        bleManager->stopAdvertising();
+    }
+
+    // Enter deep sleep (does not return)
+    Platform::enterDeepSleep();
+
+    // Should never reach here
+    LOG_E(TAG, "Failed to enter deep sleep mode!");
+}
+
 // ============================================================================
 // Setup
 // ============================================================================
@@ -127,15 +181,6 @@ void setup()
 #ifdef LED_PIN
     ledManager->setup();
 #endif
-
-    // Initialize application controller (static allocation)
-    appController = &appControllerInstance;
-    if (!appController->begin())
-    {
-        LOG_I(TAG, "Application controller initialization failed!");
-        while (1)
-            ;
-    }
 
     // Initialize storage manager (static allocation)
     storageManager = &storageManagerInstance;
@@ -209,6 +254,31 @@ void setup()
         LOG_E(TAG, "Failed to create battery monitoring timer!");
     }
 
+    // Create and start deep sleep inactivity timer (one-shot, resets on activity)
+    deepSleepTimerHandle = xTimerCreate(
+        "DeepSleepTimer",                                     // Timer name (for debugging)
+        pdMS_TO_TICKS(PowerConstants::INACTIVITY_TIMEOUT_MS), // Period in ticks (60 seconds default)
+        pdFALSE,                                              // One-shot timer (not auto-reload)
+        (void *)0,                                            // Timer ID (not used)
+        deepSleepTimerCallback                                // Callback function
+    );
+
+    if (deepSleepTimerHandle != nullptr)
+    {
+        if (xTimerStart(deepSleepTimerHandle, 0) == pdPASS)
+        {
+            LOG_I(TAG, "Deep sleep inactivity timer started (timeout: %lu ms)", PowerConstants::INACTIVITY_TIMEOUT_MS);
+        }
+        else
+        {
+            LOG_E(TAG, "Failed to start deep sleep timer!");
+        }
+    }
+    else
+    {
+        LOG_E(TAG, "Failed to create deep sleep timer!");
+    }
+
     LOG_I(TAG, "Setup complete!");
 }
 
@@ -247,7 +317,7 @@ void loop()
             {
                 if (bleManager->sendMessage(msg))
                 {
-                    appController->notifyActivity();
+                    resetInactivityTimer();
                 }
                 else
                 {
@@ -263,7 +333,7 @@ void loop()
     }
 
     // Send buffered messages only when client is connected and has enabled notifications
-    if (bleManager->isConnected() && bleManager->areNotificationsEnabled() && appController->isAndroidReady() && !storageManager->isEmpty())
+    if (bleManager->isConnected() && bleManager->areNotificationsEnabled() && !storageManager->isEmpty())
     {
         Message bufferedMsg;
         if (storageManager->peek(bufferedMsg))
@@ -272,35 +342,13 @@ void loop()
             {
                 storageManager->popFront();
                 LOG_I(TAG, "Sent buffered message, %d remaining", storageManager->getCount());
-                appController->notifyActivity();
+                resetInactivityTimer();
             }
             else
             {
                 LOG_I(TAG, "Failed to send buffered message (notify failed), will retry");
             }
         }
-    }
-
-    // Inactivity timeout - enter deep sleep to save power
-    unsigned long inactiveTime = appController->getInactivityDuration();
-
-    if (inactiveTime > PowerConstants::INACTIVITY_TIMEOUT_MS)
-    {
-        LOG_I(TAG, "Inactivity timeout - entering deep sleep...");
-
-        if (!loraManager->startReceive(true))
-        {
-            LOG_I(TAG, "Failed to start LoRa continuous receive mode!");
-        }
-        bleManager->stopAdvertising();
-
-        Platform::enterDeepSleep();
-
-        LOG_E(TAG, "Failed to enter deep sleep mode!");
-
-        /*Only for debugging purpose, will not be reached without connected debugger*/
-        while (1)
-            ;
     }
 
     delay(20);
@@ -313,13 +361,15 @@ void loop()
 void onBleConnected()
 {
     LOG_I(TAG, "BLE connected");
-    appController->onBleConnected();
+    resetInactivityTimer();
+
+    // Wait for Android GATT stack to complete setup (500ms is sufficient)
+    delay(500);
 }
 
 void onBleDisconnected()
 {
     LOG_I(TAG, "BLE disconnected");
-    appController->onBleDisconnected();
 
     // Restart advertising for next connection
     bleManager->startAdvertising();
@@ -372,7 +422,7 @@ void onLoRaReceived(const LoRaPacket &packet)
 
         if (loraToBleQueue.push(msg))
         {
-            appController->notifyActivity();
+            resetInactivityTimer();
         }
         else
         {
@@ -411,7 +461,7 @@ void handleBleMessage(const Message &msg)
     {
         if (loraManager->startTransmit(msgBuffer, (size_t)msgLen))
         {
-            appController->notifyActivity();
+            resetInactivityTimer();
         }
         else
         {

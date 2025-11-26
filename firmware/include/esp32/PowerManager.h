@@ -20,7 +20,7 @@
  *  - Testable: Pure functions that can be tested in isolation
  *
  * Application-level decisions (when to sleep, when to wake, timeout policies)
- * are handled by ApplicationController.
+ * are handled by FreeRTOS timers in unified_main.cpp.
  */
 class PowerManager
 {
