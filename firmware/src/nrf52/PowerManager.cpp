@@ -2,9 +2,6 @@
 #include "common/FirmwareConfig.h"
 #include "common/Logging.h"
 #include <Arduino.h>
-#include <Adafruit_FlashTransport.h>
-#include <Adafruit_SPIFlash.h>
-
 static const char *TAG = "Power";
 
 // nRF52 power management includes
@@ -161,31 +158,13 @@ void PowerManager::enterDeepSleep()
 {
     LOG_I(TAG, "Entering deep sleep (System OFF)...");
 
-    // 1. Power down QSPI Flash
-    // This saves ~10-20uA by putting the external flash chip into deep power down
-    Adafruit_FlashTransport_QSPI flashTransport;
-    Adafruit_SPIFlash flash(&flashTransport);
-    
-    if (flash.begin()) {
-        LOG_I(TAG, "Powering down QSPI flash...");
-        flash.end(); // Effectively puts it in low power mode if supported
-        
-        // Explicitly send Deep Power-Down command (0xB9) if the library didn't
-        // Most generic QSPI flash chips support this
-        flashTransport.begin();
-        flashTransport.runCommand(0xB9); 
-        flashTransport.end();
-    } else {
-        LOG_W(TAG, "Failed to initialize QSPI flash for shutdown");
-    }
-
     // 2. Turn off LEDs (Active LOW)
     // Seeed XIAO nRF52840 has Red/Blue/Green LEDs
     // Green is LED_PIN, but Red/Blue might be on.
     // Drive them HIGH to turn OFF.
     pinMode(LED_RED, OUTPUT);
     digitalWrite(LED_RED, HIGH);
-    
+
     pinMode(LED_BLUE, OUTPUT);
     digitalWrite(LED_BLUE, HIGH);
 
