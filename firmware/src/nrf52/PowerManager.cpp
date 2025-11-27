@@ -2,6 +2,8 @@
 #include "common/FirmwareConfig.h"
 #include "common/Logging.h"
 #include <Arduino.h>
+#include <Adafruit_FlashTransport.h>
+#include <Adafruit_SPIFlash.h>
 
 static const char *TAG = "Power";
 
@@ -159,9 +161,36 @@ void PowerManager::enterDeepSleep()
 {
     LOG_I(TAG, "Entering deep sleep (System OFF)...");
 
-    // Flush logs before sleep
-    Serial.flush();
+    // 1. Power down QSPI Flash
+    // This saves ~10-20uA by putting the external flash chip into deep power down
+    Adafruit_FlashTransport_QSPI flashTransport;
+    Adafruit_SPIFlash flash(&flashTransport);
+    
+    if (flash.begin()) {
+        LOG_I(TAG, "Powering down QSPI flash...");
+        flash.end(); // Effectively puts it in low power mode if supported
+        
+        // Explicitly send Deep Power-Down command (0xB9) if the library didn't
+        // Most generic QSPI flash chips support this
+        flashTransport.begin();
+        flashTransport.runCommand(0xB9); 
+        flashTransport.end();
+    } else {
+        LOG_W(TAG, "Failed to initialize QSPI flash for shutdown");
+    }
 
+    // 2. Turn off LEDs (Active LOW)
+    // Seeed XIAO nRF52840 has Red/Blue/Green LEDs
+    // Green is LED_PIN, but Red/Blue might be on.
+    // Drive them HIGH to turn OFF.
+    pinMode(LED_RED, OUTPUT);
+    digitalWrite(LED_RED, HIGH);
+    
+    pinMode(LED_BLUE, OUTPUT);
+    digitalWrite(LED_BLUE, HIGH);
+
+    // 3. Flush logs before sleep
+    Serial.flush();
     delay(100); // Short delay to allow flush
 
 #ifdef ARDUINO_ARCH_NRF52
@@ -183,6 +212,8 @@ void PowerManager::enterDeepSleep()
     Serial.end();
 
     // Enter System OFF mode
+    // This shuts down the CPU and most peripherals.
+    // GPIOs are latched or go High-Z depending on configuration.
     uint8_t sd_en;
     (void)sd_softdevice_is_enabled(&sd_en);
 
