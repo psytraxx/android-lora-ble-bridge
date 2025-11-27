@@ -2,7 +2,6 @@
 #include "common/FirmwareConfig.h"
 #include "common/Logging.h"
 #include <Arduino.h>
-
 static const char *TAG = "Power";
 
 // nRF52 power management includes
@@ -159,9 +158,18 @@ void PowerManager::enterDeepSleep()
 {
     LOG_I(TAG, "Entering deep sleep (System OFF)...");
 
-    // Flush logs before sleep
-    Serial.flush();
+    // 2. Turn off LEDs (Active LOW)
+    // Seeed XIAO nRF52840 has Red/Blue/Green LEDs
+    // Green is LED_PIN, but Red/Blue might be on.
+    // Drive them HIGH to turn OFF.
+    pinMode(LED_RED, OUTPUT);
+    digitalWrite(LED_RED, HIGH);
 
+    pinMode(LED_BLUE, OUTPUT);
+    digitalWrite(LED_BLUE, HIGH);
+
+    // 3. Flush logs before sleep
+    Serial.flush();
     delay(100); // Short delay to allow flush
 
 #ifdef ARDUINO_ARCH_NRF52
@@ -183,6 +191,8 @@ void PowerManager::enterDeepSleep()
     Serial.end();
 
     // Enter System OFF mode
+    // This shuts down the CPU and most peripherals.
+    // GPIOs are latched or go High-Z depending on configuration.
     uint8_t sd_en;
     (void)sd_softdevice_is_enabled(&sd_en);
 

@@ -2,6 +2,7 @@
 #include "common/FirmwareConfig.h"
 #include "common/Logging.h"
 #include <Arduino.h>
+#include <Wire.h>
 #include <esp_sleep.h>
 #include <esp_wifi.h>
 #include <esp_bt.h>
@@ -107,10 +108,9 @@ void PowerManager::batteryAdcEnable()
 {
 #ifdef BATTERY_ADC_CTRL
     // Enable ADC voltage divider (Heltec boards)
-    pinMode(BATTERY_ADC_CTRL, INPUT);
-    uint8_t adc_ctl_enable_value = !(digitalRead(BATTERY_ADC_CTRL));
+    // Active LOW: Drive LOW to enable
     pinMode(BATTERY_ADC_CTRL, OUTPUT);
-    digitalWrite(BATTERY_ADC_CTRL, adc_ctl_enable_value);
+    digitalWrite(BATTERY_ADC_CTRL, LOW);
     delay(10); // Wait for voltage to stabilize
 #endif
 }
@@ -119,7 +119,8 @@ void PowerManager::batteryAdcDisable()
 {
 #ifdef BATTERY_ADC_CTRL
     // Disable ADC voltage divider to save power
-    pinMode(BATTERY_ADC_CTRL, ANALOG);
+    // Set to INPUT (High-Z) to disconnect, matching Heltec reference
+    pinMode(BATTERY_ADC_CTRL, INPUT);
 #endif
 }
 
@@ -318,6 +319,10 @@ void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
 {
     LOG_I(TAG, "Configuring deep sleep wake sources...");
 
+    // Release holds on pins that might have been held during sleep
+    gpio_hold_dis((gpio_num_t)LORA_SS);
+    gpio_hold_dis((gpio_num_t)loraDio0);
+
     // Configure LoRa DIO0 as EXT0 wake source (wake on HIGH level)
     // When LoRa receives a packet, DIO0 goes HIGH and wakes the device
     esp_sleep_enable_ext0_wakeup((gpio_num_t)loraDio0, HIGH);
@@ -342,9 +347,10 @@ void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
 void PowerManager::disableExternalPeripherals()
 {
 #ifdef VEXT_PIN
-    // Set VEXT to input mode to cut power to external peripherals
+    // Set VEXT to INPUT (High-Z) to disconnect power to external peripherals
+    // This matches the heltec_unofficial library implementation for lowest power
     pinMode(VEXT_PIN, INPUT);
-    LOG_I(TAG, "External peripherals disabled (VEXT)");
+    LOG_I(TAG, "External peripherals disabled (VEXT INPUT)");
 #endif
 }
 
@@ -359,6 +365,24 @@ void PowerManager::enterDeepSleep()
 
     // Disable external peripherals to save power
     disableExternalPeripherals();
+
+    // Shutdown I2C to prevent leakage
+    // Heltec V3 I2C Pins: SDA=17, SCL=18 (Default) or custom
+    // We'll just call Wire.end() which releases pins
+    Wire.end();
+    pinMode(SDA, INPUT);
+    pinMode(SCL, INPUT);
+    LOG_I(TAG, "I2C bus disabled");
+
+    // Secure LoRa Chip Select (HIGH) to prevent radio from waking up SPI
+    pinMode(LORA_SS, OUTPUT);
+    digitalWrite(LORA_SS, HIGH);
+    gpio_hold_en((gpio_num_t)LORA_SS);
+    LOG_I(TAG, "LoRa SS locked HIGH");
+
+    // Secure LoRa DIO0 (Pull-down) to prevent floating interrupts
+    pinMode(LORA_DIO0, INPUT_PULLDOWN);
+    gpio_hold_en((gpio_num_t)LORA_DIO0);
 
     // Disable Serial to save power
     Serial.end();
