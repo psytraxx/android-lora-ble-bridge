@@ -413,6 +413,7 @@ void onLoRaReceived(const LoRaPacket &packet)
                 delay(ackDelay);
 
                 // Send ACK (will be queued after current RX processing completes)
+                // Use standard preamble (false) because sender is already awake awaiting ACK
                 if (loraManager->startTransmit(ackBuffer, (size_t)ackLen, false))
                 {
                     LOG_I(TAG, "ACK transmission started for seq %d", msg.textData.seq);
@@ -467,7 +468,8 @@ void handleBleMessage(const Message &msg)
 
     if (msgLen > 0)
     {
-        if (loraManager->startTransmit(msgBuffer, (size_t)msgLen))
+        // Use long preamble (true) for standard messages to wake sleeping receivers
+        if (loraManager->startTransmit(msgBuffer, (size_t)msgLen, true))
         {
             resetInactivityTimer();
         }

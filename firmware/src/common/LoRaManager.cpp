@@ -176,7 +176,7 @@ bool LoRaManager::startReceive(bool dutyCycle)
     return true;
 }
 
-bool LoRaManager::startTransmit(const uint8_t *data, size_t len, bool sendWakeUp)
+bool LoRaManager::startTransmit(const uint8_t *data, size_t len, bool useLongPreamble)
 {
     if (state == STATE_UNINITIALIZED)
     {
@@ -190,51 +190,20 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len, bool sendWakeUp
         return false;
     }
 
-    if (sendWakeUp)
+    // Configure preamble length for this transmission
+    if (useLongPreamble)
     {
-        // Send blocking WakeUp message (blocking) to wake duty-cycled receivers
-        LOG_I(TAG, "Sending WakeUp message...");
-        Message wakeUpMsg = Message::createWakeUp();
-        uint8_t wakeUpBuf[64];
-        int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
-
-        if (wakeUpLen > 0)
-        {
-            // Clear RX interrupt temporarily
-            radio->clearPacketReceivedAction();
-
-            // Send WakeUp synchronously (blocking)
-            int wakeUpState = radio->transmit(wakeUpBuf, wakeUpLen);
-
-            if (wakeUpState != RADIOLIB_ERR_NONE)
-            {
-                LOG_W(TAG, "WakeUp transmission failed, code %d - continuing anyway", wakeUpState);
-            }
-            else
-            {
-                LOG_I(TAG, "WakeUp sent successfully, %d bytes, seq: %d", wakeUpLen, (int)wakeUpMsg.textData.seq);
-            }
-
-            // Wait for receiver to wake up and switch to continuous RX
-            // This delay accounts for: WakeUp ToA + Deep Sleep Wake Time + RX Settle + Margin
-            int wakeupDelay = LoRaManager::calculateToA_ms(
-                                  LoRaConstants::SPREADING_FACTOR,
-                                  LoRaConstants::BANDWIDTH,
-                                  LoRaConstants::CODING_RATE,
-                                  LoRaConstants::PREAMBLE_LENGTH,
-                                  1 // WakeUp message is only 1 byte
-                                  ) +
-                              LoRaConstants::DEEP_SLEEP_WAKE_TIME_MS;
-            delay(wakeupDelay);
-        }
-        else
-        {
-            LOG_W(TAG, "Failed to serialize WakeUp message");
-        }
+        // Set long preamble to wake up sleeping receivers
+        // No explicit WakeUp message needed - the preamble itself acts as wake-up signal
+        // Receiver will wake up on preamble detection and stay awake to receive payload
+        LOG_I(TAG, "Using long preamble (%d symbols) for deep sleep wake-up", LoRaConstants::LONG_PREAMBLE_LENGTH);
+        radio->setPreambleLength(LoRaConstants::LONG_PREAMBLE_LENGTH);
     }
     else
     {
-        LOG_I(TAG, "Skipping WakeUp message before transmission");
+        // Use standard preamble for normal transmission (e.g. ACKs)
+        LOG_D(TAG, "Using standard preamble (%d symbols)", LoRaConstants::PREAMBLE_LENGTH);
+        radio->setPreambleLength(LoRaConstants::PREAMBLE_LENGTH);
     }
 
     // Send actual message (non-blocking)
@@ -251,6 +220,10 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len, bool sendWakeUp
     if (txState != RADIOLIB_ERR_NONE)
     {
         LOG_E(TAG, "Failed to start transmission, code %d", txState);
+
+        // Restore standard preamble length before returning to RX
+        radio->setPreambleLength(LoRaConstants::PREAMBLE_LENGTH);
+
         startReceive();
         state = STATE_IDLE;
         return false;
@@ -329,6 +302,10 @@ void LoRaManager::process()
         {
             transmitCallback(true);
         }
+
+        // Restore standard preamble length for RX mode
+        // This is critical because we might have changed it for TX
+        radio->setPreambleLength(LoRaConstants::PREAMBLE_LENGTH);
 
         // Allow radio hardware to settle before switching to RX mode
         // This prevents timing issues with rapid TX->RX transitions

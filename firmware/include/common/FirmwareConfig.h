@@ -59,35 +59,18 @@ namespace LoRaConstants
     /// Safety margin added to Time-on-Air calculations to ensure reliability
     constexpr int TIMING_MARGIN_MS = 500;
 
-    /// Estimated deep sleep wake time in milliseconds
-    constexpr int DEEP_SLEEP_WAKE_TIME_MS = 600;
-
-    /// Preamble length for all LoRa transmissions
-    /// Set to 32 symbols for reliable duty-cycle detection and reception
+    /// Preamble length for standard messages and ACKs (receivers already awake)
+    /// Kept short to minimize air time for non-wakeup packets
     constexpr int PREAMBLE_LENGTH = 32;
 
-    /// Returns ACK delay with random jitter to prevent collisions
-    /// Jitter prevents multiple receivers from transmitting ACK simultaneously
-    /// Uses actual received packet size for efficient timing
-    /// @param sf Spreading factor from radio
-    /// @param bw Bandwidth in kHz from radio
-    /// @param cr Coding rate from radio
-    /// @param preamble Preamble length from radio
-    /// @param actualPayload Actual payload size in bytes (use received packet length)
-    /// @return ACK delay with jitter in milliseconds
-    inline int getAckDelay(uint8_t sf, float bw, uint8_t cr, int preamble, int actualPayload)
-    {
-        int baseDelay = LoRaManager::calculateToA_ms(
-                            sf,
-                            bw,
-                            cr,
-                            preamble,
-                            actualPayload) +
-                        RX_SETTLE_TIME_MS +
-                        TIMING_MARGIN_MS;
-        int jitter = random(0, TIMING_MARGIN_MS);
-        return baseDelay + jitter;
-    }
+    /// Preamble length for standard messages to wake deeply sleeping receivers
+    /// ~2.5 seconds at SF9/BW250 (2.05ms/sym) to cover deep sleep wake time (~2s)
+    constexpr int LONG_PREAMBLE_LENGTH = 1250;
+
+    /// Delay before sending an ACK to ensure the original sender has switched to RX mode.
+    /// We only need to wait for the radio to switch modes + small processing margin.
+    /// Previous formula included ToA which was unnecessary as the air is clear after RX.
+    const int ACK_DELAY_MS = RX_SETTLE_TIME_MS + 50; // 50ms + 50ms safety = 100ms
 
     /// Number of retry attempts for LoRa initialization
     constexpr int INIT_RETRY_COUNT = 3;
