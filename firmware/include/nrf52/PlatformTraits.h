@@ -56,5 +56,10 @@ struct NRF52PlatformTraits
     {
         PowerManager::enterDeepSleep();
     }
+
+    static bool isLoRaWakeup()
+    {
+        return PowerManager::isLoRaWakeup();
+    }
 };
 #endif // NRF52_PLATFORM_TRAITS_H

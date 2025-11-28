@@ -64,6 +64,11 @@ struct ESP32PlatformTraits
     {
         PowerManager::enterDeepSleep();
     }
+
+    static bool isLoRaWakeup()
+    {
+        return PowerManager::isLoRaWakeup();
+    }
 };
 
 #endif // ESP32_PLATFORM_TRAITS_H

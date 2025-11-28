@@ -86,6 +86,18 @@ public:
     bool begin();
 
     /**
+     * @brief Initialize LoRa radio from deep sleep (warm start)
+     * 
+     * Attempts to recover the packet that caused the wake-up WITHOUT resetting
+     * the radio hardware. If a packet is found, it is processed.
+     * After recovery (success or fail), standard begin() is called to 
+     * restore full functionality.
+     * 
+     * @return true if a packet was successfully recovered
+     */
+    bool beginFromDeepSleep();
+
+    /**
      * @brief Start continuous receive mode or duty-cycled receive mode
      *
      * Uses hardware-based duty cycle mode

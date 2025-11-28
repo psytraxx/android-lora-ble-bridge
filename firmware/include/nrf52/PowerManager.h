@@ -27,6 +27,9 @@ public:
     /// Print wakeup reason after boot or from sleep
     static void printWakeupReason();
 
+    /// Check if the device woke up due to LoRa activity
+    static bool isLoRaWakeup();
+
 private:
     /// Enable battery ADC (set VBAT_ENABLE low)
     static void batteryAdcEnable();

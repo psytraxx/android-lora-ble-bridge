@@ -284,3 +284,18 @@ void PowerManager::printWakeupReason()
     LOG_W(TAG, "Wakeup reason reporting only available on nRF52");
 #endif
 }
+
+bool PowerManager::isLoRaWakeup()
+{
+#ifdef ARDUINO_ARCH_NRF52
+    // Check if we woke from System OFF
+    if (NRF_POWER->RESETREAS & POWER_RESETREAS_OFF_Msk)
+    {
+        // Check if LoRa DIO0 is High (it triggered the wake)
+        // Note: Pin mode is default (INPUT) on reset, which is what we want
+        // to detect the external high signal.
+        return digitalRead(LORA_DIO0) == HIGH;
+    }
+#endif
+    return false;
+}

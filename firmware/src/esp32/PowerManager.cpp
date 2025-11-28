@@ -429,3 +429,8 @@ void PowerManager::printWakeupReason()
         break;
     }
 }
+
+bool PowerManager::isLoRaWakeup()
+{
+    return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0;
+}

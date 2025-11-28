@@ -213,11 +213,23 @@ void setup()
         LORA_DIO0,
         LORA_BUSY);
 
-    if (!loraManager->begin())
+    // Check if we woke up from LoRa and attempt warm start
+    // This prevents resetting the radio and losing the packet that woke us up
+    bool warmStart = false;
+    if (Platform::isLoRaWakeup())
     {
-        LOG_I(TAG, "LoRa initialization failed!");
-        while (1)
-            ;
+        LOG_I(TAG, "LoRa wakeup detected - attempting warm start");
+        warmStart = loraManager->beginFromDeepSleep();
+    }
+
+    if (!warmStart)
+    {
+        if (!loraManager->begin())
+        {
+            LOG_I(TAG, "LoRa initialization failed!");
+            while (1)
+                ;
+        }
     }
 
     loraManager->setReceiveCallback(onLoRaReceived);

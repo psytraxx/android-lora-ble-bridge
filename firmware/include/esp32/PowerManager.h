@@ -81,6 +81,13 @@ public:
     static void printWakeupReason();
 
     /**
+     * @brief Check if the device woke up due to LoRa activity (EXT0)
+     * 
+     * @return true if LoRa DIO0 triggered the wakeup
+     */
+    static bool isLoRaWakeup();
+
+    /**
      * @brief Read battery voltage from ADC
      *
      * Reads the battery voltage via ADC and applies the voltage divider ratio.
