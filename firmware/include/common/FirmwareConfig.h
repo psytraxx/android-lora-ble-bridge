@@ -131,7 +131,7 @@ namespace BLEConstants
 #if defined(ARDUINO_ARCH_ESP32)
     /// BLE TX power level for balance of range (~10m) vs power consumption
     /// ESP32 options: P9 (+9dBm max), P6 (+6dBm), P3 (+3dBm balanced), P0 (0dBm), N3 (-3dBm min)
-    constexpr int TX_POWER_LEVEL = 3; // ESP_PWR_LVL_P3
+    constexpr int TX_POWER_LEVEL = 6; // ESP_PWR_LVL_P6
 #elif defined(ARDUINO_ARCH_NRF52)
     /// BLE TX power level (nRF52: -40, -20, -16, -12, -8, -4, 0, +3, +4 dBm)
     constexpr int TX_POWER_DBM = 0; // 0 dBm for balanced range/power

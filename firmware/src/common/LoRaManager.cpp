@@ -89,12 +89,8 @@ bool LoRaManager::begin()
                 LOG_I(TAG, "TCXO configured at %.1fV via DIO3", LoRaConstants::TCXO_VOLTAGE);
             }
 
-#if defined(LORA_RXEN) && defined(LORA_TXEN)
-            // The SX1280 version needs to set RX, TX antenna switching pins
-            radio->setRfSwitchPins(LORA_RXEN, LORA_TXEN);
-            LOG_I(TAG, "RF switch pins configured");
-
-#endif
+            radio->setDio2AsRfSwitch(true);
+            LOG_I(TAG, "DIO2 configured as RF switch");
 
 #if defined(LORA_MAX_CURRENT)
             // Set current limit for PA (important for SX126x family)
