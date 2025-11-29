@@ -48,7 +48,7 @@ npm run dev
 - Multi-platform firmware (ESP32/nRF52) via traits
 - Android: Kotlin + Compose + Clean Architecture
 - BLE: Service 0x1234, TX 0x5678, RX 0x5679
-- LoRa: 433.92 MHz, SF9, BW250 kHz, 20dBm
+- LoRa: 433.92 MHz, SF11, BW125 kHz, CR4/8, 20dBm
 
 **Development:**
 - Add message type: Update Protocol.h → Protocol.cpp → LoRaProtocol.kt → tests

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This is a long-range messaging system bridging BLE (Android ↔ ESP32/nRF52) with LoRa radio for 3-10 km communication. The system uses custom 6-bit character encoding to minimize LoRa airtime and supports multiple hardware platforms through a unified trait-based architecture.
+This is a long-range messaging system bridging BLE (Android ↔ ESP32/nRF52) with LoRa radio for 10-35 km communication. The system uses custom 6-bit character encoding to minimize LoRa airtime and supports multiple hardware platforms through a unified trait-based architecture. Optimized for dense urban environments with SF11+BW125+CR4/8 configuration.
 
 **For complete documentation, see [README.md](README.md)**
 
@@ -73,9 +73,10 @@ switch(reason) {
 ## Common Development Tasks
 
 **Changing LoRa Parameters:**
-- Edit `firmware/platformio.ini`
-- Current: 433.92 MHz, BW250 kHz, SF9, CR4/5, 20dBm TX, 8-symbol preamble
-- For longer range: Change SF9 → SF11 (reduces speed, increases range 50%)
+- Edit `firmware/include/common/FirmwareConfig.h`
+- Current (v3.4): 433.92 MHz, BW125 kHz, SF11, CR4/8, 20dBm TX, 32-symbol preamble
+- Optimized for: Maximum range in dense urban environments (~3.5x better than SF9+BW250)
+- Timing constants (ACK_DELAY_MS, WAKEUP_TO_MESSAGE_DELAY_MS) auto-calculated from parameters
 - Reflash ALL devices (must use same parameters)
 
 **Debugging:**

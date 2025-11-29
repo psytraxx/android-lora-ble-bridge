@@ -1,5 +1,13 @@
 ## Changelog
 
+### Firmware v3.4 (November 29, 2025)
+- LoRa configuration optimized for dense urban environments
+- Updated to SF11 + BW125 kHz + CR4/8 for maximum range (~3.5x improvement)
+- Preamble reduced from 512 to 32 symbols
+- Auto-calculated timing constants (ACK_DELAY_MS, WAKEUP_TO_MESSAGE_DELAY_MS)
+- Documentation updated across README.md, protocol.md, GEMINI.md
+- Range improvement: 3-10 km → 10-35 km typical
+
 ### Firmware v3.3 (November 24-26, 2025)
 - Sleep method renamed: `goToSleep()` → `enterDeepSleep()`
 - Wake-up reason detection (EXT0 vs EXT1) to prevent WakeUp loops
