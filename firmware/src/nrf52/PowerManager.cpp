@@ -37,6 +37,13 @@ bool PowerManager::configurePowerManagement()
     {
         LOG_I(TAG, "DC/DC regulator already enabled");
     }
+
+    // Configure fast charging (100mA) on BQ25101 chip
+    // PIN_CHARGING_CURRENT is defined in variant.h as pin 22 (P0.13 = HICHG signal)
+    // LOW = 100mA (fast charge), HIGH = 0mA (disabled), not set = 50mA (default)
+    pinMode(PIN_CHARGING_CURRENT, OUTPUT);
+    digitalWrite(PIN_CHARGING_CURRENT, LOW);
+    LOG_I(TAG, "Battery fast charging enabled (100mA)");
 #endif
 
     LOG_I(TAG, "PowerManager initialized");
