@@ -59,6 +59,9 @@ namespace LoRaConstants
     /// Safety margin added to Time-on-Air calculations to ensure reliability
     constexpr int TIMING_MARGIN_MS = 500;
 
+    /// Estimated deep sleep wake time in milliseconds
+    constexpr int DEEP_SLEEP_WAKE_TIME_MS = 600;
+
     /// Preamble length for WakeUp messages to wake duty-cycled receivers
     /// Increased to 32 to enable effective duty cycling (Sleep Period > 0)
     constexpr int PREAMBLE_LENGTH = 32;
@@ -73,13 +76,12 @@ namespace LoRaConstants
             LoRaConstants::CODING_RATE,
             LoRaConstants::PREAMBLE_LENGTH,
             1)) +
-        600 + // Estimated deep sleep wake time
+        DEEP_SLEEP_WAKE_TIME_MS + // Estimated deep sleep wake time
         RX_SETTLE_TIME_MS +
         TIMING_MARGIN_MS;
 
-    /// Delay before sending an ACK to ensure the original sender has switched to RX mode.
-    /// Calculated as: ToA(Max_Message) + TX->RX Switch Time + Margin
-    const int ACK_DELAY_MS =
+    /// Base delay calculation for ACK transmission
+    const int ACK_BASE_DELAY_MS =
         static_cast<int>(LoRaManager::calculateToA_ms(
             LoRaConstants::SPREADING_FACTOR,
             LoRaConstants::BANDWIDTH * 1000,
@@ -88,6 +90,13 @@ namespace LoRaConstants
             64)) + // Max expected payload
         RX_SETTLE_TIME_MS +
         TIMING_MARGIN_MS;
+
+    /// Returns ACK delay with random jitter to prevent collisions
+    inline int getAckDelay()
+    {
+        int jitter = random(0, TIMING_MARGIN_MS);
+        return ACK_BASE_DELAY_MS + jitter;
+    }
 
     /// Number of retry attempts for LoRa initialization
     constexpr int INIT_RETRY_COUNT = 3;
