@@ -10,7 +10,7 @@ A long-range communication system for sending text messages (up to 50 characters
 - 📡 **Long Range**: 10-25 km typical range (SF11 + BW250 balanced for speed and range)
 - 🔋 **Power Optimized**: Autonomous duty cycle on SX1262 (~52 days on 2500 mAh battery)
 - 📦 **Message Buffering**: Buffers up to 10 messages when phone is disconnected
-- ✅ **Reliable**: 16-symbol preamble with CR4/5 error correction
+- ✅ **Reliable**: 32-symbol preamble with CR4/5 error correction
 - 🌍 **GPS Precision**: ±1 meter accuracy (GPS sent only when available)
 - ⚡ **Balanced Performance**: SF11 + BW250 provides good range with faster data rates
 - 📉 **Bandwidth Efficient**: 6-bit character packing (40% smaller than UTF-8)
@@ -169,7 +169,7 @@ cd firmware
 
 **Configuration:**
 - LoRa settings configured in `firmware/include/common/FirmwareConfig.h`
-- Default: 433.92 MHz, SF11, BW250 kHz, CR4/5, 20 dBm TX, 160 MHz CPU
+- Default: 433.92 MHz, SF11, BW250 kHz, CR4/5, 20 dBm TX, 32-symbol preamble, 160 MHz CPU
 - Device name auto-generated from chip ID
 - Deep sleep with wake-up reason detection (prevents WakeUp loops)
 - See `firmware/ARCHITECTURE.md` for platform-specific details
@@ -256,7 +256,7 @@ cd android
 - **Spreading Factor**: 11 (excellent range and reliability)
 - **Coding Rate**: 4/5 (CR5, lightweight error correction)
 - **TX Power**: 20 dBm (100 mW)
-- **Preamble**: 16 symbols (balance between reliability and airtime)
+- **Preamble**: 32 symbols (reliable duty-cycle detection)
 - **Range**: ~10-25 km typical
 
 **Regional Power Limits:**
@@ -321,10 +321,10 @@ The firmware (ESP32/nRF52) buffers up to 10 messages when your phone is disconne
 - **Max text**: 50 characters (38 bytes with 6-bit packing)
 - **GPS data**: 8 bytes when included (fixed size)
 - **Range**: 10-25 km typical (SF11 balanced configuration)
-- **Airtime**: ~0.7-1.3 seconds per message (BW250 kHz, SF11, CR4/5)
+- **Airtime**: ~1.3-1.8 seconds per message (BW250 kHz, SF11, CR4/5, 32-symbol preamble)
 - **Battery Life (SX1262)**: Multiple weeks on 2500 mAh with autonomous duty cycle (~1.5-2mA avg)
 - **Battery Life (SX1278)**: Several days on 2500 mAh with continuous RX (~12-15mA avg)
-- **LoRa Config**: 433.92 MHz, BW250 kHz, SF11, CR4/5, 20 dBm TX
+- **LoRa Config**: 433.92 MHz, BW250 kHz, SF11, CR4/5, 20 dBm TX, 32-symbol preamble
 - **Duty Cycle**: EU requires 1% (36s/hour) - calculate at [LoRa Calculator](https://www.loratools.nl/#/airtime)
 
 **Platform Comparison:**
@@ -414,17 +414,17 @@ sequenceDiagram
     Note right of AS: ~10-50ms
 
     ES->>ER: 2. Forward to LoRa
-    Note right of ES: Airtime varies (SF11+BW125kHz)
-    
+    Note right of ES: Airtime varies (SF11+BW250kHz)
+
     ER->>AR: 3. Forward via BLE
     Note right of ER: ~10-50ms
-    
+
 
   Note over ER: 4. Wait (ACK_DELAY) before ACK → ensures sender switched to RX
-  ER-->>ER: delay(ACK_DELAY = ~3.6s auto-calculated)
+  ER-->>ER: delay(ACK_DELAY = ~2.1-2.6s, packet size + jitter)
 
   ER->>ES: 5. Send ACK (LoRa)
-  Note left of ER: ACK airtime (SF11+BW125kHz)<br/>+ 50ms mode switch
+  Note left of ER: ACK airtime (SF11+BW250kHz)<br/>+ 50ms mode switch
 
   ES->>AS: 6. Receive ACK (BLE)
   Note left of ES: ~10-50ms + notify
@@ -446,61 +446,64 @@ gantt
     BLE Transfer          :a1, 0, 50
 
     section LoRa TX
-    Text+GPS Transmission :a2, 50, 3134
+    Text+GPS Transmission :a2, 50, 1850
 
     section Receiver
-    Process & Forward     :a3, 3134, 3234
-  ACK Delay (ACK_DELAY ~3.6s)     :a4, 3234, 6868
+    Process & Forward     :a3, 1850, 1950
+  ACK Delay (~2.1-2.6s) :a4, 1950, 4450
 
   %% WakeUp announcements are intentionally omitted from this timeline; they are only sent on Button or Cold Boot (EXT1/cold), NOT when woken by LoRa (EXT0)
 
     section LoRa RX
-    ACK Transmission      :a5, 6868, 7789
-    Mode Switch Settle    :a6, 7789, 7839
+    ACK Transmission      :a5, 4450, 5136
+    Mode Switch Settle    :a6, 5136, 5186
 
     section ESP32→Android
-    BLE Notify            :a7, 7839, 7889
+    BLE Notify            :a7, 5186, 5236
 
     section Result
-    Show Checkmark        :crit, a8, 7889, 7939
+    Show Checkmark        :crit, a8, 5236, 5286
 ```
 
 ### Critical Timing Parameters
 
-**1. ACK Delay on Receiver (~3.6s, auto-calculated)**
+**1. ACK Delay on Receiver (auto-calculated with collision avoidance)**
 ```cpp
 // firmware/include/common/FirmwareConfig.h
-// ACK_DELAY_MS = calculateToA_ms(max_payload=64) + RX_SETTLE + MARGIN
-// = ~3084ms + 50ms + 500ms = ~3634ms
+// ACK_DELAY = calculateToA_ms(actual_packet_len) + RX_SETTLE + MARGIN + jitter
+// Example for 50-byte packet: ~1537ms + 50ms + 500ms + random(0-500ms)
+// Range: 2087ms to 2587ms
 ```
 - **Purpose**: Ensures ESP32 sender has switched from TX to RX mode
-- **Why ~3.6s**:
-  - Maximum message Time-on-Air (64 bytes at SF11+BW125): ~3.1s
+- **Collision Avoidance**: Random jitter (0-500ms) prevents multiple receivers from transmitting ACK simultaneously
+- **Calculation**:
+  - Actual message Time-on-Air (varies by packet size at SF11+BW250+32-preamble)
   - Radio mode switch (TX → RX) takes ~10-50ms
   - RX settle time: 50ms
   - Timing margin: 500ms
-  - **Total**: Automatically calculated based on LoRa parameters
+  - Random jitter: 0-500ms (prevents simultaneous ACKs from multiple receivers)
+  - **Total**: ~2.1s to ~2.6s (varies per receiver to avoid collisions)
 
 **2. RX Mode Settle Time (50ms)**
 ```cpp
-// firmware/src/main.cpp
-loraManager.startReceiveMode();
-delay(50);  // Ensure radio is fully in RX mode
+// firmware/src/common/LoRaManager.cpp
+delay(LoRaConstants::RX_SETTLE_TIME_MS);  // 50ms
+loraManager.startReceive(true);
 ```
 - **Purpose**: Radio hardware needs time to stabilize in receive mode
-- **Why 50ms**: SX1278 mode transitions require 10-30ms, 50ms ensures stability
+- **Why 50ms**: SX127x/SX126x mode transitions require 10-30ms, 50ms ensures stability
 
 ### Timing Breakdown by Phase
 
 | Phase | Time | Description |
 |-------|------|-------------|
 | **BLE Transfer** | 10-50ms | Android ↔ ESP32 via Bluetooth LE |
-| **LoRa Airtime** | ~1.5-3s | Text+GPS packet at SF11, BW125kHz (typical message) |
+| **LoRa Airtime** | ~1.3-1.8s | Text+GPS packet at SF11, BW250kHz, 32-preamble (typical message) |
 | **Preamble** | Included | 32-symbol preamble for duty-cycled receivers |
 | **Mode Switch (TX→RX)** | 10-50ms | Radio mode transition |
 | **RX Settle** | 50ms | Additional settle time in code |
-| **ACK Wait** | ~3.6s | Auto-calculated delay before ACK sent |
-| **ACK Airtime** | ~922ms | ACK packet (2 bytes) at SF11, BW125kHz |
+| **ACK Wait** | ~2.1-2.6s | Auto-calculated delay (actual packet size + random jitter) |
+| **ACK Airtime** | ~686ms | ACK packet (2 bytes) at SF11, BW250kHz, 32-preamble |
 
 ### Why These Timings Matter
 
@@ -514,34 +517,40 @@ delay(50);  // Ensure radio is fully in RX mode
 **Solution With Proper Timing:**
 1. Android sends unified message, ESP32 transmits via LoRa
 2. ESP32 switches to RX mode + 50ms settle
-3. Receiver waits ~3.6s (auto-calculated) before sending ACK
+3. Receiver calculates ACK delay based on actual packet size (~2.1s typical)
 4. ESP32 is fully ready and receives ACK ✓
 5. Android displays checkmark
 
 ### Adjusting Timings
 
-**Note:** ACK timing is now **automatically calculated** based on your LoRa configuration in `FirmwareConfig.h`:
+**Note:** ACK timing is now **automatically calculated** based on actual received packet size in `FirmwareConfig.h`:
 
 ```cpp
 // firmware/include/common/FirmwareConfig.h
-const int ACK_DELAY_MS =
-    static_cast<int>(LoRaManager::calculateToA_ms(
-        SPREADING_FACTOR,
-        BANDWIDTH * 1000,
-        CODING_RATE,
-        PREAMBLE_LENGTH,
-        64)) + // Max expected payload
-    RX_SETTLE_TIME_MS +
-    TIMING_MARGIN_MS;
+inline int getAckDelay(sf, bw, cr, preamble, actualPayload) {
+    int baseDelay = LoRaManager::calculateToA_ms(
+                        sf, bw, cr, preamble, actualPayload) +
+                    RX_SETTLE_TIME_MS +
+                    TIMING_MARGIN_MS;
+    int jitter = random(0, TIMING_MARGIN_MS);  // Collision avoidance
+    return baseDelay + jitter;
+}
 ```
 
-**Current values (SF11 + BW125 + CR4/8):**
-- Max message ToA: ~3084ms
+**Current values (SF11 + BW250 + CR4/5 + 32-preamble):**
+- Typical message ToA (50 bytes): ~1537ms
 - RX settle time: 50ms
 - Timing margin: 500ms
-- **Total ACK_DELAY**: ~3634ms (automatically calculated)
+- Random jitter: 0-500ms (prevents simultaneous ACKs)
+- **Total ACK_DELAY**: ~2087ms to ~2587ms (varies per receiver)
 
-If you change LoRa parameters (SF, BW, CR), the timing constants update automatically at compile time.
+**Benefits of actual packet size + jitter:**
+- Shorter messages get ACKed faster (base delay scales with packet size)
+- No wasted delay for small packets
+- Random jitter prevents collision when multiple receivers ACK the same broadcast
+- More efficient use of airtime
+
+If you change LoRa parameters (SF, BW, CR, preamble), timing adjusts automatically.
 
 ### Debugging Timing Issues
 

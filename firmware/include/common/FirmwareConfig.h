@@ -62,27 +62,27 @@ namespace LoRaConstants
     /// Estimated deep sleep wake time in milliseconds
     constexpr int DEEP_SLEEP_WAKE_TIME_MS = 600;
 
-    /// Preamble length for WakeUp messages to wake duty-cycled receivers
-    /// Set to 16 for balance between reliability and airtime
-    constexpr int PREAMBLE_LENGTH = 16;
+    /// Preamble length for all LoRa transmissions
+    /// Set to 32 symbols for reliable duty-cycle detection and reception
+    constexpr int PREAMBLE_LENGTH = 32;
 
     /// Returns ACK delay with random jitter to prevent collisions
-    /// Uses real radio parameters from the configured radio instance
+    /// Jitter prevents multiple receivers from transmitting ACK simultaneously
+    /// Uses actual received packet size for efficient timing
     /// @param sf Spreading factor from radio
     /// @param bw Bandwidth in kHz from radio
     /// @param cr Coding rate from radio
     /// @param preamble Preamble length from radio
-    /// @param expectedPayload Expected payload size in bytes
+    /// @param actualPayload Actual payload size in bytes (use received packet length)
     /// @return ACK delay with jitter in milliseconds
-    inline int getAckDelay(uint8_t sf, float bw, uint8_t cr, int preamble, int expectedPayload)
+    inline int getAckDelay(uint8_t sf, float bw, uint8_t cr, int preamble, int actualPayload)
     {
-
         int baseDelay = LoRaManager::calculateToA_ms(
                             sf,
                             bw,
                             cr,
                             preamble,
-                            expectedPayload) +
+                            actualPayload) +
                         RX_SETTLE_TIME_MS +
                         TIMING_MARGIN_MS;
         int jitter = random(0, TIMING_MARGIN_MS);
