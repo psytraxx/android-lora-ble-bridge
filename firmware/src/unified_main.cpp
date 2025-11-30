@@ -401,8 +401,10 @@ void onLoRaReceived(const LoRaPacket &packet)
             if (ackLen > 0)
             {
                 // Wait for sender to switch to RX mode before sending ACK
-                // This delay ensures reliable ACK delivery
-                delay(LoRaConstants::ACK_DELAY_MS);
+                // getAckDelay() includes random jitter to prevent ACK collisions
+                int ackDelay = LoRaConstants::getAckDelay();
+                LOG_D(TAG, "ACK delay: %d ms (includes random jitter)", ackDelay);
+                delay(ackDelay);
 
                 // Send ACK (will be queued after current RX processing completes)
                 if (loraManager->startTransmit(ackBuffer, (size_t)ackLen, false))
