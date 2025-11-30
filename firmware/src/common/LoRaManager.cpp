@@ -76,10 +76,23 @@ bool LoRaManager::begin()
 
         if (state == RADIOLIB_ERR_NONE)
         {
+            // Configure Low Data Rate Optimization (LDRO) based on configuration
+            int res = radio->forceLDRO(LoRaConstants::LOW_DATA_RATE_OPTIMIZE);
+            if (res != RADIOLIB_ERR_NONE)
+            {
+                LOG_E(TAG, "Failed to configure LDRO, code %d", res);
+                return false;
+            }
+            else
+            {
+                LOG_I(TAG, "Low Data Rate Optimization: %s",
+                      LoRaConstants::LOW_DATA_RATE_OPTIMIZE ? "enabled" : "disabled");
+            }
+
 #if defined(RADIO_SX1262) || defined(RADIO_SX1268)
             // Explicitly set TCXO control via DIO3 (redundant if begin() does it, but safe)
             // This sends the SetDio3AsTcxoCtrl command
-            int res = radio->setTCXO(LoRaConstants::TCXO_VOLTAGE);
+            res = radio->setTCXO(LoRaConstants::TCXO_VOLTAGE);
             if (res != RADIOLIB_ERR_NONE)
             {
                 LOG_E(TAG, "Failed to configure TCXO, code %d", res);
