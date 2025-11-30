@@ -76,17 +76,11 @@ bool LoRaManager::begin()
 
         if (state == RADIOLIB_ERR_NONE)
         {
-            // Configure Low Data Rate Optimization (LDRO) based on configuration
-            int res = radio->forceLDRO(LoRaConstants::LOW_DATA_RATE_OPTIMIZE);
+            int res = radio->setCRC(true);
             if (res != RADIOLIB_ERR_NONE)
             {
-                LOG_E(TAG, "Failed to configure LDRO, code %d", res);
+                LOG_E(TAG, "Failed to configure CRC, code %d", res);
                 return false;
-            }
-            else
-            {
-                LOG_I(TAG, "Low Data Rate Optimization: %s",
-                      LoRaConstants::LOW_DATA_RATE_OPTIMIZE ? "enabled" : "disabled");
             }
 
 #if defined(RADIO_SX1262) || defined(RADIO_SX1268)
@@ -225,7 +219,15 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len, bool sendWakeUp
 
             // Wait for receiver to wake up and switch to continuous RX
             // This delay accounts for: WakeUp ToA + Deep Sleep Wake Time + RX Settle + Margin
-            delay(LoRaConstants::WAKEUP_TO_MESSAGE_DELAY_MS);
+            int wakeupDelay = LoRaManager::calculateToA_ms(
+                                  LoRaConstants::SPREADING_FACTOR,
+                                  LoRaConstants::BANDWIDTH,
+                                  LoRaConstants::CODING_RATE,
+                                  LoRaConstants::PREAMBLE_LENGTH,
+                                  1 // WakeUp message is only 1 byte
+                                  ) +
+                              LoRaConstants::DEEP_SLEEP_WAKE_TIME_MS;
+            delay(wakeupDelay);
         }
         else
         {

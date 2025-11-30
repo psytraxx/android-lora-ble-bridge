@@ -7,12 +7,12 @@ A long-range communication system for sending text messages (up to 50 characters
 
 - 📱 **Android App**: Modern Kotlin app with Jetpack Compose, GPS integration, and BLE communication
 - 🌐 **Progressive Web App**: Cross-platform PWA with Web Bluetooth support - [Try it now!](https://psytraxx.github.io/android-lora-ble-bridge/)
-- 📡 **Long Range**: 10-35 km typical range (SF11 + BW125 optimized for urban environments)
+- 📡 **Long Range**: 10-25 km typical range (SF11 + BW250 balanced for speed and range)
 - 🔋 **Power Optimized**: Autonomous duty cycle on SX1262 (~52 days on 2500 mAh battery)
 - 📦 **Message Buffering**: Buffers up to 10 messages when phone is disconnected
-- ✅ **Reliable**: 32-symbol preamble with CR4/8 error correction for urban interference
+- ✅ **Reliable**: 16-symbol preamble with CR4/5 error correction
 - 🌍 **GPS Precision**: ±1 meter accuracy (GPS sent only when available)
-- 🏙️ **Urban Optimized**: SF11 + BW125 provides excellent penetration through buildings
+- ⚡ **Balanced Performance**: SF11 + BW250 provides good range with faster data rates
 - 📉 **Bandwidth Efficient**: 6-bit character packing (40% smaller than UTF-8)
 - 🔧 **Hardware Autonomous**: SX1262 manages duty cycle independently while ESP32 sleeps
 
@@ -169,7 +169,7 @@ cd firmware
 
 **Configuration:**
 - LoRa settings configured in `firmware/include/common/FirmwareConfig.h`
-- Default: 433.92 MHz, SF11, BW125 kHz, CR4/8, 20 dBm TX, 160 MHz CPU
+- Default: 433.92 MHz, SF11, BW250 kHz, CR4/5, 20 dBm TX, 160 MHz CPU
 - Device name auto-generated from chip ID
 - Deep sleep with wake-up reason detection (prevents WakeUp loops)
 - See `firmware/ARCHITECTURE.md` for platform-specific details
@@ -252,12 +252,12 @@ cd android
 
 **Current Configuration (v3.4 - November 2025):**
 - **Frequency**: 433.92 MHz (worldwide ISM band)
-- **Bandwidth**: 125 kHz (optimized for maximum range and urban penetration)
-- **Spreading Factor**: 11 (excellent range, ~3.5x better than SF9 in dense areas)
-- **Coding Rate**: 4/8 (maximum error correction for urban interference)
+- **Bandwidth**: 250 kHz (faster data rate, moderate range)
+- **Spreading Factor**: 11 (excellent range and reliability)
+- **Coding Rate**: 4/5 (CR5, lightweight error correction)
 - **TX Power**: 20 dBm (100 mW)
-- **Preamble**: 32 symbols (ensures duty-cycled receiver wake-up)
-- **Range**: ~3.5x theoretical improvement over SF9+BW250 (~10-35 km typical)
+- **Preamble**: 16 symbols (balance between reliability and airtime)
+- **Range**: ~10-25 km typical
 
 **Regional Power Limits:**
 - EU (433 MHz): 2 dBm max (current config exceeds, adjust for EU compliance)
@@ -320,11 +320,11 @@ The firmware (ESP32/nRF52) buffers up to 10 messages when your phone is disconne
 
 - **Max text**: 50 characters (38 bytes with 6-bit packing)
 - **GPS data**: 8 bytes when included (fixed size)
-- **Range**: 10-35 km typical (SF11 optimized for urban environments)
-- **Airtime**: ~1.5-3 seconds per message (BW125 kHz, SF11, CR4/8)
+- **Range**: 10-25 km typical (SF11 balanced configuration)
+- **Airtime**: ~0.7-1.3 seconds per message (BW250 kHz, SF11, CR4/5)
 - **Battery Life (SX1262)**: Multiple weeks on 2500 mAh with autonomous duty cycle (~1.5-2mA avg)
 - **Battery Life (SX1278)**: Several days on 2500 mAh with continuous RX (~12-15mA avg)
-- **LoRa Config**: 433.92 MHz, BW125 kHz, SF11, CR4/8, 20 dBm TX
+- **LoRa Config**: 433.92 MHz, BW250 kHz, SF11, CR4/5, 20 dBm TX
 - **Duty Cycle**: EU requires 1% (36s/hour) - calculate at [LoRa Calculator](https://www.loratools.nl/#/airtime)
 
 **Platform Comparison:**

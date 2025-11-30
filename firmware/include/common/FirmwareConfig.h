@@ -44,17 +44,11 @@ namespace LoRaConstants
 {
     constexpr float FREQUENCY = 433.92; ///< LoRa frequency in MHz
 
-    constexpr float BANDWIDTH = 125.0; ///< LoRa bandwidth in kHz (125 = better sensitivity, longer range)
+    constexpr float BANDWIDTH = 250.0; ///< LoRa bandwidth in kHz (250 = faster data rate, moderate range)
 
     constexpr uint8_t SPREADING_FACTOR = 11; ///< LoRa spreading factor (7-12, higher = longer range, slower)
 
-    constexpr uint8_t CODING_RATE = 8; ///< LoRa coding rate (5=4/5, 6=4/6, 7=4/7, 8=4/8, higher = better error correction)
-
-    /// Low Data Rate Optimization (LDRO)
-    /// Mandatory when symbol duration > 16ms (SF11/12 @ 125kHz, SF12 @ 250kHz, etc.)
-    /// Symbol duration = 2^SF / BW. For SF11 @ 125kHz: 2^11 / 125000 = 16.384ms
-    /// Improves reliability at long symbol durations by preventing timing drift
-    constexpr bool LOW_DATA_RATE_OPTIMIZE = true;
+    constexpr uint8_t CODING_RATE = 5; ///< LoRa coding rate (5=4/5, 6=4/6, 7=4/7, 8=4/8, higher = better error correction)
 
     /// Default LoRa sync word (0x12 = private network, 0x34 = public LoRaWAN)
     constexpr uint8_t SYNC_WORD = 0x12;
@@ -69,45 +63,30 @@ namespace LoRaConstants
     constexpr int DEEP_SLEEP_WAKE_TIME_MS = 600;
 
     /// Preamble length for WakeUp messages to wake duty-cycled receivers
-    /// Increased to 32 to enable effective duty cycling (Sleep Period > 0)
-    constexpr int PREAMBLE_LENGTH = 32;
-
-    /// Delay after sending WakeUp message before sending actual message.
-    /// Calculated as: ToA(WakeUp) + Deep Sleep Wake Time + RX Settle Time + Margin
-    /// This ensures the receiver has ample time to wake up and switch to RX mode.
-    const int WAKEUP_TO_MESSAGE_DELAY_MS =
-        static_cast<int>(LoRaManager::calculateToA_ms(
-            LoRaConstants::SPREADING_FACTOR,
-            LoRaConstants::BANDWIDTH * 1000,
-            LoRaConstants::CODING_RATE,
-            LoRaConstants::PREAMBLE_LENGTH,
-            1,
-            true,  // explicitHeader
-            true,  // crcEnabled
-            LoRaConstants::LOW_DATA_RATE_OPTIMIZE)) +
-        DEEP_SLEEP_WAKE_TIME_MS + // Estimated deep sleep wake time
-        RX_SETTLE_TIME_MS +
-        TIMING_MARGIN_MS;
-
-    /// Base delay calculation for ACK transmission
-    const int ACK_BASE_DELAY_MS =
-        static_cast<int>(LoRaManager::calculateToA_ms(
-            LoRaConstants::SPREADING_FACTOR,
-            LoRaConstants::BANDWIDTH * 1000,
-            LoRaConstants::CODING_RATE,
-            LoRaConstants::PREAMBLE_LENGTH,
-            64,    // Max expected payload
-            true,  // explicitHeader
-            true,  // crcEnabled
-            LoRaConstants::LOW_DATA_RATE_OPTIMIZE)) +
-        RX_SETTLE_TIME_MS +
-        TIMING_MARGIN_MS;
+    /// Set to 16 for balance between reliability and airtime
+    constexpr int PREAMBLE_LENGTH = 16;
 
     /// Returns ACK delay with random jitter to prevent collisions
-    inline int getAckDelay()
+    /// Uses real radio parameters from the configured radio instance
+    /// @param sf Spreading factor from radio
+    /// @param bw Bandwidth in kHz from radio
+    /// @param cr Coding rate from radio
+    /// @param preamble Preamble length from radio
+    /// @param expectedPayload Expected payload size in bytes
+    /// @return ACK delay with jitter in milliseconds
+    inline int getAckDelay(uint8_t sf, float bw, uint8_t cr, int preamble, int expectedPayload)
     {
+
+        int baseDelay = LoRaManager::calculateToA_ms(
+                            sf,
+                            bw,
+                            cr,
+                            preamble,
+                            expectedPayload) +
+                        RX_SETTLE_TIME_MS +
+                        TIMING_MARGIN_MS;
         int jitter = random(0, TIMING_MARGIN_MS);
-        return ACK_BASE_DELAY_MS + jitter;
+        return baseDelay + jitter;
     }
 
     /// Number of retry attempts for LoRa initialization

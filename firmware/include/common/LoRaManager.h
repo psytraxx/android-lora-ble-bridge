@@ -197,12 +197,12 @@ public:
         uint16_t preambleLength,
         uint8_t payloadLength,
         bool explicitHeader = true,
-        bool crcEnabled = true,
-        bool lowDataRateOptimize = false)
+        bool crcEnabled = true)
     {
-        // Symbol duration
-        double t_sym = std::pow(2, spreadingFactor) / (bandwidth / 1000.0);
+        // Symbol duration (bandwidth parameter is in kHz)
+        double t_sym = std::pow(2, spreadingFactor) / (bandwidth);
 
+        bool lowDataRateOptimize = t_sym >= 16.0;
         // Preamble duration
         double t_preamble = (preambleLength + 4.25) * t_sym;
 
