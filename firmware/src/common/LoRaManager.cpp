@@ -115,7 +115,7 @@ bool LoRaManager::begin()
 
         if (attempt < LoRaConstants::INIT_RETRY_COUNT)
         {
-            LOG_I(TAG, "Retrying in 1 second...");
+            LOG_I(TAG, "Retrying in %d ms...", LoRaConstants::INIT_RETRY_DELAY_MS);
             delay(LoRaConstants::INIT_RETRY_DELAY_MS);
         }
     }
