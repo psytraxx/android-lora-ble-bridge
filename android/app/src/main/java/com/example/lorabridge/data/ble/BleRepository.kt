@@ -308,12 +308,20 @@ class BleRepository @Inject constructor(
      */
     @SuppressLint("MissingPermission")
     private fun connectToDevice(device: BluetoothDevice) {
+        // Clean up any existing connection first
+        bluetoothGatt?.let {
+            Log.d(TAG, "Cleaning up existing GATT connection before connecting")
+            it.disconnect()
+            it.close()
+            cleanup()
+        }
+
         _connectionState.value = BleConnectionState.Connecting
-        Log.d(TAG, "Connecting to ${device.address}")
+        Log.d(TAG, "Connecting to ${device.name ?: "Unknown"} (${device.address})")
 
         bluetoothGatt = device.connectGatt(context, false, gattCallback)
 
-        // Connection timeout
+        // Connection timeout with phase tracking
         scope.launch {
             withTimeoutOrNull(BleConstants.CONNECTION_TIMEOUT_MS) {
                 // Wait for connection
@@ -324,8 +332,19 @@ class BleRepository @Inject constructor(
                 }
             } ?: run {
                 if (_connectionState.value !is BleConnectionState.Connected) {
+                    // Provide specific error based on what phase we were in
+                    val currentPhase = _connectionState.value
+                    val errorMsg = when (currentPhase) {
+                        is BleConnectionState.Connecting -> "Connection timeout - device not responding"
+                        is BleConnectionState.NegotiatingMtu -> "Connection timeout - MTU negotiation failed"
+                        is BleConnectionState.DiscoveringServices -> "Connection timeout - service discovery timeout"
+                        is BleConnectionState.EnablingNotifications -> "Connection timeout - notification setup failed"
+                        else -> "Connection timeout after 30 seconds"
+                    }
+
+                    Log.e(TAG, "$errorMsg (was in state: $currentPhase)")
                     disconnect()
-                    _connectionState.value = BleConnectionState.Error("Connection timeout")
+                    _connectionState.value = BleConnectionState.Error(errorMsg, canRetry = true)
                 }
             }
         }
@@ -365,30 +384,43 @@ class BleRepository @Inject constructor(
         @SuppressLint("MissingPermission")
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                Log.d(TAG, "MTU negotiated: $mtu bytes")
+                Log.i(TAG, "MTU negotiated successfully: $mtu bytes")
             } else {
-                Log.w(TAG, "MTU negotiation failed, continuing with default")
+                Log.w(TAG, "MTU negotiation failed (status=$status), continuing with default MTU")
             }
             _connectionState.value = BleConnectionState.DiscoveringServices
-            gatt.discoverServices()
+            Log.d(TAG, "Starting service discovery...")
+
+            // Add small delay before service discovery to improve reliability on some devices
+            scope.launch {
+                delay(50)
+                gatt.discoverServices()
+            }
         }
 
         @SuppressLint("MissingPermission")
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) {
-                Log.e(TAG, "Service discovery failed")
+                Log.e(TAG, "Service discovery failed (status=$status)")
                 disconnect()
-                _connectionState.value = BleConnectionState.Error("Service discovery failed")
+                _connectionState.value = BleConnectionState.Error("Service discovery failed (status=$status)", canRetry = true)
                 return
             }
 
+            Log.i(TAG, "Services discovered successfully, found ${gatt.services.size} services")
+
             val service = gatt.getService(BleConstants.SERVICE_UUID)
             if (service == null) {
-                Log.e(TAG, "LoRa service not found")
+                Log.e(TAG, "LoRa service (${BleConstants.SERVICE_UUID}) not found")
+                gatt.services.forEach { s ->
+                    Log.d(TAG, "  Available service: ${s.uuid}")
+                }
                 disconnect()
-                _connectionState.value = BleConnectionState.Error("LoRa service not found")
+                _connectionState.value = BleConnectionState.Error("LoRa service not found", canRetry = true)
                 return
             }
+
+            Log.d(TAG, "LoRa service found")
 
             txCharacteristic = service.getCharacteristic(BleConstants.TX_CHAR_UUID)
             rxCharacteristic = service.getCharacteristic(BleConstants.RX_CHAR_UUID)

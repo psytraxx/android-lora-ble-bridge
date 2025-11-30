@@ -94,6 +94,10 @@ bool BLEManager::setup(const char *deviceName)
     // Create the BLE Device
     NimBLEDevice::init(deviceName);
 
+    // Log MAC address for debugging
+    NimBLEAddress address = NimBLEDevice::getAddress();
+    LOG_I(TAG, "BLE MAC Address: %s", address.toString().c_str());
+
     // Create the BLE Server
     pServer = NimBLEDevice::createServer();
     serverCallbacks = new MyServerCallbacks(this);

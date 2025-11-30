@@ -20,7 +20,7 @@ object BleConstants {
 
     const val MTU_SIZE = 512
     const val SCAN_TIMEOUT_MS = 30_000L  // 30 seconds
-    const val CONNECTION_TIMEOUT_MS = 10_000L  // 10 seconds
+    const val CONNECTION_TIMEOUT_MS = 30_000L  // 30 seconds - increased from 10s for reliability
     const val AUTO_DISCONNECT_DELAY_MS = 60_000L  // 60 seconds inactivity
     const val ACK_TIMEOUT_MS = 5_000L  // 5 seconds waiting for ACK
     const val DEVICE_STALE_TIMEOUT_MS = 15_000L  // 15 seconds - remove devices not seen

@@ -30,6 +30,12 @@ bool BLEManager::setup(const char *deviceName)
     Bluefruit.setTxPower(BLEConstants::TX_POWER_DBM);
     Bluefruit.setName(deviceName);
 
+    // Log MAC address for debugging
+    uint8_t mac[6];
+    Bluefruit.getAddr(mac);
+    LOG_I(TAG, "BLE MAC Address: %02X:%02X:%02X:%02X:%02X:%02X",
+          mac[5], mac[4], mac[3], mac[2], mac[1], mac[0]);
+
     // Set connection callbacks
     Bluefruit.Periph.setConnectCallback(BLEManager::connectCallback);
     Bluefruit.Periph.setDisconnectCallback(BLEManager::disconnectCallback);
