@@ -64,13 +64,27 @@ namespace LoRaConstants
     constexpr int PREAMBLE_LENGTH = 32;
 
     /// Preamble length for standard messages to wake deeply sleeping receivers
-    /// ~2.5 seconds at SF9/BW250 (2.05ms/sym) to cover deep sleep wake time (~2s)
-    constexpr int LONG_PREAMBLE_LENGTH = 1250;
+    /// At SF11/BW250: symbol time = 2^11 / 250000 = 8.192ms
+    /// Target: ~2.5s to cover deep sleep wake time (~2s) + margin
+    /// Calculation: 2500ms / 8.192ms = ~305 symbols
+    /// Using 320 symbols (rounded up for safety)
+    constexpr int LONG_PREAMBLE_LENGTH = 320;
 
     /// Delay before sending an ACK to ensure the original sender has switched to RX mode.
-    /// We only need to wait for the radio to switch modes + small processing margin.
-    /// Previous formula included ToA which was unnecessary as the air is clear after RX.
-    const int ACK_DELAY_MS = RX_SETTLE_TIME_MS + 50; // 50ms + 50ms safety = 100ms
+    /// When sender uses standard preamble: short delay is fine
+    /// When sender uses long preamble: must wait for mode switch + settle
+    /// Since we don't know which preamble was used, we use a safe middle ground:
+    ///   - Mode switch time: ~10-50ms
+    ///   - RX settle time: 50ms
+    ///   - Safety margin: 50ms
+    ///   - Jitter for collision avoidance: 0-100ms
+    /// Total: 100ms + jitter (0-100ms) = 100-200ms
+    inline int getAckDelay()
+    {
+        int baseDelay = RX_SETTLE_TIME_MS + 50;  // 50ms + 50ms = 100ms
+        int jitter = random(0, 100);  // Collision avoidance
+        return baseDelay + jitter;
+    }
 
     /// Number of retry attempts for LoRa initialization
     constexpr int INIT_RETRY_COUNT = 3;

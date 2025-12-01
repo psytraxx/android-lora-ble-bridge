@@ -131,70 +131,27 @@ bool LoRaManager::begin()
 
 bool LoRaManager::beginFromDeepSleep()
 {
-    LOG_I(TAG, "Initializing LoRa from Deep Sleep (Warm Start)");
+    LOG_I(TAG, "Woke from LoRa packet - using long preamble strategy");
 
-#if defined(ARDUINO_ARCH_ESP32)
-    // ESP32: Initialize SPI with custom pins
-    SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
-#else
-    // nRF52 and others: Initialize standard SPI
-    // Since we skip radio->begin(), we must ensure SPI is ready
-    SPI.begin();
-#endif
+    // IMPORTANT: Warm start packet recovery is NOT possible with RadioLib
+    //
+    // Why warm start cannot work:
+    // 1. After deep sleep, all RAM is cleared (radio object state is lost)
+    // 2. RadioLib requires full initialization (radio->begin()) to set up internal state
+    // 3. Methods like getPacketLength() and readData() depend on initialized RadioLib state
+    // 4. The SX126x/SX1278 hardware MAY still hold the packet, but RadioLib cannot access it
+    // 5. Calling radio->begin() resets the hardware and clears the packet buffer (Catch-22)
+    //
+    // Solution: Use LONG_PREAMBLE_LENGTH (~2.5s) on all transmitted messages
+    // - Long preamble wakes the receiver from deep sleep
+    // - Receiver has time to boot, initialize RadioLib, and enter RX mode
+    // - Receiver catches the packet payload after the preamble
+    // - No packet loss, no warm start needed
+    //
+    // The long preamble approach is how LoRa deep sleep is typically implemented.
 
-    // We suspect a packet is waiting. Try to read it without resetting the radio.
-    // The 'radio' object is fresh (RAM), but the hardware (SX126x) is holding state/packet.
-    
-    // Try to get packet length from the radio
-    // This requires SPI to be working, but does not require radio reset/config
-    size_t len = radio->getPacketLength();
-    LOG_I(TAG, "Warm start: Detected packet length: %d", len);
-
-    bool packetRecovered = false;
-    uint8_t buffer[256];
-    
-    if (len > 0)
-    {
-        int state = radio->readData(buffer, len);
-        
-        if (state == RADIOLIB_ERR_NONE)
-        {
-            LOG_I(TAG, "Warm start: Packet recovered (%d bytes)", len);
-            
-            // Reconstruct packet struct
-            LoRaPacket packet;
-            // Ensure we don't overflow buffer
-            if (len > sizeof(packet.buffer)) len = sizeof(packet.buffer);
-            memcpy(packet.buffer, buffer, len);
-            packet.len = len;
-            packet.rssi = radio->getRSSI();
-            packet.snr = radio->getSNR();
-            
-            // We must now fully initialize the radio for future operations
-            // This WILL reset the radio, but we have the data now.
-            begin(); 
-            
-            // Fire callback immediately to process the message
-            if (receiveCallback)
-            {
-                receiveCallback(packet);
-            }
-            
-            packetRecovered = true;
-        }
-        else
-        {
-            LOG_E(TAG, "Warm start: Failed to read data, code %d", state);
-            begin(); // Initialize anyway to restore normal operation
-        }
-    }
-    else
-    {
-        LOG_W(TAG, "Warm start: No packet length detected (spurious wake?)");
-        begin(); // Initialize anyway
-    }
-
-    return packetRecovered;
+    // Perform standard initialization
+    return begin();
 }
 
 bool LoRaManager::startReceive(bool dutyCycle)
