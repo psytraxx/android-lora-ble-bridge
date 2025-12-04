@@ -14,14 +14,25 @@ static const char *TAG = "Power";
 bool PowerManager::configurePowerManagement()
 {
     // Configure ADC for battery monitoring
-    analogReadResolution(PowerConstants::ADC_RESOLUTION_BITS);
+    // Based on Meshtastic configuration
+    #if defined(BATTERY_SENSE_RESOLUTION_BITS)
+        analogReadResolution(BATTERY_SENSE_RESOLUTION_BITS);
+        LOG_I(TAG, "ADC resolution set to %d bits", BATTERY_SENSE_RESOLUTION_BITS);
+    #else
+        analogReadResolution(PowerConstants::ADC_RESOLUTION_BITS);
+    #endif
     analogReference(AR_INTERNAL); // Use internal 0.6V reference
 
 #ifdef BATTERY_ADC_CTRL
     // Initialize VBAT_ENABLE to HIGH (disabled state) to save power
     // Enable only when reading battery voltage
+    // Based on Meshtastic: ADC_CTRL_ENABLED defines the active state
     pinMode(BATTERY_ADC_CTRL, OUTPUT);
-    digitalWrite(BATTERY_ADC_CTRL, HIGH);
+    #if defined(BATTERY_ADC_CTRL_ENABLED)
+        digitalWrite(BATTERY_ADC_CTRL, !BATTERY_ADC_CTRL_ENABLED); // Opposite of enabled = disabled
+    #else
+        digitalWrite(BATTERY_ADC_CTRL, HIGH); // Fallback: HIGH = disabled
+    #endif
     LOG_I(TAG, "Battery ADC control pin (GPIO %d) initialized to disabled", BATTERY_ADC_CTRL);
 #endif
 
@@ -53,9 +64,14 @@ bool PowerManager::configurePowerManagement()
 void PowerManager::batteryAdcEnable()
 {
 #ifdef BATTERY_ADC_CTRL
-    // Enable battery voltage divider (set VBAT_ENABLE LOW)
+    // Enable battery voltage divider
+    // Based on Meshtastic: Use ADC_CTRL_ENABLED value
     pinMode(BATTERY_ADC_CTRL, OUTPUT);
-    digitalWrite(BATTERY_ADC_CTRL, LOW);
+    #if defined(BATTERY_ADC_CTRL_ENABLED)
+        digitalWrite(BATTERY_ADC_CTRL, BATTERY_ADC_CTRL_ENABLED);
+    #else
+        digitalWrite(BATTERY_ADC_CTRL, LOW); // Fallback: LOW = enabled
+    #endif
     delay(10); // Wait for voltage to stabilize
 #endif
 }
@@ -63,8 +79,13 @@ void PowerManager::batteryAdcEnable()
 void PowerManager::batteryAdcDisable()
 {
 #ifdef BATTERY_ADC_CTRL
-    // Disable battery voltage divider to save power (set VBAT_ENABLE HIGH)
-    digitalWrite(BATTERY_ADC_CTRL, HIGH);
+    // Disable battery voltage divider to save power
+    // Based on Meshtastic: Use opposite of ADC_CTRL_ENABLED
+    #if defined(BATTERY_ADC_CTRL_ENABLED)
+        digitalWrite(BATTERY_ADC_CTRL, !BATTERY_ADC_CTRL_ENABLED);
+    #else
+        digitalWrite(BATTERY_ADC_CTRL, HIGH); // Fallback: HIGH = disabled
+    #endif
 #endif
 }
 
@@ -125,18 +146,25 @@ uint16_t PowerManager::readBatteryVoltage()
     batteryAdcDisable();
 
     // Convert ADC value to voltage in millivolts
-    // nRF52840: 12-bit ADC (0-4095) with 0.6V internal reference and 1/6 gain
-    // Max measurable voltage = 0.6V * 6 = 3.6V at ADC value 4095
-    // voltage_mv = (adcValue / 4095.0) * 3600.0 * BATTERY_DIVIDER
-    float voltage_mv = (adcValue / 4095.0) * PowerConstants::ADC_MAX_VOLTAGE *
+    // Based on Meshtastic: Use configured resolution or default to 12-bit
+    #if defined(BATTERY_SENSE_RESOLUTION_BITS)
+        const int adc_max_value = (1 << BATTERY_SENSE_RESOLUTION_BITS) - 1;
+    #else
+        const int adc_max_value = 4095; // 12-bit default
+    #endif
+
+    // nRF52840: 0.6V internal reference with 1/6 gain
+    // Max measurable voltage = 0.6V * 6 = 3.6V at ADC max value
+    // voltage_mv = (adcValue / adc_max_value) * 3600.0 * BATTERY_DIVIDER
+    float voltage_mv = (adcValue / (float)adc_max_value) * PowerConstants::ADC_MAX_VOLTAGE *
                        PowerConstants::BATTERY_DIVIDER * 1000.0;
 
     // Log debug info periodically
     static uint32_t last_log = 0;
     if (millis() - last_log > 30000)
     {
-        LOG_D(TAG, "Battery: adc=%d, voltage=%u mV",
-              adcValue, (uint16_t)voltage_mv);
+        LOG_D(TAG, "Battery: adc=%d (max=%d), voltage=%u mV",
+              adcValue, adc_max_value, (uint16_t)voltage_mv);
         last_log = millis();
     }
 

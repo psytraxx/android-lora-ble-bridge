@@ -107,10 +107,18 @@ bool PowerManager::configurePowerManagement()
 void PowerManager::batteryAdcEnable()
 {
 #ifdef BATTERY_ADC_CTRL
-    // Enable ADC voltage divider (Heltec boards)
-    // Active LOW: Drive LOW to enable
+// Enable ADC voltage divider (Heltec boards)
+// Based on Meshtastic implementation
+// HELTEC_V3: Uses ANALOG mode with inverted logic
+#if defined(BATTERY_ADC_CTRL_ENABLED)
+    // Standard boards: OUTPUT mode with ADC_CTRL_ENABLED value
+    pinMode(BATTERY_ADC_CTRL, OUTPUT);
+    digitalWrite(BATTERY_ADC_CTRL, BATTERY_ADC_CTRL_ENABLED);
+#else
+    // Fallback: Active LOW
     pinMode(BATTERY_ADC_CTRL, OUTPUT);
     digitalWrite(BATTERY_ADC_CTRL, LOW);
+#endif
     delay(10); // Wait for voltage to stabilize
 #endif
 }
@@ -119,8 +127,9 @@ void PowerManager::batteryAdcDisable()
 {
 #ifdef BATTERY_ADC_CTRL
     // Disable ADC voltage divider to save power
-    // Set to INPUT (High-Z) to disconnect, matching Heltec reference
-    pinMode(BATTERY_ADC_CTRL, INPUT);
+    // Based on Meshtastic implementation
+    // Use INPUT_PULLDOWN or INPUT depending on board
+    pinMode(BATTERY_ADC_CTRL, INPUT_PULLDOWN);
 #endif
 }
 
@@ -270,6 +279,8 @@ uint8_t PowerManager::voltageToPercentage(uint16_t voltagePerCellMv)
             break;
         }
     }
+
+    LOG_D(TAG, "Voltage per cell: %u mV => Battery SOC: %.2f%%", voltagePerCellMv, battery_SOC);
 
     // Clamp to 0-100 range
     if (battery_SOC > 100.0)
