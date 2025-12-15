@@ -17,5 +17,13 @@
       "security"
     ],
     "automerge": true
-  }
+  },
+  "packageRules": [
+    {
+      "description": "Keep Python 3.13 for firmware build compatibility",
+      "matchFileNames": [".github/workflows/firmware-compile.yml"],
+      "matchDepNames": ["actions/setup-python"],
+      "enabled": false
+    }
+  ]
 }
