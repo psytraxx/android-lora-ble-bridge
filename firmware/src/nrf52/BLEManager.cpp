@@ -155,10 +155,26 @@ void BLEManager::setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect
 
 void BLEManager::updateBatteryLevel(uint8_t level)
 {
+    LOG_I(TAG, "updateBatteryLevel called: new=%u, last=%u", level, lastBatteryLevel);
     if (level != lastBatteryLevel)
     {
         lastBatteryLevel = level;
-        blebas.write(level);
+        // Use notify() instead of write() to send BLE notification to client
+        // This ensures the GUI receives the updated battery level
+        if (isConnected())
+        {
+            blebas.notify(level);
+            LOG_I(TAG, "Battery level notified to %u%% via BLE", level);
+        }
+        else
+        {
+            blebas.write(level);
+            LOG_I(TAG, "Battery level updated to %u%% (not connected)", level);
+        }
+    }
+    else
+    {
+        LOG_D(TAG, "Battery level unchanged at %u%%", level);
     }
 }
 

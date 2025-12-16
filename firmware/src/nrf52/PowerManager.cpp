@@ -14,14 +14,16 @@ static const char *TAG = "Power";
 bool PowerManager::configurePowerManagement()
 {
     // Configure ADC for battery monitoring
-    // Based on Meshtastic configuration
+    // Based on Adafruit nRF52 reference implementation
     #if defined(BATTERY_SENSE_RESOLUTION_BITS)
         analogReadResolution(BATTERY_SENSE_RESOLUTION_BITS);
         LOG_I(TAG, "ADC resolution set to %d bits", BATTERY_SENSE_RESOLUTION_BITS);
     #else
         analogReadResolution(PowerConstants::ADC_RESOLUTION_BITS);
     #endif
-    analogReference(AR_INTERNAL); // Use internal 0.6V reference
+    // Set analog reference to 3.0V (0.6V ref × 5 = 3.0V max range)
+    // This provides better accuracy for LiPo batteries (3.0V-4.2V range after voltage divider)
+    analogReference(AR_INTERNAL_3_0);
 
 #ifdef BATTERY_ADC_CTRL
     // Initialize VBAT_ENABLE to HIGH (disabled state) to save power
@@ -133,8 +135,11 @@ uint16_t PowerManager::readBatteryVoltage()
     // Enable battery ADC (set VBAT_ENABLE LOW on Seeed XIAO)
     batteryAdcEnable();
 
+    // Let the ADC settle after enabling the voltage divider
+    delay(1);
+
     // Read battery voltage from ADC with averaging
-    // XIAO nRF52840: Battery voltage may be divided by hardware
+    // XIAO nRF52840: Battery voltage is divided by ~3.0 via hardware voltage divider
     uint32_t adcSum = 0;
     for (uint32_t i = 0; i < BATTERY_SENSE_SAMPLES; i++)
     {
@@ -146,27 +151,24 @@ uint16_t PowerManager::readBatteryVoltage()
     batteryAdcDisable();
 
     // Convert ADC value to voltage in millivolts
-    // Based on Meshtastic: Use configured resolution or default to 12-bit
+    // Based on Adafruit nRF52 reference implementation
     #if defined(BATTERY_SENSE_RESOLUTION_BITS)
         const int adc_max_value = (1 << BATTERY_SENSE_RESOLUTION_BITS) - 1;
     #else
         const int adc_max_value = 4095; // 12-bit default
     #endif
 
-    // nRF52840: 0.6V internal reference with 1/6 gain
-    // Max measurable voltage = 0.6V * 6 = 3.6V at ADC max value
-    // voltage_mv = (adcValue / adc_max_value) * 3600.0 * BATTERY_DIVIDER
-    float voltage_mv = (adcValue / (float)adc_max_value) * PowerConstants::ADC_MAX_VOLTAGE *
-                       PowerConstants::BATTERY_DIVIDER * 1000.0;
+    // nRF52840 with AR_INTERNAL_3_0: 0.6V internal reference × 5 = 3.0V max range
+    // Formula: voltage_mv = raw_adc × VBAT_DIVIDER_COMP × (ADC_MAX_VOLTAGE / (2^resolution))
+    // VBAT_MV_PER_LSB = ADC_MAX_VOLTAGE / (2^resolution) = 3000 / 4096 = 0.73242188
+    // Seeed XIAO has ~1.5kΩ / 510Ω divider ≈ 3.0 compensation factor
+    const float VBAT_MV_PER_LSB = (PowerConstants::ADC_MAX_VOLTAGE * 1000.0) / ((float)(adc_max_value + 1));
+    float voltage_mv = adcValue * PowerConstants::BATTERY_DIVIDER * VBAT_MV_PER_LSB;
 
-    // Log debug info periodically
-    static uint32_t last_log = 0;
-    if (millis() - last_log > 30000)
-    {
-        LOG_D(TAG, "Battery: adc=%d (max=%d), voltage=%u mV",
-              adcValue, adc_max_value, (uint16_t)voltage_mv);
-        last_log = millis();
-    }
+    // Log battery readings for debugging (every read during debug)
+    uint8_t percentage = voltageToPercentage((uint16_t)voltage_mv);
+    LOG_I(TAG, "Battery: adc=%d/%d, voltage=%u mV, percentage=%u%%",
+          adcValue, adc_max_value, (uint16_t)voltage_mv, percentage);
 
     return (uint16_t)voltage_mv;
 }
