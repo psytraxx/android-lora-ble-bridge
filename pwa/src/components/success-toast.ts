@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'lit';
+import { css, html, LitElement } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import { sharedStylesheet } from '../shared-styles';
 
@@ -6,7 +6,9 @@ import { sharedStylesheet } from '../shared-styles';
 export class SuccessToast extends LitElement {
   @property({ type: Boolean }) show = false;
 
-  static styles = [sharedStylesheet, css`
+  static styles = [
+    sharedStylesheet,
+    css`
     :host {
       display: contents;
     }
@@ -25,11 +27,12 @@ export class SuccessToast extends LitElement {
     .toast-wrapper {
       animation: slideIn 0.5s ease-out;
     }
-  `];
+  `
+  ];
 
   private hideTimeout?: number;
 
-  updated(changedProperties: Map<string, any>) {
+  updated(changedProperties: Map<string, unknown>) {
     if (changedProperties.has('show') && this.show) {
       // Auto-hide after 3 seconds
       if (this.hideTimeout) {
@@ -37,10 +40,12 @@ export class SuccessToast extends LitElement {
       }
       this.hideTimeout = window.setTimeout(() => {
         this.show = false;
-        this.dispatchEvent(new CustomEvent('hide', {
-          bubbles: true,
-          composed: true
-        }));
+        this.dispatchEvent(
+          new CustomEvent('hide', {
+            bubbles: true,
+            composed: true
+          })
+        );
       }, 3000);
     }
   }

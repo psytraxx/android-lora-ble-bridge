@@ -1,4 +1,4 @@
-import { LitElement, html, css } from 'lit';
+import { css, html, LitElement } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import { sharedStylesheet } from '../shared-styles';
 
@@ -6,7 +6,9 @@ import { sharedStylesheet } from '../shared-styles';
 export class PairingModal extends LitElement {
   @property({ type: Boolean }) open = false;
 
-  static styles = [sharedStylesheet, css`
+  static styles = [
+    sharedStylesheet,
+    css`
     :host {
       display: contents;
     }
@@ -16,22 +18,27 @@ export class PairingModal extends LitElement {
       max-height: 90vh;
       overflow-y: auto;
     }
-  `];
+  `
+  ];
 
   private handleClose() {
     this.open = false;
-    this.dispatchEvent(new CustomEvent('modal-closed', {
-      bubbles: true,
-      composed: true
-    }));
+    this.dispatchEvent(
+      new CustomEvent('modal-closed', {
+        bubbles: true,
+        composed: true
+      })
+    );
   }
 
   private handleProceed() {
     this.open = false;
-    this.dispatchEvent(new CustomEvent('proceed-to-pair', {
-      bubbles: true,
-      composed: true
-    }));
+    this.dispatchEvent(
+      new CustomEvent('proceed-to-pair', {
+        bubbles: true,
+        composed: true
+      })
+    );
   }
 
   render() {

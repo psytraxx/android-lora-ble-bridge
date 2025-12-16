@@ -1,5 +1,8 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.3.4/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.3.8/schema.json",
+	"files": {
+		"ignoreUnknown": true
+	},
 	"linter": {
 		"enabled": true,
 		"rules": {

@@ -1,10 +1,12 @@
-import { LitElement, html, css } from 'lit';
+import { css, html, LitElement } from 'lit';
 import { customElement } from 'lit/decorators.js';
 import { sharedStylesheet } from '../shared-styles';
 
 @customElement('empty-state')
 export class EmptyState extends LitElement {
-  static styles = [sharedStylesheet, css`
+  static styles = [
+    sharedStylesheet,
+    css`
     :host {
       display: flex;
       flex-direction: column;
@@ -12,13 +14,16 @@ export class EmptyState extends LitElement {
       justify-content: center;
       height: 100%;
     }
-  `];
+  `
+  ];
 
   private handleConnect() {
-    this.dispatchEvent(new CustomEvent('connect-requested', {
-      bubbles: true,
-      composed: true
-    }));
+    this.dispatchEvent(
+      new CustomEvent('connect-requested', {
+        bubbles: true,
+        composed: true
+      })
+    );
   }
 
   render() {

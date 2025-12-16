@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deserialize, serialize } from './serialization';
-import { MESSAGE_TYPE, type AckMessage, type TextMessage } from './types';
+import { type AckMessage, MESSAGE_TYPE, type TextMessage } from './types';
 
 describe('LoRa Protocol Serialization/Deserialization', () => {
   it('should serialize and deserialize a TextMessage without GPS', () => {
@@ -8,7 +8,7 @@ describe('LoRa Protocol Serialization/Deserialization', () => {
       type: MESSAGE_TYPE.TEXT,
       seq: 42,
       text: 'HELLO',
-      hasGps: false,
+      hasGps: false
     };
 
     const serialized = serialize(originalMessage);
@@ -29,7 +29,7 @@ describe('LoRa Protocol Serialization/Deserialization', () => {
       text: 'LOCATION',
       hasGps: true,
       latitude: 47.123456,
-      longitude: 8.987654,
+      longitude: 8.987654
     };
 
     const serialized = serialize(originalMessage);
@@ -39,14 +39,14 @@ describe('LoRa Protocol Serialization/Deserialization', () => {
     expect(deserialized.seq).toBe(originalMessage.seq);
     expect(deserialized.text).toBe(originalMessage.text);
     expect(deserialized.hasGps).toBe(true);
-    expect(deserialized.latitude).toBeCloseTo(originalMessage.latitude!, 6);
-    expect(deserialized.longitude).toBeCloseTo(originalMessage.longitude!, 6);
+    expect(deserialized.latitude).toBeCloseTo(originalMessage.latitude ?? 0, 6);
+    expect(deserialized.longitude).toBeCloseTo(originalMessage.longitude ?? 0, 6);
   });
 
   it('should serialize and deserialize an AckMessage', () => {
     const originalMessage: AckMessage = {
       type: MESSAGE_TYPE.ACK,
-      seq: 123,
+      seq: 123
     };
 
     const serialized = serialize(originalMessage);
@@ -58,7 +58,7 @@ describe('LoRa Protocol Serialization/Deserialization', () => {
   });
 
   it('should throw an error for invalid message type during serialization', () => {
-    const invalidMessage = { type: 99 } as any;
+    const invalidMessage = { type: 99 } as unknown as TextMessage;
     expect(() => serialize(invalidMessage)).toThrow('Unknown message type: 99');
   });
 
@@ -73,7 +73,7 @@ describe('LoRa Protocol Serialization/Deserialization', () => {
       type: MESSAGE_TYPE.TEXT,
       seq: 1,
       text: text,
-      hasGps: false,
+      hasGps: false
     };
     const serialized = serialize(originalMessage);
     const deserialized = deserialize(serialized) as TextMessage;
@@ -86,7 +86,7 @@ describe('LoRa Protocol Serialization/Deserialization', () => {
       type: MESSAGE_TYPE.TEXT,
       seq: 1,
       text: text,
-      hasGps: false,
+      hasGps: false
     };
     expect(() => serialize(originalMessage)).toThrow('Text length 51 exceeds maximum 50');
   });

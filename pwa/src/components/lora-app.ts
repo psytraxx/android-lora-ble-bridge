@@ -182,7 +182,9 @@ export class LoraApp extends LitElement {
         <!-- Success Toast -->
         <success-toast
           .show=${this.showSuccessToast}
-          @hide=${() => (this.showSuccessToast = false)}
+          @hide=${() => {
+            this.showSuccessToast = false;
+          }}
         ></success-toast>
       </div>
     `;
