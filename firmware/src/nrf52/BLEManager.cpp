@@ -1,4 +1,5 @@
 #include "nrf52/BLEManager.h"
+#include "nrf52/PowerManager.h"
 #include "common/Logging.h"
 
 static const char *TAG = "BLE";
@@ -47,7 +48,11 @@ bool BLEManager::setup(const char *deviceName)
 
     // Configure Battery Service
     blebas.begin();
+
+    // Read actual battery level instead of using default (100%)
+    lastBatteryLevel = PowerManager::readBatteryLevel();
     blebas.write(lastBatteryLevel);
+    LOG_I(TAG, "Battery service initialized with actual level: %u%%", lastBatteryLevel);
 
     // Configure custom LoRa Service
     loraService.begin();
