@@ -6,7 +6,7 @@
 #include "nrf52/PowerManager.h"
 #include "common/FirmwareConfig.h"
 #include "common/Logging.h"
-#include <Adafruit_SleepyDog.h>
+#include <nrf.h>
 
 static const char *PLATFORM_TAG = "nRF52";
 
@@ -31,13 +31,28 @@ struct NRF52PlatformTraits
 
     static void initializeWatchdog()
     {
-        int watchdogMS = Watchdog.enable(WatchdogConstants::TIMEOUT_SECONDS * 1000);
-        LOG_I(PLATFORM_TAG, "Watchdog enabled: %d ms", watchdogMS);
+        // Configure WDT timeout: 32768 Hz LFCLK, timeout = (CRV+1)/32768 seconds
+        // For 10 seconds: CRV = (10 * 32768) - 1 = 327679
+        uint32_t timeout_ticks = (WatchdogConstants::TIMEOUT_SECONDS * 32768) - 1;
+        NRF_WDT->CRV = timeout_ticks;
+
+        // Enable reload register 0
+        NRF_WDT->RREN = WDT_RREN_RR0_Enabled << WDT_RREN_RR0_Pos;
+
+        // Configure to run during sleep and pause on CPU halt
+        NRF_WDT->CONFIG = (WDT_CONFIG_SLEEP_Run << WDT_CONFIG_SLEEP_Pos) |
+                          (WDT_CONFIG_HALT_Pause << WDT_CONFIG_HALT_Pos);
+
+        // Start the watchdog
+        NRF_WDT->TASKS_START = 1;
+
+        LOG_I(PLATFORM_TAG, "Watchdog enabled: %d ms", WatchdogConstants::TIMEOUT_SECONDS * 1000);
     }
 
     static void resetWatchdog()
     {
-        Watchdog.reset();
+        // Reload watchdog by writing magic value to RR[0]
+        NRF_WDT->RR[0] = WDT_RR_RR_Reload;
     }
 
     static void initializePower()

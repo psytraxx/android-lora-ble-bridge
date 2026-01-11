@@ -6,7 +6,7 @@
 #include "esp32/PowerManager.h"
 #include "common/FirmwareConfig.h"
 #include "common/Logging.h"
-#include <Adafruit_SleepyDog.h>
+#include "esp_task_wdt.h"
 
 static const char *PLATFORM_TAG = "ESP32";
 
@@ -31,13 +31,19 @@ struct ESP32PlatformTraits
 
     static void initializeWatchdog()
     {
-        int watchdogMS = Watchdog.enable(WatchdogConstants::TIMEOUT_SECONDS * 1000);
-        LOG_I(PLATFORM_TAG, "Watchdog enabled: %d ms", watchdogMS);
+        esp_task_wdt_config_t wdt_config = {
+            .timeout_ms = WatchdogConstants::TIMEOUT_SECONDS * 1000,
+            .idle_core_mask = (1 << portNUM_PROCESSORS) - 1,
+            .trigger_panic = true
+        };
+        esp_task_wdt_init(&wdt_config);
+        esp_task_wdt_add(NULL); // Add current task to watchdog
+        LOG_I(PLATFORM_TAG, "Watchdog enabled: %d ms", WatchdogConstants::TIMEOUT_SECONDS * 1000);
     }
 
     static void resetWatchdog()
     {
-        Watchdog.reset();
+        esp_task_wdt_reset();
     }
 
     static void initializePower()
