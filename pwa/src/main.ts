@@ -5,6 +5,7 @@
 import './style.css';
 import './components/lora-app';
 import { registerSW } from 'virtual:pwa-register';
+import { version } from '../package.json';
 
 // Register service worker using vite-plugin-pwa
 // This handles the base path automatically
@@ -18,6 +19,6 @@ registerSW({
 });
 
 // Log app info
-console.log('LoRa Chat PWA v1.0.0');
+console.log(`LoRa Chat PWA v${version}`);
 console.log('Web Bluetooth support:', !!navigator.bluetooth);
 console.log('Geolocation support:', !!navigator.geolocation);
