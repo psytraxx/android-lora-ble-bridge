@@ -60,7 +60,7 @@ static MessageQueue loraToBleQueue;
 static LoRaManager *loraManager = nullptr;
 
 #ifdef LED_PIN
-static LEDManager *ledManager = new LEDManager(LED_PIN);
+static LEDManager *ledManager = new LEDManager(LED_PIN, LEDConstants::HEARTBEAT_INTERVAL_MS, LEDConstants::HEARTBEAT_DURATION_MS);
 #endif
 
 // Battery monitoring timer
@@ -291,7 +291,7 @@ void loop()
     // Reset watchdog
     Platform::resetWatchdog();
 
-// Update LED state machine (non-blocking)
+// Update LED state machine (non-blocking, includes heartbeat)
 #ifdef LED_PIN
     ledManager->update();
 #endif

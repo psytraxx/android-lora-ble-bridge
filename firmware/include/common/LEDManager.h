@@ -18,10 +18,14 @@ public:
     /**
      * @brief Construct a new LEDManager
      * @param pin GPIO pin number the LED is connected to
+     * @param hbIntervalMs Heartbeat interval in milliseconds (default: 1000)
+     * @param hbDurationMs Heartbeat blink duration in milliseconds (default: 50)
      */
-    explicit LEDManager(int pin) : ledPin(pin), blinkActive(false), blinkCount(0),
-                                   blinkTarget(0), blinkDuration(50), blinkDelay(200),
-                                   lastStateChange(0), ledState(false) {}
+    explicit LEDManager(int pin, unsigned long hbIntervalMs = 1000, int hbDurationMs = 50)
+        : ledPin(pin), blinkActive(false), blinkCount(0),
+          blinkTarget(0), blinkDuration(50), blinkDelay(200),
+          lastStateChange(0), ledState(false),
+          lastHeartbeat(0), heartbeatIntervalMs(hbIntervalMs), heartbeatDurationMs(hbDurationMs) {}
 
     /**
      * @brief Initialize the LED GPIO. Sets the pin mode and ensures LED is off.
@@ -54,39 +58,51 @@ public:
 
     /**
      * @brief Update the LED state machine. Call this from the main loop.
+     *
+     * Handles both active blink sequences and periodic heartbeat when enabled.
      */
     void update()
     {
-        if (!blinkActive)
-            return;
-
         unsigned long now = millis();
-        unsigned long elapsed = (unsigned long)(now - lastStateChange);
 
-        if (ledState)
+        if (blinkActive)
         {
-            // LED is currently ON
-            if (elapsed >= blinkDuration)
-            {
-                setOff();
-                ledState = false;
-                lastStateChange = now;
-                blinkCount++;
+            unsigned long elapsed = (unsigned long)(now - lastStateChange);
 
-                if (blinkCount >= blinkTarget)
+            if (ledState)
+            {
+                // LED is currently ON
+                if (elapsed >= blinkDuration)
                 {
-                    blinkActive = false; // Completed all blinks
+                    setOff();
+                    ledState = false;
+                    lastStateChange = now;
+                    blinkCount++;
+
+                    if (blinkCount >= blinkTarget)
+                    {
+                        blinkActive = false; // Completed all blinks
+                    }
+                }
+            }
+            else
+            {
+                // LED is currently OFF (between blinks)
+                if (elapsed >= blinkDelay && blinkCount < blinkTarget)
+                {
+                    setOn();
+                    ledState = true;
+                    lastStateChange = now;
                 }
             }
         }
         else
         {
-            // LED is currently OFF (between blinks)
-            if (elapsed >= blinkDelay && blinkCount < blinkTarget)
+            // No active blink - check for heartbeat
+            if ((now - lastHeartbeat) >= heartbeatIntervalMs)
             {
-                setOn();
-                ledState = true;
-                lastStateChange = now;
+                lastHeartbeat = now;
+                blink(1, heartbeatDurationMs, 0);
             }
         }
     }
@@ -116,6 +132,9 @@ private:
     int blinkDelay;
     unsigned long lastStateChange;
     bool ledState;
+    unsigned long lastHeartbeat;
+    unsigned long heartbeatIntervalMs;
+    int heartbeatDurationMs;
 };
 
 #endif // LED_MANAGER_H

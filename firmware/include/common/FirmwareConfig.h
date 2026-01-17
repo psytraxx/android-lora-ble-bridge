@@ -241,6 +241,12 @@ namespace LEDConstants
 
     /// Number of blinks for RX event
     constexpr int RX_BLINKS = 1;
+
+    /// Heartbeat interval (milliseconds) - regular status indication
+    constexpr unsigned long HEARTBEAT_INTERVAL_MS = 2000;
+
+    /// Heartbeat blink duration (milliseconds) - brief flash
+    constexpr int HEARTBEAT_DURATION_MS = 5;
 }
 
 #endif // FIRMWARE_CONFIG_H
