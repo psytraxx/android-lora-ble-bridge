@@ -21,7 +21,7 @@
  *
  * This class provides a high-level interface for LoRa communication,
  * abstracting RadioLib details and providing event-driven packet handling.
- * Works on both ESP32 (SX1278/SX1262) and nRF52 (SX1268).
+ * Works on both ESP32 and nRF52.
  */
 
 /// State machine states for LoRa manager
@@ -88,9 +88,8 @@ public:
     /**
      * @brief Start continuous receive mode or duty-cycled receive mode
      *
-     * For SX1262/SX1268: Uses hardware-based duty cycle mode
+     * Uses hardware-based duty cycle mode
      * where the radio autonomously sleeps between RX windows to save power.
-     * For SX1278 or disabled: Uses standard continuous receive mode.
      *
      * @return true on success, false on failure
      */
@@ -234,14 +233,12 @@ private:
     int pinBusy; // For SX126x radios
 
     // RadioLib radio instance (type depends on RADIO_ definition)
-#if defined(RADIO_SX1278)
-    SX1278 *radio;
-#elif defined(RADIO_SX1262)
+#if defined(RADIO_SX1262)
     SX1262 *radio;
 #elif defined(RADIO_SX1268)
     SX1268 *radio;
 #else
-#error "No supported RADIO defined! Please define RADIO_SX1278, RADIO_SX1262, or RADIO_SX1268"
+#error "No supported RADIO defined! Please define RADIO_SX1262, or RADIO_SX1268"
 #endif
 
     // State machine

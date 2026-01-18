@@ -29,14 +29,12 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
     instance = this;
 
     // Create RadioLib module instance (type depends on radio chip)
-#if defined(RADIO_SX1278)
-    radio = new SX1278(new Module(pinSS, pinDIO0, pinRST));
-#elif defined(RADIO_SX1262)
+#if defined(RADIO_SX1262)
     radio = new SX1262(new Module(pinSS, pinDIO0, pinRST, pinBusy));
 #elif defined(RADIO_SX1268)
     radio = new SX1268(new Module(pinSS, pinDIO0, pinRST, pinBusy));
 #else
-#error "No supported RADIO defined! Please define RADIO_SX1278, RADIO_SX1262, or RADIO_SX1268"
+#error "No supported RADIO defined! Please define RADIO_SX1262, or RADIO_SX1268"
 #endif
 }
 
