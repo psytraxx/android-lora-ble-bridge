@@ -142,7 +142,7 @@ static void deepSleepTimerCallback(TimerHandle_t xTimer)
     // Start LoRa in duty cycle mode before sleep
     if (loraManager != nullptr)
     {
-        if (!loraManager->startReceive(true))
+        if (!loraManager->startReceive())
         {
             LOG_E(TAG, "Failed to start LoRa continuous receive mode!");
         }
@@ -244,9 +244,8 @@ void setup()
         loraManager->setTransmitCallback(onLoRaTransmitted);
     }
 
-    // Start receive in continuous mode for reliability
-    // TODO: Switch to duty cycle mode once reliability is confirmed
-    if (!loraManager->startReceive(false))
+    // Start receive mode (force duty cycle RX across all platforms)
+    if (!loraManager->startReceive())
     {
         LOG_I(TAG, "Failed to start LoRa receive mode!");
     }
@@ -429,8 +428,7 @@ void onLoRaReceived(const LoRaPacket &packet)
                 delay(ackDelay);
 
                 // Send ACK (will be queued after current RX processing completes)
-                // Use standard preamble (false) because sender is already awake awaiting ACK
-                if (loraManager->startTransmit(ackBuffer, (size_t)ackLen, false))
+                if (loraManager->startTransmit(ackBuffer, (size_t)ackLen))
                 {
                     LOG_I(TAG, "ACK transmission started for seq %d", msg.textData.seq);
                 }
@@ -485,7 +483,7 @@ void handleBleMessage(const Message &msg)
     if (msgLen > 0)
     {
         // Use long preamble (true) for standard messages to wake sleeping receivers
-        if (loraManager->startTransmit(msgBuffer, (size_t)msgLen, true))
+        if (loraManager->startTransmit(msgBuffer, (size_t)msgLen))
         {
             resetInactivityTimer();
         }

@@ -62,10 +62,6 @@ namespace LoRaConstants
     /// Safety margin added to Time-on-Air calculations to ensure reliability
     constexpr int TIMING_MARGIN_MS = 500;
 
-    /// Preamble length for standard messages and ACKs (receivers already awake)
-    /// Kept short to minimize air time for non-wakeup packets
-    constexpr int PREAMBLE_LENGTH = 32;
-
     /// Preamble length for standard messages to wake deeply sleeping receivers
     /// At SF11/BW250: symbol time = 2^11 / 250000 = 8.192ms
     /// Target: ~2.5s to cover deep sleep wake time (~2s) + margin
@@ -84,8 +80,8 @@ namespace LoRaConstants
     /// Total: 100ms + jitter (0-100ms) = 100-200ms
     inline int getAckDelay()
     {
-        int baseDelay = RX_SETTLE_TIME_MS + 50;  // 50ms + 50ms = 100ms
-        int jitter = random(0, 100);  // Collision avoidance
+        int baseDelay = RX_SETTLE_TIME_MS + 50; // 50ms + 50ms = 100ms
+        int jitter = random(0, 100);            // Collision avoidance
         return baseDelay + jitter;
     }
 

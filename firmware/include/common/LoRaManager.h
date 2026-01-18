@@ -109,7 +109,7 @@ public:
      *
      * @return true on success, false on failure
      */
-    bool startReceive(bool dutyCycle = false);
+    bool startReceive();
 
     /**
      * @brief Start non-blocking interrupt-driven transmission
@@ -120,10 +120,9 @@ public:
      *
      * @param data Pointer to data buffer
      * @param len Length of data to transmit
-     * @param useLongPreamble Whether to use long preamble (2.5s) to wake sleeping receivers (default: true)
      * @return true if transmission started successfully, false otherwise
      */
-    bool startTransmit(const uint8_t *data, size_t len, bool useLongPreamble = true);
+    bool startTransmit(const uint8_t *data, size_t len);
 
     /**
      * @brief Check if transmission is in progress

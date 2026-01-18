@@ -94,9 +94,9 @@ void LoRaManager::configureRadioParams()
     Radio.SetChannel(static_cast<uint32_t>(LoRaConstants::FREQUENCY * 1000000));
     Radio.SetTxConfig(MODEM_LORA, LORA_TX_POWER, 0, LoRaConstants::BANDWIDTH,
                       LoRaConstants::SPREADING_FACTOR, LoRaConstants::CODING_RATE,
-                      LoRaConstants::PREAMBLE_LENGTH, false, true, false, 0, false, 5000);
+                      LoRaConstants::LONG_PREAMBLE_LENGTH, false, true, false, 0, false, 5000);
     Radio.SetRxConfig(MODEM_LORA, LoRaConstants::BANDWIDTH, LoRaConstants::SPREADING_FACTOR,
-                      LoRaConstants::CODING_RATE, 0, LoRaConstants::PREAMBLE_LENGTH,
+                      LoRaConstants::CODING_RATE, 0, LoRaConstants::LONG_PREAMBLE_LENGTH,
                       0, false, 0, true, false, 0, false, true);
     Radio.SetCustomSyncWord(LoRaConstants::SYNC_WORD);
 }
@@ -111,7 +111,7 @@ void LoRaManager::logRadioConfig()
     LOG_I(TAG, "  Spreading Factor: %d", LoRaConstants::SPREADING_FACTOR);
     LOG_I(TAG, "  Coding Rate: 4/%d", LoRaConstants::CODING_RATE + 4);
     LOG_I(TAG, "  TX Power: %d dBm", LORA_TX_POWER);
-    LOG_I(TAG, "  Preamble Length: %d symbols", LoRaConstants::PREAMBLE_LENGTH);
+    LOG_I(TAG, "  Preamble Length: %d symbols", LoRaConstants::LONG_PREAMBLE_LENGTH);
     LOG_I(TAG, "  Sync Word: 0x%04X", LoRaConstants::SYNC_WORD);
 }
 
@@ -176,59 +176,52 @@ bool LoRaManager::beginFromDeepSleep()
     LOG_I(TAG, "Processing pending IRQ from deep sleep wake-up");
     Radio.IrqProcessAfterDeepSleep();
 
+    // Re-apply radio configuration to ensure RX/TX settings are valid after wake
+    configureRadioParams();
+
     this->state = STATE_IDLE;
     logRadioConfig();
     return true;
 }
 
-bool LoRaManager::startReceive(bool dutyCycle)
+bool LoRaManager::startReceive()
 {
     if (state == STATE_UNINITIALIZED)
     {
         LOG_I(TAG, "Cannot start receive - not initialized");
         return false;
     }
+    // Duty cycle mode for deep sleep - configure radio to wake MCU on packet
+    // Based on SX126x-Arduino DeepSleep example
 
-    if (dutyCycle)
-    {
-        // Duty cycle mode for deep sleep - configure radio to wake MCU on packet
-        // Based on SX126x-Arduino DeepSleep example
+    // Put radio in standby first
+    Radio.Standby();
 
-        // Put radio in standby first
-        Radio.Standby();
+    // Configure IRQ routing: RX_DONE and TIMEOUT go to DIO1 (which triggers MCU wake)
+    SX126xSetDioIrqParams(
+        IRQ_RX_DONE | IRQ_RX_TX_TIMEOUT, // IRQ mask
+        IRQ_RX_DONE | IRQ_RX_TX_TIMEOUT, // DIO1 mask (wake source)
+        IRQ_RADIO_NONE,                  // DIO2 mask
+        IRQ_RADIO_NONE);                 // DIO3 mask
 
-        // Configure IRQ routing: RX_DONE and TIMEOUT go to DIO1 (which triggers MCU wake)
-        SX126xSetDioIrqParams(
-            IRQ_RX_DONE | IRQ_RX_TX_TIMEOUT,  // IRQ mask
-            IRQ_RX_DONE | IRQ_RX_TX_TIMEOUT,  // DIO1 mask (wake source)
-            IRQ_RADIO_NONE,                    // DIO2 mask
-            IRQ_RADIO_NONE);                   // DIO3 mask
-
-        // SX126x SetRxDutyCycle uses 15.625µs steps
-        // To convert ms to steps: ms * 1000 / 15.625 = ms * 64
-        // RX window should be long enough to detect preamble
-        // With SF11/BW250: symbol time = 2^11/250000 = 8.192ms
-        // Need at least 4 symbols to detect preamble: ~33ms
-        // Using 50ms RX window = 50 * 64 = 3200 steps
-        // Sleep time: 500ms = 500 * 64 = 32000 steps
-        uint32_t rxSteps = 50 * 64;     // 50ms RX window
-        uint32_t sleepSteps = 500 * 64; // 500ms sleep
-        LOG_I(TAG, "Starting duty cycle RX mode (rx=%lums, sleep=%lums)",
-              rxSteps / 64, sleepSteps / 64);
-        Radio.SetRxDutyCycle(rxSteps, sleepSteps);
-    }
-    else
-    {
-        // Standard continuous receive mode
-        LOG_I(TAG, "Starting continuous receive mode");
-        Radio.Rx(0); // 0 = continuous RX
-    }
+    // SX126x SetRxDutyCycle uses 15.625µs steps
+    // To convert ms to steps: ms * 1000 / 15.625 = ms * 64
+    // RX window should be long enough to detect preamble
+    // With SF11/BW250: symbol time = 2^11/250000 = 8.192ms
+    // Need at least 4 symbols to detect preamble: ~33ms
+    // Using 50ms RX window = 50 * 64 = 3200 steps
+    // Sleep time: 500ms = 500 * 64 = 32000 steps
+    uint32_t rxSteps = 50 * 64;     // 50ms RX window
+    uint32_t sleepSteps = 500 * 64; // 500ms sleep
+    LOG_I(TAG, "Starting duty cycle RX mode (rx=%lums, sleep=%lums)",
+          rxSteps / 64, sleepSteps / 64);
+    Radio.SetRxDutyCycle(rxSteps, sleepSteps);
 
     state = STATE_IDLE;
     return true;
 }
 
-bool LoRaManager::startTransmit(const uint8_t *data, size_t len, bool useLongPreamble)
+bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 {
     if (state == STATE_UNINITIALIZED)
     {
@@ -242,23 +235,10 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len, bool useLongPre
         return false;
     }
 
-    // Configure preamble length for this transmission
-    if (useLongPreamble)
-    {
-        // Set long preamble to wake up sleeping receivers
-        LOG_I(TAG, "Using long preamble (%d symbols) for deep sleep wake-up", LoRaConstants::LONG_PREAMBLE_LENGTH);
-        Radio.SetTxConfig(MODEM_LORA, LORA_TX_POWER, 0, LoRaConstants::BANDWIDTH,
-                          LoRaConstants::SPREADING_FACTOR, LoRaConstants::CODING_RATE,
-                          LoRaConstants::LONG_PREAMBLE_LENGTH, false, true, false, 0, false, 5000);
-    }
-    else
-    {
-        // Use standard preamble for normal transmission
-        LOG_I(TAG, "Using standard preamble (%d symbols)", LoRaConstants::PREAMBLE_LENGTH);
-        Radio.SetTxConfig(MODEM_LORA, LORA_TX_POWER, 0, LoRaConstants::BANDWIDTH,
-                          LoRaConstants::SPREADING_FACTOR, LoRaConstants::CODING_RATE,
-                          LoRaConstants::PREAMBLE_LENGTH, false, true, false, 0, false, 5000);
-    }
+    LOG_I(TAG, "Using long preamble (%d symbols) for all transmissions", LoRaConstants::LONG_PREAMBLE_LENGTH);
+    Radio.SetTxConfig(MODEM_LORA, LORA_TX_POWER, 0, LoRaConstants::BANDWIDTH,
+                      LoRaConstants::SPREADING_FACTOR, LoRaConstants::CODING_RATE,
+                      LoRaConstants::LONG_PREAMBLE_LENGTH, false, true, false, 0, false, 5000);
 
     // Send message
     LOG_I(TAG, "Starting transmission of %d bytes", len);
@@ -303,10 +283,10 @@ void LoRaManager::process()
             receiveCallback(packet);
         }
 
-        // Restart RX mode (use continuous for reliability)
+        // Restart RX mode (use previously selected RX mode)
         if (state != STATE_TRANSMITTING)
         {
-            startReceive(false); // false = continuous RX
+            startReceive();
             state = STATE_IDLE;
         }
     }
@@ -326,8 +306,8 @@ void LoRaManager::process()
         // Allow radio hardware to settle before switching to RX mode
         delay(LoRaConstants::RX_SETTLE_TIME_MS);
 
-        // Restart RX mode (use continuous for reliability)
-        startReceive(false); // false = continuous RX
+        // Restart RX mode (use previously selected RX mode)
+        startReceive();
         state = STATE_IDLE;
     }
 }
