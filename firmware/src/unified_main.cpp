@@ -235,8 +235,9 @@ void setup()
     loraManager->setReceiveCallback(onLoRaReceived);
     loraManager->setTransmitCallback(onLoRaTransmitted);
 
-    // Start receive in duty cycle mode (power saving) where supported
-    if (!loraManager->startReceive(true))
+    // Start receive in continuous mode for reliability
+    // TODO: Switch to duty cycle mode once reliability is confirmed
+    if (!loraManager->startReceive(false))
     {
         LOG_I(TAG, "Failed to start LoRa receive mode!");
     }

@@ -44,14 +44,17 @@ namespace LoRaConstants
 {
     constexpr float FREQUENCY = 433.92; ///< LoRa frequency in MHz
 
-    constexpr float BANDWIDTH = 250.0; ///< LoRa bandwidth in kHz (250 = faster data rate, moderate range)
+    /// LoRa bandwidth index for SX126x: 0=125kHz, 1=250kHz, 2=500kHz
+    constexpr uint8_t BANDWIDTH = 1; // 250 kHz
 
     constexpr uint8_t SPREADING_FACTOR = 11; ///< LoRa spreading factor (7-12, higher = longer range, slower)
 
-    constexpr uint8_t CODING_RATE = 5; ///< LoRa coding rate (5=4/5, 6=4/6, 7=4/7, 8=4/8, higher = better error correction)
+    /// LoRa coding rate for SX126x: 1=4/5, 2=4/6, 3=4/7, 4=4/8
+    constexpr uint8_t CODING_RATE = 1; // 4/5
 
-    /// Default LoRa sync word (0x12 = private network, 0x34 = public LoRaWAN)
-    constexpr uint8_t SYNC_WORD = 0x12;
+    /// LoRa sync word (16-bit SX126x format)
+    /// 0x1424 = private network, 0x3444 = public/LoRaWAN
+    constexpr uint16_t SYNC_WORD = 0x1424;
 
     /// Time to wait for radio hardware to settle after mode change (TX/RX switch)
     constexpr int RX_SETTLE_TIME_MS = 50;

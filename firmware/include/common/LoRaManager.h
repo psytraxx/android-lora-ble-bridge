@@ -1,7 +1,7 @@
 #ifndef LORA_MANAGER_H
 #define LORA_MANAGER_H
 
-#include <RadioLib.h>
+#include <SX126x-Arduino.h>
 #include <functional>
 #include <common/Protocol.h>
 
@@ -14,6 +14,10 @@
 #else
 #error "Unsupported platform"
 #endif
+
+// Forward declarations for callback functions
+void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr);
+void OnTxDone(void);
 
 /**
  * @file LoRaManager.h
@@ -87,12 +91,12 @@ public:
 
     /**
      * @brief Initialize LoRa radio from deep sleep (warm start)
-     * 
+     *
      * Attempts to recover the packet that caused the wake-up WITHOUT resetting
      * the radio hardware. If a packet is found, it is processed.
-     * After recovery (success or fail), standard begin() is called to 
+     * After recovery (success or fail), standard begin() is called to
      * restore full functionality.
-     * 
+     *
      * @return true if a packet was successfully recovered
      */
     bool beginFromDeepSleep();
@@ -186,53 +190,15 @@ public:
      */
     static void LORA_ISR_ATTR onTransmitISR();
 
-    /**
-     * @brief Calculates the Time on Air (ToA) for a LoRa packet.
-     *
-     * This function is based on the formulas provided in the Semtech datasheets.
-     *
-     * @param spreadingFactor The spreading factor (7-12).
-     * @param bandwidth The bandwidth in Hz (e.g., 125000).
-     * @param codingRate The coding rate (1-4, corresponding to 4/5 to 4/8).
-     * @param preambleLength The number of preamble symbols.
-     * @param payloadLength The length of the payload in bytes.
-     * @param explicitHeader True if an explicit header is used, false for implicit.
-     * @param crcEnabled True if CRC is enabled.
-     * @param lowDataRateOptimize True if low data rate optimization is enabled.
-     * @return The Time on Air in milliseconds.
-     */
-    static inline double calculateToA_ms(
-        uint8_t spreadingFactor,
-        double bandwidth,
-        uint8_t codingRate,
-        uint16_t preambleLength,
-        uint8_t payloadLength,
-        bool explicitHeader = true,
-        bool crcEnabled = true)
-    {
-        // Symbol duration (bandwidth parameter is in kHz)
-        double t_sym = std::pow(2, spreadingFactor) / (bandwidth);
+    // Singleton instance for ISR access (public for callback functions)
+    static LoRaManager *instance; // Updated
 
-        bool lowDataRateOptimize = t_sym >= 16.0;
-        // Preamble duration
-        double t_preamble = (preambleLength + 4.25) * t_sym;
-
-        // Payload number of symbols
-        int8_t header = explicitHeader ? 0 : 1;
-        int8_t crc = crcEnabled ? 16 : 0;
-        int8_t de = lowDataRateOptimize ? 1 : 0;
-
-        double payload_numerator = 8.0 * payloadLength - 4.0 * spreadingFactor + 28.0 + crc - 20.0 * header;
-        double payload_denominator = 4.0 * (spreadingFactor - 2.0 * de);
-
-        double n_payload = 8.0 + std::max(0.0, std::ceil(payload_numerator / payload_denominator) * (codingRate + 4.0));
-
-        // Payload duration
-        double t_payload = n_payload * t_sym;
-
-        // Total ToA
-        return t_preamble + t_payload;
-    }
+    // Public members for callback access
+    volatile LoRaState state;
+    int lastRSSI;
+    float lastSNR;
+    LoRaReceiveCallback receiveCallback;
+    LoRaTransmitCallback transmitCallback;
 
 private:
     // GPIO pin configuration
@@ -242,26 +208,7 @@ private:
     int pinSS;
     int pinRST;
     int pinDIO0;
-    int pinBusy; // For SX126x radios
-
-    // RadioLib radio instance (type depends on RADIO_ definition)
-#if defined(RADIO_SX1262)
-    SX1262 *radio;
-#elif defined(RADIO_SX1268)
-    SX1268 *radio;
-#else
-#error "No supported RADIO defined! Please define RADIO_SX1262, or RADIO_SX1268"
-#endif
-
-    // State machine
-    volatile LoRaState state;
-
-    // Callbacks
-    LoRaReceiveCallback receiveCallback;
-    LoRaTransmitCallback transmitCallback;
-
-    // Singleton instance for ISR access
-    static LoRaManager *instance;
+    int pinBusy;
 };
 
 #endif // LORA_MANAGER_H

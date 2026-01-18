@@ -9,33 +9,44 @@ static const char *TAG = "LoRa";
 // Platform-specific includes will be handled via FirmwareConfig later
 // For now, we'll use conditional compilation for constants
 
+// SX126x-Arduino library globals (must be static, not extern)
+static hw_config hwConfig;
+static RadioEvents_t RadioEvents;
+
+// Pending RX packet storage (filled by callback, processed by process())
+static volatile bool rxPending = false;
+static uint8_t rxBuffer[256];
+static uint16_t rxSize = 0;
+static int16_t rxRssi = 0;
+static int8_t rxSnr = 0;
+
+// Pending TX complete flag
+static volatile bool txPending = false;
+
+// nRF52 requires a separate SPI instance for LoRa
+#if defined(ARDUINO_ARCH_NRF52) || defined(NRF52_SERIES)
+SPIClass SPI_LORA(NRF_SPIM2, LORA_MISO, LORA_SCK, LORA_MOSI);
+#endif
+
 // Static instance for ISR access
 LoRaManager *LoRaManager::instance = nullptr;
 
 LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy)
-    : pinSCK(sck),
+    : state(STATE_UNINITIALIZED),
+      lastRSSI(0),
+      lastSNR(0.0f),
+      receiveCallback(nullptr),
+      transmitCallback(nullptr),
+      pinSCK(sck),
       pinMISO(miso),
       pinMOSI(mosi),
       pinSS(ss),
       pinRST(rst),
       pinDIO0(dio0),
-      pinBusy(busy),
-      radio(nullptr),
-      state(STATE_UNINITIALIZED),
-      receiveCallback(nullptr),
-      transmitCallback(nullptr)
+      pinBusy(busy)
 {
     // Set singleton instance for ISR access
     instance = this;
-
-    // Create RadioLib module instance (type depends on radio chip)
-#if defined(RADIO_SX1262)
-    radio = new SX1262(new Module(pinSS, pinDIO0, pinRST, pinBusy));
-#elif defined(RADIO_SX1268)
-    radio = new SX1268(new Module(pinSS, pinDIO0, pinRST, pinBusy));
-#else
-#error "No supported RADIO defined! Please define RADIO_SX1262, or RADIO_SX1268"
-#endif
 }
 
 bool LoRaManager::begin()
@@ -47,108 +58,82 @@ bool LoRaManager::begin()
     SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
 #endif
     // nRF52: SPI initialization happens elsewhere (in Arduino core)
-    for (int attempt = 1; attempt <= LoRaConstants::INIT_RETRY_COUNT; attempt++)
+
+    // Define the HW configuration between MCU and SX126x
+    // hwConfig is a global variable defined in the library
+#if defined(RADIO_SX1262)
+    hwConfig.CHIP_TYPE = SX1262_CHIP;
+#elif defined(RADIO_SX1268)
+    hwConfig.CHIP_TYPE = SX1268_CHIP;
+#else
+#error "No supported RADIO defined! Please define RADIO_SX1262, or RADIO_SX1268"
+#endif
+    hwConfig.PIN_LORA_RESET = pinRST;
+    hwConfig.PIN_LORA_NSS = pinSS;
+    hwConfig.PIN_LORA_SCLK = pinSCK;
+    hwConfig.PIN_LORA_MISO = pinMISO;
+    hwConfig.PIN_LORA_MOSI = pinMOSI;
+    hwConfig.PIN_LORA_DIO_1 = pinDIO0; // DIO1 is used for interrupts
+    hwConfig.PIN_LORA_BUSY = pinBusy;
+    hwConfig.RADIO_TXEN = -1; // Not used
+    hwConfig.RADIO_RXEN = -1; // Not used
+    hwConfig.USE_DIO2_ANT_SWITCH = true;
+    hwConfig.USE_DIO3_TCXO = true;
+    hwConfig.USE_DIO3_ANT_SWITCH = false;
+    hwConfig.USE_LDO = false;                    // Use DCDC
+    hwConfig.USE_RXEN_ANT_PWR = false;           // Not used
+    hwConfig.TCXO_CTRL_VOLTAGE = TCXO_CTRL_3_3V; // Default 3.3V
+
+    // Initialize the LoRa chip
+    if (lora_hardware_init(hwConfig) != 0)
     {
-        LOG_I(TAG, "Setup attempt %d/%d", attempt, LoRaConstants::INIT_RETRY_COUNT);
-
-        // Initialize radio based on chip type
-        int state;
-        // SX12XX: Basic initialization
-        state = radio->begin(
-            LoRaConstants::FREQUENCY,
-            LoRaConstants::BANDWIDTH,
-            LoRaConstants::SPREADING_FACTOR,
-            LoRaConstants::CODING_RATE,
-            LoRaConstants::SYNC_WORD,
-            LORA_TX_POWER,
-            LoRaConstants::PREAMBLE_LENGTH);
-
-        this->state = STATE_IDLE;
-        LOG_I(TAG, "LoRa setup successful");
-        LOG_I(TAG, "  Frequency: %.2f MHz", LoRaConstants::FREQUENCY);
-        LOG_I(TAG, "  Bandwidth: %.1f kHz", LoRaConstants::BANDWIDTH);
-        LOG_I(TAG, "  Spreading Factor: %d", LoRaConstants::SPREADING_FACTOR);
-        LOG_I(TAG, "  Coding Rate: 4/%d", LoRaConstants::CODING_RATE);
-        LOG_I(TAG, "  TX Power: %d dBm", LORA_TX_POWER);
-        LOG_I(TAG, "  Preamble Length: %d symbols", LoRaConstants::PREAMBLE_LENGTH);
-
-        if (state == RADIOLIB_ERR_NONE)
-        {
-            int res = radio->setCRC(true);
-            if (res != RADIOLIB_ERR_NONE)
-            {
-                LOG_E(TAG, "Failed to configure CRC, code %d", res);
-                return false;
-            }
-
-#if defined(RADIO_SX1262) || defined(RADIO_SX1268)
-            // Explicitly set TCXO control via DIO3 (redundant if begin() does it, but safe)
-            // This sends the SetDio3AsTcxoCtrl command
-            res = radio->setTCXO(LoRaConstants::TCXO_VOLTAGE);
-            if (res != RADIOLIB_ERR_NONE)
-            {
-                LOG_E(TAG, "Failed to configure TCXO, code %d", res);
-            }
-            else
-            {
-                LOG_I(TAG, "TCXO configured at %.1fV via DIO3", LoRaConstants::TCXO_VOLTAGE);
-            }
-
-            radio->setDio2AsRfSwitch(true);
-            LOG_I(TAG, "DIO2 configured as RF switch");
-
-#if defined(LORA_MAX_CURRENT)
-            // Set current limit for PA (important for SX126x family)
-            res = radio->setCurrentLimit(LORA_MAX_CURRENT);
-            if (res != RADIOLIB_ERR_NONE)
-            {
-                LOG_E(TAG, "Failed to set current limit, code %d", res);
-                return false;
-            }
-            else
-            {
-                LOG_I(TAG, "PA current limit set to %d mA", LORA_MAX_CURRENT);
-            }
-#endif
-
-#endif
-
-            return true;
-        }
-
-        LOG_E(TAG, "Setup failed, code %d", state);
-
-        if (attempt < LoRaConstants::INIT_RETRY_COUNT)
-        {
-            LOG_I(TAG, "Retrying in %d ms...", LoRaConstants::INIT_RETRY_DELAY_MS);
-            delay(LoRaConstants::INIT_RETRY_DELAY_MS);
-        }
+        LOG_E(TAG, "Failed to initialize LoRa hardware");
+        return false;
     }
 
-    LOG_I(TAG, "Setup failed permanently");
-    return false;
+    // Initialize the Radio callbacks
+    // RadioEvents is a global variable defined in the library
+    RadioEvents.TxDone = OnTxDone;
+    RadioEvents.RxDone = OnRxDone;
+    RadioEvents.TxTimeout = nullptr;
+    RadioEvents.RxTimeout = nullptr;
+    RadioEvents.RxError = nullptr;
+    RadioEvents.CadDone = nullptr;
+
+    // Initialize Radio
+    Radio.Init(&RadioEvents);
+
+    // Set radio parameters (LoRaConstants uses native SX126x format)
+    Radio.SetChannel(static_cast<uint32_t>(LoRaConstants::FREQUENCY * 1000000)); // Convert MHz to Hz
+    Radio.SetTxConfig(MODEM_LORA, LORA_TX_POWER, 0, LoRaConstants::BANDWIDTH,
+                      LoRaConstants::SPREADING_FACTOR, LoRaConstants::CODING_RATE,
+                      LoRaConstants::PREAMBLE_LENGTH, false, true, false, 0, false, 5000);
+    Radio.SetRxConfig(MODEM_LORA, LoRaConstants::BANDWIDTH, LoRaConstants::SPREADING_FACTOR,
+                      LoRaConstants::CODING_RATE, 0, LoRaConstants::PREAMBLE_LENGTH,
+                      0, false, 0, true, false, 0, false, true);
+
+    // Set sync word
+    Radio.SetCustomSyncWord(LoRaConstants::SYNC_WORD);
+    LOG_I(TAG, "  Sync Word: 0x%04X", LoRaConstants::SYNC_WORD);
+
+    this->state = STATE_IDLE;
+    LOG_I(TAG, "LoRa setup successful");
+    LOG_I(TAG, "  Frequency: %.2f MHz", LoRaConstants::FREQUENCY);
+    // Bandwidth: 0=125kHz, 1=250kHz, 2=500kHz
+    static const char* bwNames[] = {"125", "250", "500"};
+    LOG_I(TAG, "  Bandwidth: %s kHz", bwNames[LoRaConstants::BANDWIDTH]);
+    LOG_I(TAG, "  Spreading Factor: %d", LoRaConstants::SPREADING_FACTOR);
+    // Coding rate: 1=4/5, 2=4/6, 3=4/7, 4=4/8
+    LOG_I(TAG, "  Coding Rate: 4/%d", LoRaConstants::CODING_RATE + 4);
+    LOG_I(TAG, "  TX Power: %d dBm", LORA_TX_POWER);
+    LOG_I(TAG, "  Preamble Length: %d symbols", LoRaConstants::PREAMBLE_LENGTH);
+
+    return true;
 }
 
 bool LoRaManager::beginFromDeepSleep()
 {
     LOG_I(TAG, "Woke from LoRa packet - using long preamble strategy");
-
-    // IMPORTANT: Warm start packet recovery is NOT possible with RadioLib
-    //
-    // Why warm start cannot work:
-    // 1. After deep sleep, all RAM is cleared (radio object state is lost)
-    // 2. RadioLib requires full initialization (radio->begin()) to set up internal state
-    // 3. Methods like getPacketLength() and readData() depend on initialized RadioLib state
-    // 4. The SX126x/SX1278 hardware MAY still hold the packet, but RadioLib cannot access it
-    // 5. Calling radio->begin() resets the hardware and clears the packet buffer (Catch-22)
-    //
-    // Solution: Use LONG_PREAMBLE_LENGTH (~2.5s) on all transmitted messages
-    // - Long preamble wakes the receiver from deep sleep
-    // - Receiver has time to boot, initialize RadioLib, and enter RX mode
-    // - Receiver catches the packet payload after the preamble
-    // - No packet loss, no warm start needed
-    //
-    // The long preamble approach is how LoRa deep sleep is typically implemented.
 
     // Perform standard initialization
     return begin();
@@ -162,40 +147,28 @@ bool LoRaManager::startReceive(bool dutyCycle)
         return false;
     }
 
-    // Set receive interrupt handler
-    radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
-
-#if defined(RADIO_SX1262) || defined(RADIO_SX1268)
     if (dutyCycle)
     {
-        // SX1262/SX1268: Hardware-based duty cycle mode
-        LOG_I(TAG, "Starting duty cycle RX mode");
-        // Use configured preamble length to match sender
-        // Pass 0 for minSymbols to let RadioLib calculate it based on Spreading Factor
-        int rxState = radio->startReceiveDutyCycleAuto(
-            LoRaConstants::PREAMBLE_LENGTH,
-            0);
-        if (rxState != RADIOLIB_ERR_NONE)
-        {
-            LOG_E(TAG, "Failed to start duty cycle RX mode, code %d", rxState);
-            return false;
-        }
-        LOG_I(TAG, "Duty cycle receive mode started");
+        // Duty cycle mode - radio sleeps between RX windows
+        // SX126x SetRxDutyCycle uses 15.625µs steps
+        // To convert ms to steps: ms * 1000 / 15.625 = ms * 64
+        // RX window should be long enough to detect preamble
+        // With SF11/BW250: symbol time = 2^11/250000 = 8.192ms
+        // Need at least 4 symbols to detect preamble: ~33ms
+        // Using 50ms RX window = 50 * 64 = 3200 steps
+        // Sleep time: 500ms = 500 * 64 = 32000 steps
+        uint32_t rxSteps = 50 * 64;    // 50ms RX window
+        uint32_t sleepSteps = 500 * 64; // 500ms sleep
+        LOG_I(TAG, "Starting duty cycle RX mode (rx=%lums, sleep=%lums)",
+              rxSteps / 64, sleepSteps / 64);
+        Radio.SetRxDutyCycle(rxSteps, sleepSteps);
     }
     else
     {
-#endif
-        // Standard continuous receive mode (all radios)
-        int rxState = radio->startReceive();
-        if (rxState != RADIOLIB_ERR_NONE)
-        {
-            LOG_E(TAG, "Failed to start continuous receive mode, code %d", rxState);
-            return false;
-        }
-        LOG_I(TAG, "Continuous receive mode started");
-#if defined(RADIO_SX1262) || defined(RADIO_SX1268)
+        // Standard continuous receive mode
+        LOG_I(TAG, "Starting continuous receive mode");
+        Radio.Rx(0); // 0 = continuous RX
     }
-#endif
 
     state = STATE_IDLE;
     return true;
@@ -219,42 +192,26 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len, bool useLongPre
     if (useLongPreamble)
     {
         // Set long preamble to wake up sleeping receivers
-        // No explicit WakeUp message needed - the preamble itself acts as wake-up signal
-        // Receiver will wake up on preamble detection and stay awake to receive payload
         LOG_I(TAG, "Using long preamble (%d symbols) for deep sleep wake-up", LoRaConstants::LONG_PREAMBLE_LENGTH);
-        radio->setPreambleLength(LoRaConstants::LONG_PREAMBLE_LENGTH);
+        Radio.SetTxConfig(MODEM_LORA, LORA_TX_POWER, 0, LoRaConstants::BANDWIDTH,
+                          LoRaConstants::SPREADING_FACTOR, LoRaConstants::CODING_RATE,
+                          LoRaConstants::LONG_PREAMBLE_LENGTH, false, true, false, 0, false, 5000);
     }
     else
     {
-        // Use standard preamble for normal transmission (e.g. ACKs)
-        LOG_D(TAG, "Using standard preamble (%d symbols)", LoRaConstants::PREAMBLE_LENGTH);
-        radio->setPreambleLength(LoRaConstants::PREAMBLE_LENGTH);
+        // Use standard preamble for normal transmission
+        LOG_I(TAG, "Using standard preamble (%d symbols)", LoRaConstants::PREAMBLE_LENGTH);
+        Radio.SetTxConfig(MODEM_LORA, LORA_TX_POWER, 0, LoRaConstants::BANDWIDTH,
+                          LoRaConstants::SPREADING_FACTOR, LoRaConstants::CODING_RATE,
+                          LoRaConstants::PREAMBLE_LENGTH, false, true, false, 0, false, 5000);
     }
 
-    // Send actual message (non-blocking)
+    // Send message
     LOG_I(TAG, "Starting transmission of %d bytes", len);
-
-    // Switch to transmit mode with interrupt
-    radio->clearPacketReceivedAction();
-    radio->setPacketSentAction(LoRaManager::onTransmitISR);
-
-    // Start non-blocking transmission
     state = STATE_TRANSMITTING;
-    int txState = radio->startTransmit(const_cast<uint8_t *>(data), len);
+    Radio.Send((uint8_t *)data, len);
 
-    if (txState != RADIOLIB_ERR_NONE)
-    {
-        LOG_E(TAG, "Failed to start transmission, code %d", txState);
-
-        // Restore standard preamble length before returning to RX
-        radio->setPreambleLength(LoRaConstants::PREAMBLE_LENGTH);
-
-        startReceive();
-        state = STATE_IDLE;
-        return false;
-    }
-
-    LOG_I(TAG, "Transmission started (non-blocking)");
+    LOG_I(TAG, "Transmission started");
     return true;
 }
 
@@ -270,92 +227,69 @@ void LoRaManager::setTransmitCallback(LoRaTransmitCallback callback)
 
 void LoRaManager::process()
 {
-    // Check for received packets
-    if (state == STATE_PACKET_RECEIVED)
+    // Process pending RX packet (set by OnRxDone callback)
+    if (rxPending)
     {
-        LOG_I(TAG, "RX packet detected, processing");
+        rxPending = false;
 
-        // Read packet data
-        LoRaPacket packet;
-        packet.len = radio->getPacketLength();
-        int rxState = radio->readData(packet.buffer, packet.len);
+        // Store packet stats
+        lastRSSI = rxRssi;
+        lastSNR = rxSnr;
 
-        if (rxState == RADIOLIB_ERR_NONE)
+        LOG_I(TAG, "Packet received (%d bytes, RSSI: %d dBm, SNR: %d dB)",
+              rxSize, rxRssi, rxSnr);
+
+        if (receiveCallback)
         {
-            packet.rssi = radio->getRSSI();
-            packet.snr = radio->getSNR();
-
-            LOG_I(TAG, "Packet received (%d bytes, RSSI: %d dBm, SNR: %.1f dB)",
-                  packet.len, packet.rssi, packet.snr);
-
-            if (receiveCallback)
-            {
-                receiveCallback(packet);
-            }
-        }
-        else if (rxState == RADIOLIB_ERR_CRC_MISMATCH)
-        {
-            LOG_I(TAG, "CRC error");
-        }
-        else
-        {
-            LOG_E(TAG, "Read failed, code %d", rxState);
+            LoRaPacket packet;
+            packet.len = rxSize;
+            memcpy(packet.buffer, rxBuffer, rxSize);
+            packet.rssi = rxRssi;
+            packet.snr = rxSnr;
+            receiveCallback(packet);
         }
 
-        // Restart RX mode if callback didn't start a transmission
-        if (state == STATE_PACKET_RECEIVED)
+        // Restart RX mode (use continuous for reliability)
+        if (state != STATE_TRANSMITTING)
         {
-            // Use duty cycle mode by default for power savings (SX126x)
-            startReceive(true);
+            startReceive(false); // false = continuous RX
             state = STATE_IDLE;
-            LOG_I(TAG, "RX packet processing complete, receive mode restarted");
         }
-        else if (state == STATE_TRANSMITTING)
-        {
-            LOG_I(TAG, "RX packet processing complete, transmission queued");
-        }
-        return;
     }
 
-    // Check for completed transmission
-    if (state == STATE_PACKET_SENT)
+    // Process pending TX complete (set by OnTxDone callback)
+    if (txPending)
     {
+        txPending = false;
+
         LOG_I(TAG, "TX complete");
 
-        // Invoke transmit callback
         if (transmitCallback)
         {
             transmitCallback(true);
         }
 
-        // Restore standard preamble length for RX mode
-        // This is critical because we might have changed it for TX
-        radio->setPreambleLength(LoRaConstants::PREAMBLE_LENGTH);
-
         // Allow radio hardware to settle before switching to RX mode
-        // This prevents timing issues with rapid TX->RX transitions
         delay(LoRaConstants::RX_SETTLE_TIME_MS);
 
-        // Restart RX mode for all platforms (preferring duty cycle where supported)
-        startReceive(true);
+        // Restart RX mode (use continuous for reliability)
+        startReceive(false); // false = continuous RX
         state = STATE_IDLE;
-        LOG_I(TAG, "Now in RX mode");
-        return;
     }
 }
 
 int LoRaManager::getRSSI() const
 {
-    if (state == STATE_UNINITIALIZED || !radio)
+    if (state == STATE_UNINITIALIZED)
         return 0;
-    return radio->getRSSI();
+    return lastRSSI;
 }
 
 float LoRaManager::getSNR() const
 {
-    if (state == STATE_UNINITIALIZED || !radio)
+    if (state == STATE_UNINITIALIZED)
         return 0.0f;
-    return radio->getSNR();
+    return lastSNR;
 }
 
 // ISR handlers
@@ -373,4 +307,24 @@ void LORA_ISR_ATTR LoRaManager::onTransmitISR()
     {
         instance->state = STATE_PACKET_SENT;
     }
+}
+
+// Callback wrappers for the new library
+// NOTE: These run from a background task on ESP32/nRF52, not from ISR
+void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
+{
+    // Store packet data for processing in main loop
+    if (size <= sizeof(rxBuffer))
+    {
+        memcpy(rxBuffer, payload, size);
+        rxSize = size;
+        rxRssi = rssi;
+        rxSnr = snr;
+        rxPending = true;
+    }
+}
+
+void OnTxDone(void)
+{
+    txPending = true;
 }
