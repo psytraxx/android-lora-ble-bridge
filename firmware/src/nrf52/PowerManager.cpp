@@ -215,14 +215,25 @@ void PowerManager::enterDeepSleep()
     // Use g_ADigitalPinMap to map Arduino pin numbers to physical pins.
     uint32_t pinButton = g_ADigitalPinMap[WAKE_BUTTON];
     uint32_t pinLoRa = g_ADigitalPinMap[LORA_DIO0];
+    uint32_t pinReset = g_ADigitalPinMap[LORA_RST];
+    uint32_t pinNSS = g_ADigitalPinMap[LORA_SS];
 
     // Configure LoRa DIO0 interrupt pin as wake-up source (Wake on HIGH)
+    // Must NOT be latched - needs to float to receive wake signal
     nrf_gpio_cfg_sense_input(pinLoRa, NRF_GPIO_PIN_PULLDOWN, NRF_GPIO_PIN_SENSE_HIGH);
     LOG_I(TAG, "Wake source: LoRa DIO0 (Pin %d) - wake on HIGH", pinLoRa);
 
     // Configure wake button as wake-up source (Wake on LOW)
     nrf_gpio_cfg_sense_input(pinButton, NRF_GPIO_PIN_PULLUP, NRF_GPIO_PIN_SENSE_LOW);
     LOG_I(TAG, "Wake source: Wake button (Pin %d) - wake on LOW", pinButton);
+
+    // Configure LoRa RESET pin with pullup to keep radio active during sleep
+    nrf_gpio_cfg_input(pinReset, NRF_GPIO_PIN_PULLUP);
+    LOG_I(TAG, "LoRa RESET (Pin %d) configured with pullup", pinReset);
+
+    // Configure LoRa NSS/SS pin with pullup to keep chip deselected during sleep
+    nrf_gpio_cfg_input(pinNSS, NRF_GPIO_PIN_PULLUP);
+    LOG_I(TAG, "LoRa NSS (Pin %d) configured with pullup", pinNSS);
 
     // Disable Serial to save power
     Serial.end();

@@ -174,7 +174,36 @@ void setup()
     LOG_I(TAG, "Platform: %s", PLATFORM_NAME);
     LOG_I(TAG, "Device: %s", DEVICE_NAME);
 
-    // Platform-specific initialization
+    // CRITICAL: Check for LoRa wakeup FIRST and process immediately
+    // The radio IRQ times out quickly, so we must handle it before anything else
+    bool isLoRaWake = Platform::isLoRaWakeup();
+
+    // Initialize LoRa manager early (required for warm start)
+    loraManager = new LoRaManager(
+        LORA_SCK,
+        LORA_MISO,
+        LORA_MOSI,
+        LORA_SS,
+        LORA_RST,
+        LORA_DIO0,
+        LORA_BUSY);
+
+    bool warmStart = false;
+    if (isLoRaWake)
+    {
+        // Process LoRa IRQ immediately - don't let it timeout!
+        LOG_I(TAG, "LoRa wakeup detected - processing IRQ immediately");
+        warmStart = loraManager->beginFromDeepSleep();
+
+        // Set up callbacks right away so the packet can be processed
+        loraManager->setReceiveCallback(onLoRaReceived);
+        loraManager->setTransmitCallback(onLoRaTransmitted);
+
+        // Process any pending packet from the IRQ
+        loraManager->process();
+    }
+
+    // Now continue with normal initialization
     Platform::initializeWatchdog();
     Platform::initializePower();
 
@@ -202,26 +231,7 @@ void setup()
     bleManager->setConnectionCallbacks(onBleConnected, onBleDisconnected);
     bleManager->startAdvertising();
 
-    // Initialize LoRa manager (heap allocation required due to runtime pin configuration)
-    // TODO: Consider static allocation with placement new if memory is constrained
-    loraManager = new LoRaManager(
-        LORA_SCK,
-        LORA_MISO,
-        LORA_MOSI,
-        LORA_SS,
-        LORA_RST,
-        LORA_DIO0,
-        LORA_BUSY);
-
-    // Check if we woke up from LoRa and attempt warm start
-    // This prevents resetting the radio and losing the packet that woke us up
-    bool warmStart = false;
-    if (Platform::isLoRaWakeup())
-    {
-        LOG_I(TAG, "LoRa wakeup detected - attempting warm start");
-        warmStart = loraManager->beginFromDeepSleep();
-    }
-
+    // Complete LoRa initialization if not already done via warm start
     if (!warmStart)
     {
         if (!loraManager->begin())
@@ -230,10 +240,9 @@ void setup()
             while (1)
                 ;
         }
+        loraManager->setReceiveCallback(onLoRaReceived);
+        loraManager->setTransmitCallback(onLoRaTransmitted);
     }
-
-    loraManager->setReceiveCallback(onLoRaReceived);
-    loraManager->setTransmitCallback(onLoRaTransmitted);
 
     // Start receive in continuous mode for reliability
     // TODO: Switch to duty cycle mode once reliability is confirmed

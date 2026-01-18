@@ -371,29 +371,32 @@ void PowerManager::enterDeepSleep()
 
     // Flush serial output to ensure logs are sent
     Serial.flush();
-
     delay(100); // Short delay to allow flush
 
     // Disable external peripherals to save power
     disableExternalPeripherals();
 
     // Shutdown I2C to prevent leakage
-    // Heltec V3 I2C Pins: SDA=17, SCL=18 (Default) or custom
-    // We'll just call Wire.end() which releases pins
     Wire.end();
     pinMode(SDA, INPUT);
     pinMode(SCL, INPUT);
     LOG_I(TAG, "I2C bus disabled");
 
-    // Secure LoRa Chip Select (HIGH) to prevent radio from waking up SPI
-    pinMode(LORA_SS, OUTPUT);
-    digitalWrite(LORA_SS, HIGH);
-    gpio_hold_en((gpio_num_t)LORA_SS);
-    LOG_I(TAG, "LoRa SS locked HIGH");
+    // Configure RTC GPIOs for deep sleep (based on SX126x-Arduino example)
+    // DIO0/DIO1 needs pulldown but must NOT be held - it needs to go HIGH to wake
+    rtc_gpio_pulldown_en((gpio_num_t)LORA_DIO0);
+    rtc_gpio_pullup_dis((gpio_num_t)LORA_DIO0);
+    LOG_I(TAG, "LoRa DIO0 configured with pulldown (not held)");
 
-    // Secure LoRa DIO0 (Pull-down) to prevent floating interrupts
-    pinMode(LORA_DIO0, INPUT_PULLDOWN);
-    gpio_hold_en((gpio_num_t)LORA_DIO0);
+    // RESET needs pullup to keep radio active
+    rtc_gpio_pullup_en((gpio_num_t)LORA_RST);
+    rtc_gpio_pulldown_dis((gpio_num_t)LORA_RST);
+    LOG_I(TAG, "LoRa RESET configured with pullup");
+
+    // NSS/SS needs pullup to keep chip deselected
+    rtc_gpio_pullup_en((gpio_num_t)LORA_SS);
+    rtc_gpio_pulldown_dis((gpio_num_t)LORA_SS);
+    LOG_I(TAG, "LoRa SS configured with pullup");
 
     // Disable Serial to save power
     Serial.end();

@@ -209,6 +209,12 @@ private:
     int pinRST;
     int pinDIO0;
     int pinBusy;
+
+    // Private helper methods for initialization
+    void setupHwConfig();
+    void setupRadioCallbacks();
+    void configureRadioParams();
+    void logRadioConfig();
 };
 
 #endif // LORA_MANAGER_H

@@ -3,6 +3,7 @@
 #include "common/FirmwareConfig.h"
 #include <Arduino.h>
 #include <SPI.h>
+#include <radio/sx126x/sx126x.h> // For SX126xSetDioIrqParams and IRQ defines
 
 static const char *TAG = "LoRa";
 
@@ -49,18 +50,9 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
     instance = this;
 }
 
-bool LoRaManager::begin()
+// Private helper to set up hwConfig struct
+void LoRaManager::setupHwConfig()
 {
-    LOG_I(TAG, "Initializing LoRa radio");
-
-#if defined(ARDUINO_ARCH_ESP32)
-    // ESP32: Initialize SPI with custom pins
-    SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
-#endif
-    // nRF52: SPI initialization happens elsewhere (in Arduino core)
-
-    // Define the HW configuration between MCU and SX126x
-    // hwConfig is a global variable defined in the library
 #if defined(RADIO_SX1262)
     hwConfig.CHIP_TYPE = SX1262_CHIP;
 #elif defined(RADIO_SX1268)
@@ -80,63 +72,113 @@ bool LoRaManager::begin()
     hwConfig.USE_DIO2_ANT_SWITCH = true;
     hwConfig.USE_DIO3_TCXO = true;
     hwConfig.USE_DIO3_ANT_SWITCH = false;
-    hwConfig.USE_LDO = false;                    // Use DCDC
-    hwConfig.USE_RXEN_ANT_PWR = false;           // Not used
-    hwConfig.TCXO_CTRL_VOLTAGE = TCXO_CTRL_3_3V; // Default 3.3V
+    hwConfig.USE_LDO = false;          // Use DCDC
+    hwConfig.USE_RXEN_ANT_PWR = false; // Not used
+    hwConfig.TCXO_CTRL_VOLTAGE = TCXO_CTRL_3_3V;
+}
 
-    // Initialize the LoRa chip
-    if (lora_hardware_init(hwConfig) != 0)
-    {
-        LOG_E(TAG, "Failed to initialize LoRa hardware");
-        return false;
-    }
-
-    // Initialize the Radio callbacks
-    // RadioEvents is a global variable defined in the library
+// Private helper to set up RadioEvents callbacks
+void LoRaManager::setupRadioCallbacks()
+{
     RadioEvents.TxDone = OnTxDone;
     RadioEvents.RxDone = OnRxDone;
     RadioEvents.TxTimeout = nullptr;
     RadioEvents.RxTimeout = nullptr;
     RadioEvents.RxError = nullptr;
     RadioEvents.CadDone = nullptr;
+}
 
-    // Initialize Radio
-    Radio.Init(&RadioEvents);
-
-    // Set radio parameters (LoRaConstants uses native SX126x format)
-    Radio.SetChannel(static_cast<uint32_t>(LoRaConstants::FREQUENCY * 1000000)); // Convert MHz to Hz
+// Private helper to configure radio parameters
+void LoRaManager::configureRadioParams()
+{
+    Radio.SetChannel(static_cast<uint32_t>(LoRaConstants::FREQUENCY * 1000000));
     Radio.SetTxConfig(MODEM_LORA, LORA_TX_POWER, 0, LoRaConstants::BANDWIDTH,
                       LoRaConstants::SPREADING_FACTOR, LoRaConstants::CODING_RATE,
                       LoRaConstants::PREAMBLE_LENGTH, false, true, false, 0, false, 5000);
     Radio.SetRxConfig(MODEM_LORA, LoRaConstants::BANDWIDTH, LoRaConstants::SPREADING_FACTOR,
                       LoRaConstants::CODING_RATE, 0, LoRaConstants::PREAMBLE_LENGTH,
                       0, false, 0, true, false, 0, false, true);
-
-    // Set sync word
     Radio.SetCustomSyncWord(LoRaConstants::SYNC_WORD);
-    LOG_I(TAG, "  Sync Word: 0x%04X", LoRaConstants::SYNC_WORD);
+}
 
-    this->state = STATE_IDLE;
+// Private helper to log radio configuration
+void LoRaManager::logRadioConfig()
+{
     LOG_I(TAG, "LoRa setup successful");
     LOG_I(TAG, "  Frequency: %.2f MHz", LoRaConstants::FREQUENCY);
-    // Bandwidth: 0=125kHz, 1=250kHz, 2=500kHz
-    static const char* bwNames[] = {"125", "250", "500"};
+    static const char *bwNames[] = {"125", "250", "500"};
     LOG_I(TAG, "  Bandwidth: %s kHz", bwNames[LoRaConstants::BANDWIDTH]);
     LOG_I(TAG, "  Spreading Factor: %d", LoRaConstants::SPREADING_FACTOR);
-    // Coding rate: 1=4/5, 2=4/6, 3=4/7, 4=4/8
     LOG_I(TAG, "  Coding Rate: 4/%d", LoRaConstants::CODING_RATE + 4);
     LOG_I(TAG, "  TX Power: %d dBm", LORA_TX_POWER);
     LOG_I(TAG, "  Preamble Length: %d symbols", LoRaConstants::PREAMBLE_LENGTH);
+    LOG_I(TAG, "  Sync Word: 0x%04X", LoRaConstants::SYNC_WORD);
+}
 
+bool LoRaManager::begin()
+{
+    LOG_I(TAG, "Initializing LoRa radio (cold start)");
+
+#if defined(ARDUINO_ARCH_ESP32)
+    // ESP32: Initialize SPI with custom pins
+    SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
+#endif
+
+    // Set up hardware configuration
+    setupHwConfig();
+
+    // Full hardware initialization
+    if (lora_hardware_init(hwConfig) != 0)
+    {
+        LOG_E(TAG, "Failed to initialize LoRa hardware");
+        return false;
+    }
+
+    // Set up callbacks and initialize radio
+    setupRadioCallbacks();
+    Radio.Init(&RadioEvents);
+
+    // Configure radio parameters
+    configureRadioParams();
+
+    this->state = STATE_IDLE;
+    logRadioConfig();
     return true;
 }
 
 bool LoRaManager::beginFromDeepSleep()
 {
-    LOG_I(TAG, "Woke from LoRa packet - using long preamble strategy");
+    LOG_I(TAG, "Initializing LoRa radio (warm start from deep sleep)");
 
-    // Perform standard initialization
-    return begin();
+#if defined(ARDUINO_ARCH_ESP32)
+    // ESP32: Initialize SPI with custom pins
+    SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
+#endif
+
+    // Set up hardware configuration
+    setupHwConfig();
+
+    // Warm start - re-initialize without full reset
+    // This preserves the SX126x state and pending IRQ
+    if (lora_hardware_re_init(hwConfig) != 0)
+    {
+        LOG_E(TAG, "Failed to re-initialize LoRa hardware");
+        // Fall back to full initialization
+        return begin();
+    }
+
+    // Set up callbacks and re-initialize radio
+    setupRadioCallbacks();
+    Radio.ReInit(&RadioEvents);
+
+    // Process pending IRQ from wake-up packet
+    // This will trigger OnRxDone callback if a packet woke us up
+    LOG_I(TAG, "Processing pending IRQ from deep sleep wake-up");
+    Radio.IrqProcessAfterDeepSleep();
+
+    this->state = STATE_IDLE;
+    logRadioConfig();
+    return true;
 }
 
 bool LoRaManager::startReceive(bool dutyCycle)
@@ -149,7 +191,19 @@ bool LoRaManager::startReceive(bool dutyCycle)
 
     if (dutyCycle)
     {
-        // Duty cycle mode - radio sleeps between RX windows
+        // Duty cycle mode for deep sleep - configure radio to wake MCU on packet
+        // Based on SX126x-Arduino DeepSleep example
+
+        // Put radio in standby first
+        Radio.Standby();
+
+        // Configure IRQ routing: RX_DONE and TIMEOUT go to DIO1 (which triggers MCU wake)
+        SX126xSetDioIrqParams(
+            IRQ_RX_DONE | IRQ_RX_TX_TIMEOUT,  // IRQ mask
+            IRQ_RX_DONE | IRQ_RX_TX_TIMEOUT,  // DIO1 mask (wake source)
+            IRQ_RADIO_NONE,                    // DIO2 mask
+            IRQ_RADIO_NONE);                   // DIO3 mask
+
         // SX126x SetRxDutyCycle uses 15.625µs steps
         // To convert ms to steps: ms * 1000 / 15.625 = ms * 64
         // RX window should be long enough to detect preamble
@@ -157,7 +211,7 @@ bool LoRaManager::startReceive(bool dutyCycle)
         // Need at least 4 symbols to detect preamble: ~33ms
         // Using 50ms RX window = 50 * 64 = 3200 steps
         // Sleep time: 500ms = 500 * 64 = 32000 steps
-        uint32_t rxSteps = 50 * 64;    // 50ms RX window
+        uint32_t rxSteps = 50 * 64;     // 50ms RX window
         uint32_t sleepSteps = 500 * 64; // 500ms sleep
         LOG_I(TAG, "Starting duty cycle RX mode (rx=%lums, sleep=%lums)",
               rxSteps / 64, sleepSteps / 64);
@@ -313,6 +367,8 @@ void LORA_ISR_ATTR LoRaManager::onTransmitISR()
 // NOTE: These run from a background task on ESP32/nRF52, not from ISR
 void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
 {
+    LOG_I("LoRa", "OnRxDone callback: %d bytes, RSSI=%d, SNR=%d", size, rssi, snr);
+
     // Store packet data for processing in main loop
     if (size <= sizeof(rxBuffer))
     {
@@ -322,9 +378,14 @@ void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
         rxSnr = snr;
         rxPending = true;
     }
+    else
+    {
+        LOG_E("LoRa", "Packet too large: %d > %d", size, sizeof(rxBuffer));
+    }
 }
 
 void OnTxDone(void)
 {
+    LOG_I("LoRa", "OnTxDone callback");
     txPending = true;
 }
