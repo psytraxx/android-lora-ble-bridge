@@ -22,6 +22,8 @@ export enum ConnectionState {
   DISCONNECTED = 'DISCONNECTED',
   SCANNING = 'SCANNING',
   CONNECTING = 'CONNECTING',
+  DISCOVERING = 'DISCOVERING',
+  ENABLING_NOTIFICATIONS = 'ENABLING_NOTIFICATIONS',
   CONNECTED = 'CONNECTED',
   ERROR = 'ERROR'
 }
@@ -110,19 +112,29 @@ export class BleService {
         optionalServices: [BATTERY_SERVICE_UUID]
       });
 
-      console.log('Device selected:', this.device.name);
+      const selectedDevice = this.device;
+      if (!selectedDevice) {
+        throw new Error('No device selected');
+      }
+
+      console.log('Device selected:', selectedDevice.name);
 
       // Listen for disconnection
-      this.device.addEventListener('gattserverdisconnected', this.onDisconnected);
+      selectedDevice.addEventListener('gattserverdisconnected', this.onDisconnected);
 
       this.setState(ConnectionState.CONNECTING);
 
+      this.batteryLevel = null;
+      this.emitBatteryLevel(null);
+
       // Connect to GATT server
-      if (!this.device.gatt) {
+      if (!selectedDevice.gatt) {
         throw new Error('GATT server not available on device');
       }
-      this.server = await this.device.gatt.connect();
+      this.server = await selectedDevice.gatt.connect();
       console.log('GATT server connected');
+
+      this.setState(ConnectionState.DISCOVERING);
 
       // Discover LoRa service
       const service = await this.server.getPrimaryService(SERVICE_UUID);
@@ -133,34 +145,19 @@ export class BleService {
       this.rxCharacteristic = await service.getCharacteristic(RX_CHAR_UUID);
       console.log('Characteristics discovered');
 
+      this.setState(ConnectionState.ENABLING_NOTIFICATIONS);
+
       // Enable notifications on TX characteristic
       await this.txCharacteristic.startNotifications();
       this.txCharacteristic.addEventListener('characteristicvaluechanged', this.onNotification);
       console.log('Notifications enabled');
 
-      // Try to get battery service (optional - don't fail if not present)
-      try {
-        const batteryService = await this.server.getPrimaryService(BATTERY_SERVICE_UUID);
-        this.batteryCharacteristic = await batteryService.getCharacteristic(BATTERY_LEVEL_UUID);
-
-        // Read initial battery level
-        const value = await this.batteryCharacteristic.readValue();
-        this.handleBatteryUpdate(value);
-
-        // Enable notifications for battery updates
-        await this.batteryCharacteristic.startNotifications();
-        this.batteryCharacteristic.addEventListener(
-          'characteristicvaluechanged',
-          this.onBatteryNotification
-        );
-        console.log('Battery service connected');
-      } catch (error) {
-        console.log('Battery service not available:', error);
-        // Continue without battery monitoring
-      }
 
       this.setState(ConnectionState.CONNECTED);
       this.resetDisconnectTimeout();
+
+      // Initialize battery monitoring in the background (non-blocking)
+      void this.initBatteryService();
     } catch (error) {
       console.error('Connection failed:', error);
       this.setState(ConnectionState.ERROR);
@@ -357,6 +354,8 @@ export class BleService {
    * Private: Cleanup resources
    */
   private cleanup(): void {
+    const canStopNotifications = this.server?.connected === true;
+
     if (this.disconnectTimeout !== null) {
       window.clearTimeout(this.disconnectTimeout);
       this.disconnectTimeout = null;
@@ -368,7 +367,13 @@ export class BleService {
           'characteristicvaluechanged',
           this.onNotification
         );
-        this.txCharacteristic.stopNotifications();
+        if (canStopNotifications) {
+          void this.txCharacteristic
+            .stopNotifications()
+            .catch((error) => {
+              console.warn('Error stopping notifications:', error);
+            });
+        }
       } catch (error) {
         console.warn('Error stopping notifications:', error);
       }
@@ -381,7 +386,13 @@ export class BleService {
           'characteristicvaluechanged',
           this.onBatteryNotification
         );
-        this.batteryCharacteristic.stopNotifications();
+        if (canStopNotifications) {
+          void this.batteryCharacteristic
+            .stopNotifications()
+            .catch((error) => {
+              console.warn('Error stopping battery notifications:', error);
+            });
+        }
       } catch (error) {
         console.warn('Error stopping battery notifications:', error);
       }
@@ -396,6 +407,33 @@ export class BleService {
     if (this.device) {
       this.device.removeEventListener('gattserverdisconnected', this.onDisconnected);
       this.device = null;
+    }
+  }
+
+  /**
+   * Private: Battery service initialization (non-blocking)
+   */
+  private async initBatteryService(): Promise<void> {
+    if (!this.server) return;
+
+    try {
+      const batteryService = await this.server.getPrimaryService(BATTERY_SERVICE_UUID);
+      this.batteryCharacteristic = await batteryService.getCharacteristic(BATTERY_LEVEL_UUID);
+
+      // Read initial battery level
+      const value = await this.batteryCharacteristic.readValue();
+      this.handleBatteryUpdate(value);
+
+      // Enable notifications for battery updates
+      await this.batteryCharacteristic.startNotifications();
+      this.batteryCharacteristic.addEventListener(
+        'characteristicvaluechanged',
+        this.onBatteryNotification
+      );
+      console.log('Battery service connected');
+    } catch (error) {
+      console.log('Battery service not available:', error);
+      // Continue without battery monitoring
     }
   }
 }
