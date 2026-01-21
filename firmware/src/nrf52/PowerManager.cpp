@@ -13,14 +13,14 @@ static const char *TAG = "Power";
 
 bool PowerManager::configurePowerManagement()
 {
-    // Configure ADC for battery monitoring
-    // Based on Adafruit nRF52 reference implementation
-    #if defined(BATTERY_SENSE_RESOLUTION_BITS)
-        analogReadResolution(BATTERY_SENSE_RESOLUTION_BITS);
-        LOG_I(TAG, "ADC resolution set to %d bits", BATTERY_SENSE_RESOLUTION_BITS);
-    #else
-        analogReadResolution(PowerConstants::ADC_RESOLUTION_BITS);
-    #endif
+// Configure ADC for battery monitoring
+// Based on Adafruit nRF52 reference implementation
+#if defined(BATTERY_SENSE_RESOLUTION_BITS)
+    analogReadResolution(BATTERY_SENSE_RESOLUTION_BITS);
+    LOG_I(TAG, "ADC resolution set to %d bits", BATTERY_SENSE_RESOLUTION_BITS);
+#else
+    analogReadResolution(PowerConstants::ADC_RESOLUTION_BITS);
+#endif
     // Set analog reference to 3.0V (0.6V ref × 5 = 3.0V max range)
     // This provides better accuracy for LiPo batteries (3.0V-4.2V range after voltage divider)
     analogReference(AR_INTERNAL_3_0);
@@ -30,11 +30,11 @@ bool PowerManager::configurePowerManagement()
     // Enable only when reading battery voltage
     // Based on Meshtastic: ADC_CTRL_ENABLED defines the active state
     pinMode(BATTERY_ADC_CTRL, OUTPUT);
-    #if defined(BATTERY_ADC_CTRL_ENABLED)
-        digitalWrite(BATTERY_ADC_CTRL, !BATTERY_ADC_CTRL_ENABLED); // Opposite of enabled = disabled
-    #else
-        digitalWrite(BATTERY_ADC_CTRL, HIGH); // Fallback: HIGH = disabled
-    #endif
+#if defined(BATTERY_ADC_CTRL_ENABLED)
+    digitalWrite(BATTERY_ADC_CTRL, !BATTERY_ADC_CTRL_ENABLED); // Opposite of enabled = disabled
+#else
+    digitalWrite(BATTERY_ADC_CTRL, HIGH); // Fallback: HIGH = disabled
+#endif
     LOG_I(TAG, "Battery ADC control pin (GPIO %d) initialized to disabled", BATTERY_ADC_CTRL);
 #endif
 
@@ -69,11 +69,11 @@ void PowerManager::batteryAdcEnable()
     // Enable battery voltage divider
     // Based on Meshtastic: Use ADC_CTRL_ENABLED value
     pinMode(BATTERY_ADC_CTRL, OUTPUT);
-    #if defined(BATTERY_ADC_CTRL_ENABLED)
-        digitalWrite(BATTERY_ADC_CTRL, BATTERY_ADC_CTRL_ENABLED);
-    #else
-        digitalWrite(BATTERY_ADC_CTRL, LOW); // Fallback: LOW = enabled
-    #endif
+#if defined(BATTERY_ADC_CTRL_ENABLED)
+    digitalWrite(BATTERY_ADC_CTRL, BATTERY_ADC_CTRL_ENABLED);
+#else
+    digitalWrite(BATTERY_ADC_CTRL, LOW); // Fallback: LOW = enabled
+#endif
     delay(10); // Wait for voltage to stabilize
 #endif
 }
@@ -81,13 +81,13 @@ void PowerManager::batteryAdcEnable()
 void PowerManager::batteryAdcDisable()
 {
 #ifdef BATTERY_ADC_CTRL
-    // Disable battery voltage divider to save power
-    // Based on Meshtastic: Use opposite of ADC_CTRL_ENABLED
-    #if defined(BATTERY_ADC_CTRL_ENABLED)
-        digitalWrite(BATTERY_ADC_CTRL, !BATTERY_ADC_CTRL_ENABLED);
-    #else
-        digitalWrite(BATTERY_ADC_CTRL, HIGH); // Fallback: HIGH = disabled
-    #endif
+// Disable battery voltage divider to save power
+// Based on Meshtastic: Use opposite of ADC_CTRL_ENABLED
+#if defined(BATTERY_ADC_CTRL_ENABLED)
+    digitalWrite(BATTERY_ADC_CTRL, !BATTERY_ADC_CTRL_ENABLED);
+#else
+    digitalWrite(BATTERY_ADC_CTRL, HIGH); // Fallback: HIGH = disabled
+#endif
 #endif
 }
 
@@ -150,13 +150,13 @@ uint16_t PowerManager::readBatteryVoltage()
     // Disable battery ADC to save power (set VBAT_ENABLE HIGH)
     batteryAdcDisable();
 
-    // Convert ADC value to voltage in millivolts
-    // Based on Adafruit nRF52 reference implementation
-    #if defined(BATTERY_SENSE_RESOLUTION_BITS)
-        const int adc_max_value = (1 << BATTERY_SENSE_RESOLUTION_BITS) - 1;
-    #else
-        const int adc_max_value = 4095; // 12-bit default
-    #endif
+// Convert ADC value to voltage in millivolts
+// Based on Adafruit nRF52 reference implementation
+#if defined(BATTERY_SENSE_RESOLUTION_BITS)
+    const int adc_max_value = (1 << BATTERY_SENSE_RESOLUTION_BITS) - 1;
+#else
+    const int adc_max_value = 4095; // 12-bit default
+#endif
 
     // nRF52840 with AR_INTERNAL_3_0: 0.6V internal reference × 5 = 3.0V max range
     // Formula: voltage_mv = raw_adc × VBAT_DIVIDER_COMP × (ADC_MAX_VOLTAGE / (2^resolution))
@@ -281,6 +281,39 @@ void PowerManager::printWakeupReason()
     }
 
 #else
+
     LOG_W(TAG, "Wakeup reason reporting only available on nRF52");
+
 #endif
+}
+
+bool PowerManager::isLoraWakeUp()
+
+{
+
+#ifdef ARDUINO_ARCH_NRF52
+
+    // Check if we woke up from System OFF
+
+    if (NRF_POWER->RESETREAS & POWER_RESETREAS_OFF_Msk)
+
+    {
+
+        // Check LoRa DIO0 (High = Wake)
+
+        // We configure as INPUT (floating) to read the state driven by the radio
+
+        pinMode(LORA_DIO0, INPUT);
+
+        if (digitalRead(LORA_DIO0) == HIGH)
+
+        {
+
+            return true;
+        }
+    }
+
+#endif
+
+    return false;
 }

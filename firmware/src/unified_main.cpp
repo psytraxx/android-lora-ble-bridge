@@ -213,20 +213,43 @@ void setup()
         LORA_DIO0,
         LORA_BUSY);
 
-    if (!loraManager->begin())
-    {
-        LOG_I(TAG, "LoRa initialization failed!");
-        while (1)
-            ;
-    }
-
     loraManager->setReceiveCallback(onLoRaReceived);
     loraManager->setTransmitCallback(onLoRaTransmitted);
 
-    // Start receive in duty cycle mode (power saving) where supported
-    if (!loraManager->startReceive(true))
+    bool initialized = false;
+
+    if (Platform::isLoraWakeUp())
     {
-        LOG_I(TAG, "Failed to start LoRa receive mode!");
+        LOG_I(TAG, "Wakeup from LoRa detected, attempting to resume...");
+        if (loraManager->handleSleepWakeup())
+        {
+            initialized = true;
+            LOG_I(TAG, "LoRa resume successful");
+        }
+        else
+        {
+            LOG_W(TAG, "LoRa resume failed, falling back to full init");
+        }
+    }
+
+    if (!initialized)
+    {
+        if (!loraManager->begin())
+        {
+            LOG_I(TAG, "LoRa initialization failed!");
+            while (1)
+                ;
+        }
+    }
+
+    // Start receive in duty cycle mode (power saving) where supported
+    // Only if not already transmitting (e.g. sending ACK from wakeup callback)
+    if (!loraManager->isTransmitting())
+    {
+        if (!loraManager->startReceive(true))
+        {
+            LOG_I(TAG, "Failed to start LoRa receive mode!");
+        }
     }
 
     // Create and start battery monitoring timer (auto-reload, 60 second period)

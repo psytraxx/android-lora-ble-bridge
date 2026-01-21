@@ -38,14 +38,20 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
 #endif
 }
 
-bool LoRaManager::begin()
+void LoRaManager::initSPI()
 {
-    LOG_I(TAG, "Initializing LoRa radio");
-
 #if defined(ARDUINO_ARCH_ESP32)
     // ESP32: Initialize SPI with custom pins
     SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
 #endif
+}
+
+bool LoRaManager::begin()
+{
+    LOG_I(TAG, "Initializing LoRa radio");
+
+    initSPI();
+
     // nRF52: SPI initialization happens elsewhere (in Arduino core)
     for (int attempt = 1; attempt <= LoRaConstants::INIT_RETRY_COUNT; attempt++)
     {
@@ -354,6 +360,70 @@ float LoRaManager::getSNR() const
     if (state == STATE_UNINITIALIZED || !radio)
         return 0.0f;
     return radio->getSNR();
+}
+
+bool LoRaManager::handleSleepWakeup()
+{
+    LOG_I(TAG, "Resuming from deep sleep (LoRa wakeup)");
+
+    // 1. Initialize SPI
+    initSPI();
+
+    // 2. Configure pins manually (mimicking Module::init without reset)
+    pinMode(pinSS, OUTPUT);
+    digitalWrite(pinSS, HIGH);
+    pinMode(pinBusy, INPUT);
+    pinMode(pinRST, OUTPUT);
+    digitalWrite(pinRST, HIGH); // Ensure not in reset
+
+    // We assume DIO0 is already INPUT from wakeup configuration, but set it ensuring
+    pinMode(pinDIO0, INPUT);
+
+    // 3. Read packet
+    // Note: The radio object is fresh, so it doesn't know the configuration (BW, SF, etc).
+    // But basic reading of the buffer might work if the chip is in the right state.
+
+    LoRaPacket packet;
+    // getPacketLength checks the chip's buffer status register
+    size_t len = radio->getPacketLength();
+    packet.len = len;
+
+    if (packet.len > 0)
+    {
+        LOG_I(TAG, "Detected pending packet: %d bytes", packet.len);
+
+        // readData reads from the buffer
+        int state = radio->readData(packet.buffer, packet.len);
+
+        if (state == RADIOLIB_ERR_NONE)
+        {
+            packet.rssi = radio->getRSSI();
+            packet.snr = radio->getSNR();
+
+            LOG_I(TAG, "Wakeup packet received (%d bytes, RSSI: %d dBm, SNR: %.1f dB)",
+                  packet.len, packet.rssi, packet.snr);
+
+            // Re-initialize radio to ensure consistent state for ACK/future RX
+            // This resets the radio, but we already have the packet.
+            begin();
+
+            if (receiveCallback)
+            {
+                receiveCallback(packet);
+            }
+            return true;
+        }
+        else
+        {
+            LOG_E(TAG, "Failed to read wakeup packet, code %d", state);
+        }
+    }
+    else
+    {
+        LOG_W(TAG, "Wakeup triggered but no packet length detected");
+    }
+
+    return false;
 }
 
 // ISR handlers

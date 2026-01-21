@@ -80,10 +80,20 @@ public:
     LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy);
 
     /**
-     * @brief Initialize LoRa radio
+     * @brief Initialize LoRa radio - This method must be called on cold start of the device.
      * @return true on success, false on failure
      */
     bool begin();
+
+    /**
+     * @brief Handle wakeup from deep sleep caused by LoRa packet.
+     *
+     * Attempts to read the pending packet without resetting the radio.
+     * Should be called instead of begin() if wakeup reason is LoRa.
+     *
+     * @return true if packet was successfully read and handled
+     */
+    bool handleSleepWakeup();
 
     /**
      * @brief Start continuous receive mode or duty-cycled receive mode
@@ -250,6 +260,9 @@ private:
 
     // Singleton instance for ISR access
     static LoRaManager *instance;
+
+    // Helper to initialize SPI bus
+    void initSPI();
 };
 
 #endif // LORA_MANAGER_H

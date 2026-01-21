@@ -60,6 +60,11 @@ struct ESP32PlatformTraits
         return PowerManager::readBatteryLevel();
     }
 
+    static bool isLoraWakeUp()
+    {
+        return PowerManager::isLoraWakeUp();
+    }
+
     static void enterDeepSleep()
     {
         PowerManager::enterDeepSleep();
