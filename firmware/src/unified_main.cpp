@@ -326,8 +326,18 @@ void loop()
             }
             else
             {
-                LOG_I(TAG, "BLE not connected, buffering message");
-                storageManager->add(msg);
+                // Only persist text messages for delivery to BLE client later.
+                // ACKs and other protocol messages are not stored to avoid
+                // unnecessary buffering of protocol-level traffic.
+                if (msg.type == MessageType::Text)
+                {
+                    LOG_I(TAG, "BLE not connected, buffering text message");
+                    storageManager->add(msg);
+                }
+                else
+                {
+                    LOG_I(TAG, "BLE not connected, dropping non-text message (type: %d)", (int)msg.type);
+                }
             }
         }
     }
