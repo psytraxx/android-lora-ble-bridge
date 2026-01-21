@@ -65,6 +65,11 @@ bool MessageBuffer::add(const Message &msg)
     char filename[32];
     getMessageFilename(m_head, filename, sizeof(filename));
 
+    if (InternalFS.exists(filename))
+    {
+        InternalFS.remove(filename);
+    }
+
     File file = InternalFS.open(filename, FILE_O_WRITE);
     if (!file)
     {
@@ -93,72 +98,76 @@ bool MessageBuffer::add(const Message &msg)
 
 bool MessageBuffer::peek(Message &msg)
 {
-    if (isEmpty() || !m_initialized)
+    if (!m_initialized)
     {
         return false;
     }
 
-    // Read from flash
-    char filename[32];
-    getMessageFilename(m_tail, filename, sizeof(filename));
-
-    // Check if file exists before trying to open
-    if (!InternalFS.exists(filename))
+    while (!isEmpty())
     {
-        LOG_W(TAG, "Message file missing (possible corruption): %s", filename);
+        // Read from flash
+        char filename[32];
+        getMessageFilename(m_tail, filename, sizeof(filename));
 
-        // File is missing but state says it should exist - corruption detected
-        // Remove this entry from the queue and reset count
-        LOG_I(TAG, "Auto-recovering: removing missing entry from queue");
-        m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
-        m_count--;
-        if (m_count < 0)
-            m_count = 0;
-        saveState();
+        // Check if file exists before trying to open
+        if (!InternalFS.exists(filename))
+        {
+            LOG_W(TAG, "Message file missing (possible corruption): %s", filename);
 
-        return false;
+            // File is missing but state says it should exist - corruption detected
+            // Remove this entry from the queue and keep searching
+            LOG_I(TAG, "Auto-recovering: removing missing entry from queue");
+            m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
+            m_count--;
+            if (m_count < 0)
+                m_count = 0;
+            saveState();
+            continue;
+        }
+
+        File file = InternalFS.open(filename, FILE_O_READ);
+        if (!file)
+        {
+            LOG_E(TAG, "Failed to open file for reading: %s", filename);
+            return false;
+        }
+
+        // Read message data
+        uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
+        size_t len = file.read(buffer, sizeof(buffer));
+        file.close();
+
+        if (len == 0)
+        {
+            LOG_W(TAG, "Empty message file - removing corrupt entry");
+            // Remove corrupt empty file
+            InternalFS.remove(filename);
+            m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
+            m_count--;
+            if (m_count < 0)
+                m_count = 0;
+            saveState();
+            continue;
+        }
+
+        // Deserialize
+        if (!msg.deserialize(buffer, len))
+        {
+            LOG_W(TAG, "Failed to deserialize buffered message - removing corrupt entry");
+            // Remove corrupt unreadable file
+            InternalFS.remove(filename);
+            m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
+            m_count--;
+            if (m_count < 0)
+                m_count = 0;
+            saveState();
+            continue;
+        }
+
+        return true;
     }
 
-    File file = InternalFS.open(filename, FILE_O_READ);
-    if (!file)
-    {
-        LOG_E(TAG, "Failed to open file for reading: %s", filename);
-        return false;
-    }
-
-    // Read message data
-    uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
-    size_t len = file.read(buffer, sizeof(buffer));
-    file.close();
-
-    if (len == 0)
-    {
-        LOG_W(TAG, "Empty message file - removing corrupt entry");
-        // Remove corrupt empty file
-        InternalFS.remove(filename);
-        m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
-        m_count--;
-        if (m_count < 0)
-            m_count = 0;
-        saveState();
-        return false;
-    }
-
-    // Deserialize
-    if (!msg.deserialize(buffer, len))
-    {
-        LOG_W(TAG, "Failed to deserialize buffered message - removing corrupt entry");
-        // Remove corrupt unreadable file
-        InternalFS.remove(filename);
-        m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
-        m_count--;
-        if (m_count < 0)
-            m_count = 0;
-        saveState();
-        return false;
-    }
-
-    return true;
+    return false;
 }
 
 bool MessageBuffer::popFront()
@@ -291,12 +300,14 @@ void MessageBuffer::loadState()
             LOG_W(TAG, "Found %d missing message files - clearing corrupt state", missingFiles);
 
             // Clear all message files and reset state
+            bool prevInitialized = m_initialized;
+            m_initialized = true; // Ensure clear/saveState works during load
             clear();
             m_head = 0;
             m_tail = 0;
             m_count = 0;
-            m_initialized = true; // Set before saveState
             saveState();
+            m_initialized = prevInitialized;
         }
         else
         {
