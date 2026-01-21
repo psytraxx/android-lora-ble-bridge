@@ -446,7 +446,7 @@ void onLoRaReceived(const LoRaPacket &packet)
                 delay(ackDelay);
 
                 // Send ACK (will be queued after current RX processing completes)
-                if (loraManager->startTransmit(ackBuffer, (size_t)ackLen, false))
+                if (loraManager->startTransmit(ackBuffer, (size_t)ackLen))
                 {
                     LOG_I(TAG, "ACK transmission started for seq %d", msg.textData.seq);
                 }

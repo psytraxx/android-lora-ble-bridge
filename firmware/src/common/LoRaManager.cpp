@@ -47,6 +47,10 @@ void LoRaManager::initSPI()
 #if defined(ARDUINO_ARCH_ESP32)
     // ESP32: Initialize SPI with custom pins
     SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
+#elif defined(ARDUINO_ARCH_NRF52)
+    // nRF52: SPI needs to be reinitialized after System OFF wakeup
+    // The Arduino core handles pin configuration, we just need to start SPI
+    SPI.begin();
 #endif
 }
 
@@ -186,7 +190,7 @@ bool LoRaManager::startReceive(bool dutyCycle)
     return true;
 }
 
-bool LoRaManager::startTransmit(const uint8_t *data, size_t len, bool sendWakeUp)
+bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 {
     if (state == STATE_UNINITIALIZED)
     {
@@ -200,54 +204,6 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len, bool sendWakeUp
         return false;
     }
 
-    if (sendWakeUp)
-    {
-        // Send blocking WakeUp message (blocking) to wake duty-cycled receivers
-        LOG_I(TAG, "Sending WakeUp message...");
-        Message wakeUpMsg = Message::createWakeUp();
-        uint8_t wakeUpBuf[64];
-        int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
-
-        if (wakeUpLen > 0)
-        {
-            // Clear RX interrupt temporarily
-            radio->clearPacketReceivedAction();
-
-            // Send WakeUp synchronously (blocking)
-            int wakeUpState = radio->transmit(wakeUpBuf, wakeUpLen);
-
-            if (wakeUpState != RADIOLIB_ERR_NONE)
-            {
-                LOG_W(TAG, "WakeUp transmission failed, code %d - continuing anyway", wakeUpState);
-            }
-            else
-            {
-                LOG_I(TAG, "WakeUp sent successfully, %d bytes, seq: %d", wakeUpLen, (int)wakeUpMsg.textData.seq);
-            }
-
-            // Wait for receiver to wake up and switch to continuous RX
-            // This delay accounts for: WakeUp ToA + Deep Sleep Wake Time + RX Settle + Margin
-            int wakeupDelay = LoRaManager::calculateToA_ms(
-                                  LoRaConstants::SPREADING_FACTOR,
-                                  LoRaConstants::BANDWIDTH,
-                                  LoRaConstants::CODING_RATE,
-                                  LoRaConstants::PREAMBLE_LENGTH,
-                                  1 // WakeUp message is only 1 byte
-                                  ) +
-                              LoRaConstants::DEEP_SLEEP_WAKE_TIME_MS;
-            delay(wakeupDelay);
-        }
-        else
-        {
-            LOG_W(TAG, "Failed to serialize WakeUp message");
-        }
-    }
-    else
-    {
-        LOG_I(TAG, "Skipping WakeUp message before transmission");
-    }
-
-    // Send actual message (non-blocking)
     LOG_I(TAG, "Starting transmission of %d bytes", len);
 
     // Switch to transmit mode with interrupt
