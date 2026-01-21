@@ -242,6 +242,9 @@ private:
     int pinDIO0;
     int pinBusy; // For SX126x radios
 
+    // RadioLib Module instance (kept for direct access during wakeup)
+    Module *module;
+
     // RadioLib radio instance (type depends on RADIO_ definition)
 #if defined(RADIO_SX1262)
     SX1262 *radio;
