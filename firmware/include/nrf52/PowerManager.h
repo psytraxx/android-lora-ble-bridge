@@ -27,9 +27,6 @@ public:
     /// Print wakeup reason after boot or from sleep
     static void printWakeupReason();
 
-    // Import common WakeupReason into class scope for unified access
-    using WakeupReason = ::WakeupReason;
-
     /// Determine if the wakeup source was LoRa
     static bool isLoraWakeUp();
 

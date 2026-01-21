@@ -120,9 +120,6 @@ public:
 
     static void disableBluetoothClassic();
 
-    // Import common WakeupReason into class scope for unified access
-    using WakeupReason = ::WakeupReason;
-
     /**
      * @brief Determine the cause of the system wakeup was from LoRa
      *
