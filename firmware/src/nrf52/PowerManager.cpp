@@ -221,6 +221,9 @@ void PowerManager::enterDeepSleep()
     pinMode(LED_BLUE, OUTPUT);
     digitalWrite(LED_BLUE, HIGH);
 
+    pinMode(LED_GREEN, OUTPUT);
+    digitalWrite(LED_GREEN, HIGH);
+
     // 3. Flush logs before sleep
     Serial.flush();
     delay(100); // Short delay to allow flush

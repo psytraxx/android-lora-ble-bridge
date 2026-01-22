@@ -31,14 +31,6 @@ Used to acknowledge receipt of text messages.
 
 **Total Size**: 2 bytes
 
-### Wake-Up Message (Type: 0x03)
-Used to wake LoRa devices from deep sleep. **LoRa-only** - never sent via BLE.
-
-- **Type**: 1 byte (0x03)
-
-**Total Size**: 1 byte
-**Note**: This message type is only transmitted over LoRa between ESP32 devices. Android devices understand this message type for protocol consistency but never send or receive it via BLE.
-
 ## Technical Specifications
 
 ### Text Length Limit
@@ -138,18 +130,6 @@ Hex bytes:
 Total: 2 bytes
 ```
 
-### Example 5: Wake-Up Message
-```
-Wake-up signal for deep sleep devices
-
-Hex bytes:
-03
-└─ Type: WAKE_UP (0x03)
-
-Total: 1 byte
-Note: LoRa-only, never sent via BLE
-```
-
 ## Message Flow
 
 ### Sending a Message (Phone A → Phone B)
@@ -179,7 +159,7 @@ Note: LoRa-only, never sent via BLE
 - **Coding Rate**: 4/8 (maximum error correction for urban interference)
 - **Frequency**: 433.92 MHz (default, configurable)
 - **TX Power**: 20 dBm / ~100 mW (default, configurable -4 to 20 dBm)
-- **Preamble**: 32 symbols (ensures duty-cycled receiver wake-up)
+- **Preamble**: 64 symbols (extended preamble for direct wake-up of duty-cycled receivers)
 
 **Note:** Settings optimized for maximum range (10-35 km) in dense urban environments. SF11+BW125 provides ~3.5x better range than SF9+BW250, with excellent penetration through buildings and resistance to interference.
 
@@ -189,7 +169,6 @@ Note: LoRa-only, never sent via BLE
 
 | Message Size | Content | ToA @ SF11 BW125 CR4/8 | Example |
 |--------------|---------|------------------------|---------|
-| 1 byte | WakeUp message | ~0.9 s | Wake duty-cycled receiver |
 | 2 bytes | ACK | ~0.9 s | Acknowledgment |
 | 8 bytes | 3-char text (no GPS) | ~1.0 s | "SOS" |
 | 20 bytes | 15-char text (no GPS) | ~1.5 s | "AT CHECKPOINT 2" |
@@ -229,19 +208,15 @@ Note: LoRa-only, never sent via BLE
 
 ### Timing and practical notes
 
-- Preamble length: 32 symbols (chosen to reliably intersect duty-cycled receive windows). At SF11+BW125+CR4/8 this is included in the message ToA calculations.
+- Preamble length: 64 symbols (~525ms at SF11/BW250). This extended preamble ensures reliable duty-cycle RX detection and allows text messages to directly wake sleeping receivers without a separate wake-up mechanism.
 
 - RX settle time: hardware receivers (SX126x) need a short stabilization window after switching into RX. Allow ~50 ms after calling startReceive()/startReceiveDutyCycleAuto() before assuming the radio is actively listening for payload bytes.
 
-- ACK timing: when a node receives a packet it waits an ACK delay before transmitting its ACK. This delay is **automatically calculated** based on LoRa parameters in FirmwareConfig.h. For SF11+BW125+CR4/8, the ACK delay is ~3.6 seconds (max message ToA ~3.1s + RX settle 50ms + margin 500ms). The ACK itself is a small packet (ToA ~0.9s at SF11+BW125+CR4/8).
+- ACK timing: when a node receives a packet it waits a short ACK delay before transmitting its ACK. The delay accounts for the sender's TX→RX switch time (50ms) plus a small margin, with random jitter (0-300ms) to prevent collisions when multiple receivers ACK simultaneously. Total ACK delay is typically 150-450ms.
 
-- **Auto-calculated timing**: WAKEUP_TO_MESSAGE_DELAY_MS and ACK_DELAY_MS are computed at compile time using the LoRaManager::calculateToA_ms() function. When you change SF, BW, or CR in FirmwareConfig.h, all timing constants update automatically.
+- Duty-cycle interoperability: the 64-symbol preamble ensures that duty-cycled SX1262 receivers (using RadioLib's startReceiveDutyCycleAuto()) will detect incoming text messages directly. No separate wake-up mechanism is required. Continuous-receive radios (SX127x) simply stay in RX and detect the preamble normally.
 
-- Duty-cycle interoperability: the 32-symbol preamble combined with WakeUp messages ensures that duty-cycled SX1262 receivers (using RadioLib's startReceiveDutyCycleAuto()) will detect incoming transmissions. The WakeUp message (1 byte, ToA ~0.9s at SF11+BW125) precedes actual data messages. Continuous-receive radios (SX127x) simply stay in RX and detect the preamble normally.
-
-- Preventing wake-up loops: on ESP32 devices we distinguish the wake source. If the device was woken by LoRa (EXT0 / DIO0), do NOT send a WakeUp message in response. If woken by a local button (EXT1) or on a cold boot, send a WakeUp message. This avoids two devices repeatedly triggering each other.
-
-- Practical tip for testing: when validating interoperability between an autonomous-duty SX1262 node and a continuous SX127x receiver, send a single packet from the transmitter and monitor the receiver for the full transmission cycle. For ACK testing with SF11+BW125+CR4/8, expect ~3.6s ACK delay (auto-calculated) after the receiver processes the message.
+- Practical tip for testing: when validating interoperability between an autonomous-duty SX1262 node and a continuous SX127x receiver, send a single packet from the transmitter and monitor the receiver for the full transmission cycle. ACK response should arrive within ~500ms after the receiver processes the message.
 
 
 ### Error Handling
@@ -289,4 +264,3 @@ Note: LoRa-only, never sent via BLE
 ### Message Type Usage
 - **TEXT (0x01)**: Both LoRa and BLE
 - **ACK (0x02)**: Both LoRa and BLE
-- **WAKE_UP (0x03)**: LoRa-only (ESP32/nRF52 to ESP32/nRF52)

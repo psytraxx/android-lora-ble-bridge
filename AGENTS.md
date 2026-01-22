@@ -162,7 +162,6 @@ android-lora-ble-bridge/
 // firmware/include/Protocol.h & android/.../LoRaProtocol.kt
 0x01 TextMessage:    [Type][Seq][CharCount][PackedLen][PackedText][HasGPS][Lat?][Lon?]
 0x02 AckMessage:     [Type][Seq]
-0x03 WakeUpMessage:  [Type]  // LoRa-only, sent after button wake, NOT LoRa wake
 ```
 
 ### 6-Bit Character Encoding
@@ -202,38 +201,28 @@ void setup() {
     esp_sleep_wakeup_cause_t reason = esp_sleep_get_wakeup_cause();
 
     switch(reason) {
-        case ESP_SLEEP_WAKEUP_EXT0:  // LoRa wake - DON'T send WakeUp
+        case ESP_SLEEP_WAKEUP_EXT0:  // LoRa wake
             ESP_LOGI(TAG, "Woke from LoRa packet");
+            // Resume LoRa to receive the incoming message
             break;
 
-        case ESP_SLEEP_WAKEUP_EXT1:  // Button wake - SEND WakeUp
+        case ESP_SLEEP_WAKEUP_EXT1:  // Button wake
             ESP_LOGI(TAG, "Woke from button press");
-            sendWakeUpMessage();
             break;
 
         default:  // Cold boot
             ESP_LOGI(TAG, "Cold boot");
-            sendWakeUpMessage();
             break;
     }
 }
 ```
 
 **Why this is good:**
-- Prevents WakeUp message loops
 - Clear comments explain each wake source
 - Logs help debugging
+- Different handling for LoRa wake vs button wake
 
-### ❌ Bad: Always Sending WakeUp
-
-```cpp
-// DON'T DO THIS - Creates infinite WakeUp loops!
-void setup() {
-    sendWakeUpMessage();  // ❌ Always sends, even on LoRa wake
-}
-```
-
-### ✅ Good: ACK Timing with Packet-Based Delay
+### ✅ Good: ACK Timing with Jitter
 
 ```cpp
 // firmware/src/common/LoRaManager.cpp
@@ -242,44 +231,27 @@ void onLoRaReceive() {
     int len = radio.receive(buffer, sizeof(buffer));
 
     if (buffer[0] == 0x01) {  // TextMessage
-        // Calculate ACK delay based on actual packet size
-        int ackDelay = FirmwareConfig::getAckDelay(
-            LORA_SPREADING_FACTOR,
-            LORA_BANDWIDTH,
-            LORA_CODING_RATE,
-            LORA_PREAMBLE_LENGTH,
-            len  // Actual received packet size
-        );
-
-        // Add random jitter to prevent collision
-        ackDelay += random(0, 500);
+        // Short ACK delay: TX→RX switch + margin + random jitter
+        int ackDelay = LoRaConstants::RX_SETTLE_TIME_MS + 100;
+        ackDelay += random(0, LoRaConstants::TIMING_MARGIN_MS);  // 0-300ms jitter
 
         delay(ackDelay);  // Wait for sender to switch to RX
-        delay(RX_SETTLE_TIME_MS);  // Additional radio settle time
-
         sendAck(buffer[1]);  // Send ACK for sequence number
     }
 }
 ```
 
 **Why this is good:**
-- Delay scales with actual packet size (smaller packets = faster ACK)
+- Short delay (150-450ms) for fast ACK response
 - Random jitter prevents ACK collisions from multiple receivers
-- RX settle time ensures radio is ready
 - Comments explain the timing
 
-### ❌ Bad: Fixed Delay or No Delay
+### ❌ Bad: No Delay
 
 ```cpp
 // DON'T DO THIS
 void onLoRaReceive() {
-    sendAck(seqNum);  // ❌ No delay - sender not ready!
-}
-
-// OR THIS
-void onLoRaReceive() {
-    delay(5000);  // ❌ Fixed 5s delay wastes time on small packets
-    sendAck(seqNum);
+    sendAck(seqNum);  // ❌ No delay - sender may not be ready!
 }
 ```
 
@@ -292,8 +264,7 @@ void onLoRaReceive() {
 enum MessageType {
     TEXT_MESSAGE = 0x01,
     ACK_MESSAGE = 0x02,
-    WAKEUP_MESSAGE = 0x03,
-    STATUS_MESSAGE = 0x04  // ← New type
+    STATUS_MESSAGE = 0x03  // ← New type
 };
 
 // 2. firmware/src/Protocol.cpp
@@ -303,7 +274,6 @@ void handleStatusMessage(const uint8_t* data) { /* ... */ }
 sealed class LoRaMessage {
     data class TextMessage(...)
     data class AckMessage(...)
-    data class WakeUpMessage(...)
     data class StatusMessage(...) // ← New type
 }
 
@@ -325,23 +295,20 @@ LORA_BANDWIDTH:        125 kHz     // Optimized for range
 LORA_SPREADING_FACTOR: 11          // Excellent range + reliability
 LORA_CODING_RATE:      8           // CR4/8 (50% overhead)
 LORA_TX_POWER:         20 dBm      // 100 mW (check regional limits!)
-LORA_PREAMBLE_LENGTH:  32 symbols  // Reliable duty-cycle detection
+LORA_PREAMBLE_LENGTH:  64 symbols  // Extended preamble for direct wake-up
 ```
 
-**Timing Auto-Calculation:**
+**ACK Timing:**
 ```cpp
-// ACK delay is calculated per packet based on:
-// - Actual received packet size (not max size)
-// - Time-on-Air for that specific packet
-// - RX settle time (50ms)
-// - Timing margin (500ms)
-// - Random jitter (0-500ms for collision avoidance)
+// ACK delay is simple and fast:
+// - RX settle time (50ms) for sender's TX→RX switch
+// - Small processing margin (100ms)
+// - Random jitter (0-300ms for collision avoidance)
 
-inline int getAckDelay(sf, bw, cr, preamble, actualPayloadBytes) {
-    int toA = calculateToA_ms(sf, bw, cr, preamble, actualPayloadBytes);
-    int baseDelay = toA + RX_SETTLE_TIME_MS + TIMING_MARGIN_MS;
-    int jitter = random(0, TIMING_MARGIN_MS);
-    return baseDelay + jitter;  // ~2.1s to ~2.6s for typical 50-byte message
+inline int getAckDelay(...) {
+    int baseDelay = RX_SETTLE_TIME_MS + 100;  // 150ms base
+    int jitter = random(0, TIMING_MARGIN_MS); // 0-300ms jitter
+    return baseDelay + jitter;  // Total: 150-450ms
 }
 ```
 
@@ -363,7 +330,7 @@ inline int getAckDelay(sf, bw, cr, preamble, actualPayloadBytes) {
 - **Use platform-appropriate logging**:
   - ESP32: `ESP_LOGI(TAG, "message")`
   - Android: `Log.d("LoRaApp", "message")`
-- **Follow deep sleep wake-up rules** - Only send WakeUp on button/cold boot, NOT LoRa wake
+- **Handle deep sleep wake-up correctly** - Different logic for LoRa wake vs button wake
 - **Verify timing after LoRa config changes** - ACK timing auto-adjusts, but test in real conditions
 - **Use trait-based architecture** - Leverage PlatformTraits.h for multi-platform support
 - **Keep character encoding in sync** - 6-bit charset must match across firmware and Android
@@ -384,7 +351,7 @@ inline int getAckDelay(sf, bw, cr, preamble, actualPayloadBytes) {
 - **Commit secrets or credentials** - No API keys, passwords, or tokens in code
 - **Modify source code without reading it first** - Always read before editing
 - **Change LoRa params without reflashing all devices** - Creates incompatible networks
-- **Send WakeUp on LoRa wake (EXT0)** - Creates infinite message loops
+- **Ignore wake source in deep sleep handling** - LoRa wake and button wake need different logic
 - **Use blocking delays in main loop** - Breaks non-blocking state machines
 - **Skip testing after protocol changes** - Protocol bugs affect all devices
 - **Use different LoRa configs on sender/receiver** - Communication will fail
@@ -541,7 +508,6 @@ cd android
 - [ ] Test at 10m, 100m, 1km distances
 - [ ] Monitor power consumption (expect ~1.5-2mA with SX1262)
 - [ ] Test deep sleep wake-up (button and LoRa)
-- [ ] Verify no WakeUp loops
 
 ---
 
@@ -594,7 +560,6 @@ adb logcat -s LoRaApp                      # Android
 **Most Common Issues:**
 - ACKs missing → Check LoRa params match, verify ACK timing in logs
 - BLE not connecting → Grant permissions, restart both devices
-- WakeUp loops → Only send WakeUp on button/cold boot, NOT LoRa wake
 - Protocol mismatch → Update Protocol.h, Protocol.cpp, LoRaProtocol.kt together
 
 ---
