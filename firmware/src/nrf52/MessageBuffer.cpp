@@ -4,6 +4,9 @@
 
 static const char *TAG = "MsgBuf";
 
+// Single file for all buffered messages (no separate state file needed)
+#define BUFFER_FILE "/msgbuf/buf.dat"
+
 MessageBuffer::MessageBuffer()
     : m_head(0), m_tail(0), m_count(0), m_initialized(false)
 {
@@ -15,7 +18,7 @@ MessageBuffer::~MessageBuffer()
 
 bool MessageBuffer::begin()
 {
-    LOG_I(TAG, "Initializing MessageBuffer with LittleFS");
+    LOG_I(TAG, "Initializing MessageBuffer with LittleFS (single-file mode)");
 
     // Initialize Internal File System
     InternalFS.begin();
@@ -27,8 +30,8 @@ bool MessageBuffer::begin()
         InternalFS.mkdir(BUFFER_DIR);
     }
 
-    // Load state from flash
-    loadState();
+    // Scan buffer file to determine state (no separate state file needed)
+    scanBuffer();
 
     m_initialized = true;
     LOG_I(TAG, "MessageBuffer initialized: %d messages in buffer", m_count);
@@ -44,10 +47,10 @@ bool MessageBuffer::add(const Message &msg)
         return false;
     }
 
-    // If buffer is full, remove oldest message (drop-oldest policy)
+    // Check if buffer is full
     if (isFull())
     {
-        LOG_W(TAG, "Buffer full, dropping oldest message");
+        LOG_W(TAG, "Buffer full (%d messages), dropping oldest", m_count);
         popFront();
     }
 
@@ -61,113 +64,107 @@ bool MessageBuffer::add(const Message &msg)
         return false;
     }
 
-    // Write to flash
-    char filename[32];
-    getMessageFilename(m_head, filename, sizeof(filename));
-
-    if (InternalFS.exists(filename))
-    {
-        InternalFS.remove(filename);
-    }
-
-    File file = InternalFS.open(filename, FILE_O_WRITE);
+    // Open buffer file in append mode
+    File file = InternalFS.open(BUFFER_FILE, FILE_O_WRITE);
     if (!file)
     {
-        LOG_E(TAG, "Failed to open file for writing: %s", filename);
+        LOG_E(TAG, "Failed to open buffer file for append");
         return false;
     }
 
-    size_t written = file.write(buffer, len);
+    // Seek to end for append (LittleFS doesn't support SEEK_END)
+    size_t fileSize = file.size();
+    if (!file.seek(fileSize))
+    {
+        LOG_E(TAG, "Failed to seek to end of buffer file");
+        file.close();
+        return false;
+    }
+
+    // Write message: [2-byte length][payload]
+    uint16_t msgLen = (uint16_t)len;
+    size_t written = 0;
+    written += file.write((uint8_t *)&msgLen, sizeof(msgLen));
+    written += file.write(buffer, len);
     file.close();
 
-    if (written != (size_t)len)
+    if (written != (sizeof(msgLen) + len))
     {
-        LOG_E(TAG, "Failed to write complete message to flash");
+        LOG_E(TAG, "Failed to write complete message to buffer");
         return false;
     }
 
-    // Update buffer state
-    m_head = (m_head + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
+    // Update count
     m_count++;
-    saveState();
 
-    LOG_I(TAG, "Message buffered to flash: %s", filename);
+    LOG_I(TAG, "Message buffered (%d bytes, total: %d messages)", len, m_count);
 
     return true;
 }
 
 bool MessageBuffer::peek(Message &msg)
 {
-    if (!m_initialized)
+    if (!m_initialized || isEmpty())
     {
         return false;
     }
 
-    while (!isEmpty())
+    // Open buffer file
+    File file = InternalFS.open(BUFFER_FILE, FILE_O_READ);
+    if (!file)
     {
-        // Read from flash
-        char filename[32];
-        getMessageFilename(m_tail, filename, sizeof(filename));
-
-        // Check if file exists before trying to open
-        if (!InternalFS.exists(filename))
-        {
-            LOG_W(TAG, "Message file missing (possible corruption): %s", filename);
-
-            // File is missing but state says it should exist - corruption detected
-            // Remove this entry from the queue and keep searching
-            LOG_I(TAG, "Auto-recovering: removing missing entry from queue");
-            m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
-            m_count--;
-            if (m_count < 0)
-                m_count = 0;
-            saveState();
-            continue;
-        }
-
-        File file = InternalFS.open(filename, FILE_O_READ);
-        if (!file)
-        {
-            LOG_E(TAG, "Failed to open file for reading: %s", filename);
-            return false;
-        }
-
-        // Read message data
-        uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
-        size_t len = file.read(buffer, sizeof(buffer));
-        file.close();
-
-        if (len == 0)
-        {
-            LOG_W(TAG, "Empty message file - removing corrupt entry");
-            // Remove corrupt empty file
-            InternalFS.remove(filename);
-            m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
-            m_count--;
-            if (m_count < 0)
-                m_count = 0;
-            saveState();
-            continue;
-        }
-
-        // Deserialize
-        if (!msg.deserialize(buffer, len))
-        {
-            LOG_W(TAG, "Failed to deserialize buffered message - removing corrupt entry");
-            // Remove corrupt unreadable file
-            InternalFS.remove(filename);
-            m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
-            m_count--;
-            if (m_count < 0)
-                m_count = 0;
-            saveState();
-            continue;
-        }
-
-        return true;
+        LOG_E(TAG, "Failed to open buffer file for reading");
+        return false;
     }
 
-    return false;
+    // Seek to current read position
+    if (!file.seek(m_tail))
+    {
+        LOG_E(TAG, "Failed to seek to read position %d", m_tail);
+        file.close();
+        return false;
+    }
+
+    // Read message length
+    uint16_t msgLen = 0;
+    if (file.read((uint8_t *)&msgLen, sizeof(msgLen)) != sizeof(msgLen))
+    {
+        LOG_E(TAG, "Failed to read message length at offset %d", m_tail);
+        file.close();
+        // Corruption - clear buffer
+        clear();
+        return false;
+    }
+
+    // Validate length
+    if (msgLen == 0 || msgLen > BufferConstants::MAX_PROTOCOL_MESSAGE)
+    {
+        LOG_E(TAG, "Invalid message length %u at offset %d - clearing buffer", msgLen, m_tail);
+        file.close();
+        clear();
+        return false;
+    }
+
+    // Read message payload
+    uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
+    if (file.read(buffer, msgLen) != msgLen)
+    {
+        LOG_E(TAG, "Failed to read complete message payload");
+        file.close();
+        clear();
+        return false;
+    }
+    file.close();
+
+    // Deserialize
+    if (!msg.deserialize(buffer, msgLen))
+    {
+        LOG_E(TAG, "Failed to deserialize message - clearing buffer");
+        clear();
+        return false;
+    }
+
+    return true;
 }
 
 bool MessageBuffer::popFront()
@@ -177,20 +174,47 @@ bool MessageBuffer::popFront()
         return false;
     }
 
-    // Delete file
-    char filename[32];
-    getMessageFilename(m_tail, filename, sizeof(filename));
-
-    if (InternalFS.exists(filename))
+    // Read current message length to advance read pointer
+    File file = InternalFS.open(BUFFER_FILE, FILE_O_READ);
+    if (!file)
     {
-        InternalFS.remove(filename);
-        LOG_I(TAG, "Removed buffered message: %s", filename);
+        LOG_E(TAG, "Failed to open buffer file to pop");
+        return false;
     }
 
-    // Update buffer state
-    m_tail = (m_tail + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
+    // Seek to current read position
+    if (!file.seek(m_tail))
+    {
+        file.close();
+        return false;
+    }
+
+    // Read message length
+    uint16_t msgLen = 0;
+    if (file.read((uint8_t *)&msgLen, sizeof(msgLen)) != sizeof(msgLen))
+    {
+        LOG_E(TAG, "Failed to read message length for pop");
+        file.close();
+        return false;
+    }
+    file.close();
+
+    // Advance read pointer past this message (length header + payload)
+    m_tail += sizeof(uint16_t) + msgLen;
     m_count--;
-    saveState();
+
+    // If buffer is now empty, compact/reset the file
+    if (m_count == 0)
+    {
+        LOG_I(TAG, "Buffer empty, compacting file");
+        if (InternalFS.exists(BUFFER_FILE))
+        {
+            InternalFS.remove(BUFFER_FILE);
+        }
+        m_tail = 0;
+    }
+
+    LOG_I(TAG, "Message popped, %d remaining", m_count);
 
     return true;
 }
@@ -204,143 +228,75 @@ void MessageBuffer::clear()
 
     LOG_I(TAG, "Clearing message buffer");
 
-    // Delete all message files
-    for (size_t i = 0; i < BufferConstants::MAX_BUFFERED_MESSAGES; i++)
+    // Delete buffer file
+    if (InternalFS.exists(BUFFER_FILE))
     {
-        char filename[32];
-        getMessageFilename(i, filename, sizeof(filename));
-
-        if (InternalFS.exists(filename))
-        {
-            InternalFS.remove(filename);
-        }
+        InternalFS.remove(BUFFER_FILE);
     }
 
     // Reset state
-    m_head = 0;
     m_tail = 0;
     m_count = 0;
-    saveState();
 }
 
-void MessageBuffer::loadState()
+void MessageBuffer::scanBuffer()
 {
-    if (!InternalFS.exists(STATE_FILE))
+    m_tail = 0;
+    m_count = 0;
+
+    // No buffer file = empty buffer
+    if (!InternalFS.exists(BUFFER_FILE))
     {
-        LOG_I(TAG, "No saved buffer state, starting fresh");
-        m_head = 0;
-        m_tail = 0;
-        m_count = 0;
+        LOG_I(TAG, "No buffer file, starting fresh");
         return;
     }
 
-    File file = InternalFS.open(STATE_FILE, FILE_O_READ);
+    // Scan buffer file to count messages
+    File file = InternalFS.open(BUFFER_FILE, FILE_O_READ);
     if (!file)
     {
-        LOG_E(TAG, "Failed to open state file");
-        m_head = 0;
-        m_tail = 0;
-        m_count = 0;
+        LOG_E(TAG, "Failed to open buffer file for scanning");
         return;
     }
 
-    // Read state: head, tail, count (3 x 4 bytes = 12 bytes)
-    uint8_t state[12];
-    size_t len = file.read(state, sizeof(state));
-    file.close();
+    size_t fileSize = file.size();
+    size_t offset = 0;
+    int msgCount = 0;
 
-    if (len != sizeof(state))
+    while (offset < fileSize && msgCount < (int)BufferConstants::MAX_BUFFERED_MESSAGES)
     {
-        LOG_W(TAG, "Invalid state file size");
-        m_head = 0;
-        m_tail = 0;
-        m_count = 0;
-        return;
-    }
-
-    // Deserialize state
-    memcpy(&m_head, &state[0], 4);
-    memcpy(&m_tail, &state[4], 4);
-    memcpy(&m_count, &state[8], 4);
-
-    // Validate state
-    if (m_head < 0 || m_head >= (int)BufferConstants::MAX_BUFFERED_MESSAGES ||
-        m_tail < 0 || m_tail >= (int)BufferConstants::MAX_BUFFERED_MESSAGES ||
-        m_count < 0 || m_count > (int)BufferConstants::MAX_BUFFERED_MESSAGES)
-    {
-        LOG_W(TAG, "Corrupt buffer state (invalid indices), resetting");
-        m_head = 0;
-        m_tail = 0;
-        m_count = 0;
-        return;
-    }
-
-    // Verify that expected message files actually exist
-    // If files are missing, the state is corrupt (incomplete write/filesystem issue)
-    if (m_count > 0)
-    {
-        int missingFiles = 0;
-        int idx = m_tail;
-        for (int i = 0; i < m_count; i++)
+        // Read message length
+        if (!file.seek(offset))
         {
-            char filename[32];
-            getMessageFilename(idx, filename, sizeof(filename));
-
-            if (!InternalFS.exists(filename))
-            {
-                LOG_W(TAG, "Expected message file missing: %s", filename);
-                missingFiles++;
-            }
-
-            idx = (idx + 1) % BufferConstants::MAX_BUFFERED_MESSAGES;
+            LOG_W(TAG, "Seek failed at offset %u, stopping scan", offset);
+            break;
         }
 
-        if (missingFiles > 0)
+        uint16_t msgLen = 0;
+        if (file.read((uint8_t *)&msgLen, sizeof(msgLen)) != sizeof(msgLen))
         {
-            LOG_W(TAG, "Found %d missing message files - clearing corrupt state", missingFiles);
+            LOG_W(TAG, "Failed to read length at offset %u, file may be truncated", offset);
+            break;
+        }
 
-            // Clear all message files and reset state
-            bool prevInitialized = m_initialized;
-            m_initialized = true; // Ensure clear/saveState works during load
+        // Validate length
+        if (msgLen == 0 || msgLen > BufferConstants::MAX_PROTOCOL_MESSAGE)
+        {
+            LOG_E(TAG, "Invalid message length %u at offset %u - buffer corrupted", msgLen, offset);
+            file.close();
             clear();
-            m_head = 0;
-            m_tail = 0;
-            m_count = 0;
-            saveState();
-            m_initialized = prevInitialized;
+            return;
         }
-        else
-        {
-            LOG_I(TAG, "All expected message files verified");
-        }
-    }
-}
 
-void MessageBuffer::saveState()
-{
-    if (!m_initialized)
-    {
-        return;
+        // Skip message payload
+        offset += sizeof(uint16_t) + msgLen;
+        msgCount++;
     }
 
-    File file = InternalFS.open(STATE_FILE, FILE_O_WRITE);
-    if (!file)
-    {
-        LOG_E(TAG, "Failed to save buffer state");
-        return;
-    }
-
-    // Serialize state: head, tail, count (3 x 4 bytes = 12 bytes)
-    uint8_t state[12];
-    memcpy(&state[0], &m_head, 4);
-    memcpy(&state[4], &m_tail, 4);
-    memcpy(&state[8], &m_count, 4);
-
-    file.write(state, sizeof(state));
     file.close();
-}
 
-void MessageBuffer::getMessageFilename(size_t index, char *pathBuf, size_t pathBufSize)
-{
-    snprintf(pathBuf, pathBufSize, "%s/msg%02d.bin", BUFFER_DIR, (int)index);
+    m_count = msgCount;
+    m_tail = 0; // Always read from start
+
+    LOG_I(TAG, "Scanned buffer: %d messages, %u bytes total", m_count, fileSize);
 }

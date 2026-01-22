@@ -24,7 +24,6 @@ class MessageBuffer
 {
 public:
     static constexpr const char *BUFFER_DIR = "/msgbuf";
-    static constexpr const char *STATE_FILE = "/msgbuf/state.bin";
 
     MessageBuffer();
     ~MessageBuffer();
@@ -88,25 +87,16 @@ public:
     void clear();
 
 private:
-    int m_head;  // Index where next message will be written
-    int m_tail;  // Index of next message to read
+    int m_head;  // Unused in single-file mode (kept for compatibility)
+    int m_tail;  // Read offset in buffer file
     int m_count; // Number of messages in buffer
     bool m_initialized;
 
     /**
-     * @brief Load buffer state from flash (head, tail, count)
+     * @brief Scan buffer file on startup to count messages
+     * No separate state file needed - derives count from file content
      */
-    void loadState();
-
-    /**
-     * @brief Save buffer state to flash (head, tail, count)
-     */
-    void saveState();
-
-    /**
-     * @brief Generate filename for message at index
-     */
-    void getMessageFilename(size_t index, char *pathBuf, size_t pathBufSize);
+    void scanBuffer();
 };
 
 #endif // MESSAGE_BUFFER_H
