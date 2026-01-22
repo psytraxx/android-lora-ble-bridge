@@ -9,6 +9,22 @@ static const char *TAG = "Power";
 #include "nrf_power.h"
 #include "nrf_gpio.h"
 #include "nrf_soc.h"
+
+// Capture reset reason early before Arduino core clears it
+// This constructor runs before setup() and preserves the reset reason
+struct ResetReasonCapture
+{
+    uint32_t reason;
+    ResetReasonCapture()
+    {
+        reason = NRF_POWER->RESETREAS;
+        NRF_POWER->RESETREAS = 0xFFFFFFFF; // Clear all bits by writing 1s
+    }
+};
+static ResetReasonCapture g_resetCapture;
+
+// RESETREAS bit definitions
+#define RESETREAS_OFF_MASK (1 << 16) // Bit 16: Wake from System OFF
 #endif
 
 bool PowerManager::configurePowerManagement()
@@ -227,21 +243,9 @@ void PowerManager::enterDeepSleep()
     // Disable Serial to save power
     Serial.end();
 
-    // Enter System OFF mode
-    // This shuts down the CPU and most peripherals.
-    // GPIOs are latched or go High-Z depending on configuration.
-    uint8_t sd_en;
-    (void)sd_softdevice_is_enabled(&sd_en);
-
-    if (sd_en)
-    {
-        sd_power_system_off();
-    }
-    else
-    {
-        NRF_POWER->SYSTEMOFF = 1;
-        __DSB(); // Data Synchronization Barrier
-    }
+    // Enter System OFF mode (does not return)
+    // Reset reason will be captured by g_resetCapture on next boot
+    sd_power_system_off();
 
 #else
     LOG_W(TAG, "System ON sleep mode only available on nRF52");
@@ -251,69 +255,41 @@ void PowerManager::enterDeepSleep()
 void PowerManager::printWakeupReason()
 {
 #ifdef ARDUINO_ARCH_NRF52
-    uint32_t resetReason = NRF_POWER->RESETREAS;
+    uint32_t resetReason = g_resetCapture.reason;
 
-    // This was an actual reset (power-on, watchdog, etc.)
-    LOG_I(TAG, "nRF52 Reset Reason: 0x%X", resetReason);
+    LOG_I(TAG, "Reset reason: 0x%08lX", (unsigned long)resetReason);
 
-    // Map of reset reason flags to human-readable strings
-    struct ResetReasonEntry
+    if (resetReason & RESETREAS_OFF_MASK)
     {
-        uint32_t mask;
-        const char *msg;
-    };
-
-    ResetReasonEntry reasons[] = {
-        {POWER_RESETREAS_RESETPIN_Msk, "  - Reset Pin"},
-        {POWER_RESETREAS_DOG_Msk, "  - Watchdog Timeout"},
-        {POWER_RESETREAS_SREQ_Msk, "  - Soft Reset (e.g., from NVIC_SystemReset)"},
-        {POWER_RESETREAS_LOCKUP_Msk, "  - CPU Lockup"},
-        {POWER_RESETREAS_OFF_Msk, "  - System OFF Wakeup (e.g., GPIO, LPCOMP)"},
-        {POWER_RESETREAS_LPCOMP_Msk, "  - LPCOMP Wakeup"},
-    };
-
-    for (const auto &entry : reasons)
-    {
-        if (resetReason & entry.mask)
-        {
-            LOG_I(TAG, "%s", entry.msg);
-        }
+        LOG_I(TAG, "Wakeup: System OFF (deep sleep wake)");
     }
-
+    else if (resetReason == 0)
+    {
+        LOG_I(TAG, "Wakeup: Unknown (register already cleared)");
+    }
+    else
+    {
+        LOG_I(TAG, "Wakeup: Reset (not from deep sleep)");
+        if (resetReason & (1 << 0))
+            LOG_I(TAG, "  - Pin reset");
+        if (resetReason & (1 << 1))
+            LOG_I(TAG, "  - Watchdog");
+        if (resetReason & (1 << 2))
+            LOG_I(TAG, "  - Soft reset");
+        if (resetReason & (1 << 3))
+            LOG_I(TAG, "  - CPU lockup");
+    }
 #else
-
     LOG_W(TAG, "Wakeup reason reporting only available on nRF52");
-
 #endif
 }
 
 bool PowerManager::isLoraWakeUp()
-
 {
-
 #ifdef ARDUINO_ARCH_NRF52
-
-    // Check if we woke up from System OFF
-
-    if (NRF_POWER->RESETREAS & POWER_RESETREAS_OFF_Msk)
-
-    {
-
-        // Check LoRa DIO0 (High = Wake)
-
-        // We configure as INPUT (floating) to read the state driven by the radio
-
-        pinMode(LORA_DIO0, INPUT);
-
-        if (digitalRead(LORA_DIO0) == HIGH)
-
-        {
-
-            return true;
-        }
-    }
-
+    // Check if wakeup was from System OFF mode (bit 16 of RESETREAS)
+    uint32_t resetReason = g_resetCapture.reason;
+    return (resetReason & RESETREAS_OFF_MASK) != 0;
 #endif
-
     return false;
 }

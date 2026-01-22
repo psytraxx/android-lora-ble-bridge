@@ -189,6 +189,20 @@ void setup()
         LOG_I(TAG, "Storage initialization failed!");
     }
 
+#ifdef ARDUINO_ARCH_NRF52
+    uint32_t resetReason;
+    sd_power_reset_reason_get(&resetReason);
+    char debugMsg[MAX_TEXT_LENGTH + 1];
+    snprintf(debugMsg, sizeof(debugMsg), "a(0x%lx)", (unsigned long)resetReason);
+    Message bootMsg = Message::createText(0, debugMsg);
+    if (storageManager != nullptr)
+    {
+        storageManager->add(bootMsg);
+        LOG_I(TAG, "Boot debug message buffered: %s", debugMsg);
+    }
+
+#endif
+
     // Initialize BLE manager (heap allocation required due to different constructors)
     // Both platforms now use queue-based message handling
     bleManager = new typename Platform::BLEManager(&bleToLoraQueue);
