@@ -172,7 +172,7 @@ void setup()
 
     LOG_I(TAG, "\n\n=== LoRa-BLE Bridge (Trait-Based) ===");
     LOG_I(TAG, "Platform: %s", PLATFORM_NAME);
-    LOG_I(TAG, "Device: %s", DEVICE_NAME);
+    LOG_I(TAG, "Base Device: %s", BASE_DEVICE_NAME);
 
     // Platform-specific initialization
     Platform::initializeWatchdog();
@@ -189,11 +189,17 @@ void setup()
         LOG_I(TAG, "Storage initialization failed!");
     }
 
+    // Construct device name with MAC suffix
+    char deviceName[32];
+    String macSuffix = Platform::getMacSuffix();
+    snprintf(deviceName, sizeof(deviceName), "%s-%s", BASE_DEVICE_NAME, macSuffix.c_str());
+    LOG_I(TAG, "Device: %s", deviceName);
+
     // Initialize BLE manager (heap allocation required due to different constructors)
     // Both platforms now use queue-based message handling
     bleManager = new typename Platform::BLEManager(&bleToLoraQueue);
 
-    if (!bleManager->setup(DEVICE_NAME))
+    if (!bleManager->setup(deviceName))
     {
         LOG_I(TAG, "BLE initialization failed!");
         while (1)

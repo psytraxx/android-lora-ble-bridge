@@ -69,6 +69,17 @@ struct ESP32PlatformTraits
     {
         PowerManager::enterDeepSleep();
     }
+
+    static String getMacSuffix()
+    {
+        uint64_t mac = ESP.getEfuseMac();
+        uint8_t byte0 = (mac >> 40) & 0xFF;
+        uint8_t byte1 = (mac >> 32) & 0xFF;
+        uint16_t suffix = (byte1 << 8) | byte0;
+        char buf[5];
+        sprintf(buf, "%04X", suffix);
+        return String(buf);
+    }
 };
 
 #endif // ESP32_PLATFORM_TRAITS_H
