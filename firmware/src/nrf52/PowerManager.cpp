@@ -9,18 +9,34 @@ static const char *TAG = "Power";
 #include "nrf_power.h"
 #include "nrf_gpio.h"
 #include "nrf_soc.h"
+
+// Capture reset reason early before Arduino core clears it
+// This constructor runs before setup() and preserves the reset reason
+struct ResetReasonCapture
+{
+    uint32_t reason;
+    ResetReasonCapture()
+    {
+        reason = NRF_POWER->RESETREAS;
+        NRF_POWER->RESETREAS = 0xFFFFFFFF; // Clear all bits by writing 1s
+    }
+};
+static ResetReasonCapture g_resetCapture;
+
+// RESETREAS bit definitions
+#define RESETREAS_OFF_MASK (1 << 16) // Bit 16: Wake from System OFF
 #endif
 
 bool PowerManager::configurePowerManagement()
 {
-    // Configure ADC for battery monitoring
-    // Based on Adafruit nRF52 reference implementation
-    #if defined(BATTERY_SENSE_RESOLUTION_BITS)
-        analogReadResolution(BATTERY_SENSE_RESOLUTION_BITS);
-        LOG_I(TAG, "ADC resolution set to %d bits", BATTERY_SENSE_RESOLUTION_BITS);
-    #else
-        analogReadResolution(PowerConstants::ADC_RESOLUTION_BITS);
-    #endif
+// Configure ADC for battery monitoring
+// Based on Adafruit nRF52 reference implementation
+#if defined(BATTERY_SENSE_RESOLUTION_BITS)
+    analogReadResolution(BATTERY_SENSE_RESOLUTION_BITS);
+    LOG_I(TAG, "ADC resolution set to %d bits", BATTERY_SENSE_RESOLUTION_BITS);
+#else
+    analogReadResolution(PowerConstants::ADC_RESOLUTION_BITS);
+#endif
     // Set analog reference to 3.0V (0.6V ref × 5 = 3.0V max range)
     // This provides better accuracy for LiPo batteries (3.0V-4.2V range after voltage divider)
     analogReference(AR_INTERNAL_3_0);
@@ -30,11 +46,11 @@ bool PowerManager::configurePowerManagement()
     // Enable only when reading battery voltage
     // Based on Meshtastic: ADC_CTRL_ENABLED defines the active state
     pinMode(BATTERY_ADC_CTRL, OUTPUT);
-    #if defined(BATTERY_ADC_CTRL_ENABLED)
-        digitalWrite(BATTERY_ADC_CTRL, !BATTERY_ADC_CTRL_ENABLED); // Opposite of enabled = disabled
-    #else
-        digitalWrite(BATTERY_ADC_CTRL, HIGH); // Fallback: HIGH = disabled
-    #endif
+#if defined(BATTERY_ADC_CTRL_ENABLED)
+    digitalWrite(BATTERY_ADC_CTRL, !BATTERY_ADC_CTRL_ENABLED); // Opposite of enabled = disabled
+#else
+    digitalWrite(BATTERY_ADC_CTRL, HIGH); // Fallback: HIGH = disabled
+#endif
     LOG_I(TAG, "Battery ADC control pin (GPIO %d) initialized to disabled", BATTERY_ADC_CTRL);
 #endif
 
@@ -69,11 +85,11 @@ void PowerManager::batteryAdcEnable()
     // Enable battery voltage divider
     // Based on Meshtastic: Use ADC_CTRL_ENABLED value
     pinMode(BATTERY_ADC_CTRL, OUTPUT);
-    #if defined(BATTERY_ADC_CTRL_ENABLED)
-        digitalWrite(BATTERY_ADC_CTRL, BATTERY_ADC_CTRL_ENABLED);
-    #else
-        digitalWrite(BATTERY_ADC_CTRL, LOW); // Fallback: LOW = enabled
-    #endif
+#if defined(BATTERY_ADC_CTRL_ENABLED)
+    digitalWrite(BATTERY_ADC_CTRL, BATTERY_ADC_CTRL_ENABLED);
+#else
+    digitalWrite(BATTERY_ADC_CTRL, LOW); // Fallback: LOW = enabled
+#endif
     delay(10); // Wait for voltage to stabilize
 #endif
 }
@@ -81,13 +97,13 @@ void PowerManager::batteryAdcEnable()
 void PowerManager::batteryAdcDisable()
 {
 #ifdef BATTERY_ADC_CTRL
-    // Disable battery voltage divider to save power
-    // Based on Meshtastic: Use opposite of ADC_CTRL_ENABLED
-    #if defined(BATTERY_ADC_CTRL_ENABLED)
-        digitalWrite(BATTERY_ADC_CTRL, !BATTERY_ADC_CTRL_ENABLED);
-    #else
-        digitalWrite(BATTERY_ADC_CTRL, HIGH); // Fallback: HIGH = disabled
-    #endif
+// Disable battery voltage divider to save power
+// Based on Meshtastic: Use opposite of ADC_CTRL_ENABLED
+#if defined(BATTERY_ADC_CTRL_ENABLED)
+    digitalWrite(BATTERY_ADC_CTRL, !BATTERY_ADC_CTRL_ENABLED);
+#else
+    digitalWrite(BATTERY_ADC_CTRL, HIGH); // Fallback: HIGH = disabled
+#endif
 #endif
 }
 
@@ -150,13 +166,13 @@ uint16_t PowerManager::readBatteryVoltage()
     // Disable battery ADC to save power (set VBAT_ENABLE HIGH)
     batteryAdcDisable();
 
-    // Convert ADC value to voltage in millivolts
-    // Based on Adafruit nRF52 reference implementation
-    #if defined(BATTERY_SENSE_RESOLUTION_BITS)
-        const int adc_max_value = (1 << BATTERY_SENSE_RESOLUTION_BITS) - 1;
-    #else
-        const int adc_max_value = 4095; // 12-bit default
-    #endif
+// Convert ADC value to voltage in millivolts
+// Based on Adafruit nRF52 reference implementation
+#if defined(BATTERY_SENSE_RESOLUTION_BITS)
+    const int adc_max_value = (1 << BATTERY_SENSE_RESOLUTION_BITS) - 1;
+#else
+    const int adc_max_value = 4095; // 12-bit default
+#endif
 
     // nRF52840 with AR_INTERNAL_3_0: 0.6V internal reference × 5 = 3.0V max range
     // Formula: voltage_mv = raw_adc × VBAT_DIVIDER_COMP × (ADC_MAX_VOLTAGE / (2^resolution))
@@ -205,6 +221,9 @@ void PowerManager::enterDeepSleep()
     pinMode(LED_BLUE, OUTPUT);
     digitalWrite(LED_BLUE, HIGH);
 
+    pinMode(LED_GREEN, OUTPUT);
+    digitalWrite(LED_GREEN, HIGH);
+
     // 3. Flush logs before sleep
     Serial.flush();
     delay(100); // Short delay to allow flush
@@ -227,21 +246,9 @@ void PowerManager::enterDeepSleep()
     // Disable Serial to save power
     Serial.end();
 
-    // Enter System OFF mode
-    // This shuts down the CPU and most peripherals.
-    // GPIOs are latched or go High-Z depending on configuration.
-    uint8_t sd_en;
-    (void)sd_softdevice_is_enabled(&sd_en);
-
-    if (sd_en)
-    {
-        sd_power_system_off();
-    }
-    else
-    {
-        NRF_POWER->SYSTEMOFF = 1;
-        __DSB(); // Data Synchronization Barrier
-    }
+    // Enter System OFF mode (does not return)
+    // Reset reason will be captured by g_resetCapture on next boot
+    sd_power_system_off();
 
 #else
     LOG_W(TAG, "System ON sleep mode only available on nRF52");
@@ -251,36 +258,41 @@ void PowerManager::enterDeepSleep()
 void PowerManager::printWakeupReason()
 {
 #ifdef ARDUINO_ARCH_NRF52
-    uint32_t resetReason = NRF_POWER->RESETREAS;
+    uint32_t resetReason = g_resetCapture.reason;
 
-    // This was an actual reset (power-on, watchdog, etc.)
-    LOG_I(TAG, "nRF52 Reset Reason: 0x%X", resetReason);
+    LOG_I(TAG, "Reset reason: 0x%08lX", (unsigned long)resetReason);
 
-    // Map of reset reason flags to human-readable strings
-    struct ResetReasonEntry
+    if (resetReason & RESETREAS_OFF_MASK)
     {
-        uint32_t mask;
-        const char *msg;
-    };
-
-    ResetReasonEntry reasons[] = {
-        {POWER_RESETREAS_RESETPIN_Msk, "  - Reset Pin"},
-        {POWER_RESETREAS_DOG_Msk, "  - Watchdog Timeout"},
-        {POWER_RESETREAS_SREQ_Msk, "  - Soft Reset (e.g., from NVIC_SystemReset)"},
-        {POWER_RESETREAS_LOCKUP_Msk, "  - CPU Lockup"},
-        {POWER_RESETREAS_OFF_Msk, "  - System OFF Wakeup (e.g., GPIO, LPCOMP)"},
-        {POWER_RESETREAS_LPCOMP_Msk, "  - LPCOMP Wakeup"},
-    };
-
-    for (const auto &entry : reasons)
-    {
-        if (resetReason & entry.mask)
-        {
-            LOG_I(TAG, "%s", entry.msg);
-        }
+        LOG_I(TAG, "Wakeup: System OFF (deep sleep wake)");
     }
-
+    else if (resetReason == 0)
+    {
+        LOG_I(TAG, "Wakeup: Unknown (register already cleared)");
+    }
+    else
+    {
+        LOG_I(TAG, "Wakeup: Reset (not from deep sleep)");
+        if (resetReason & (1 << 0))
+            LOG_I(TAG, "  - Pin reset");
+        if (resetReason & (1 << 1))
+            LOG_I(TAG, "  - Watchdog");
+        if (resetReason & (1 << 2))
+            LOG_I(TAG, "  - Soft reset");
+        if (resetReason & (1 << 3))
+            LOG_I(TAG, "  - CPU lockup");
+    }
 #else
     LOG_W(TAG, "Wakeup reason reporting only available on nRF52");
 #endif
+}
+
+bool PowerManager::isLoraWakeUp()
+{
+#ifdef ARDUINO_ARCH_NRF52
+    // Check if wakeup was from System OFF mode (bit 16 of RESETREAS)
+    uint32_t resetReason = g_resetCapture.reason;
+    return (resetReason & RESETREAS_OFF_MASK) != 0;
+#endif
+    return false;
 }

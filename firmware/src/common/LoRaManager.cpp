@@ -20,6 +20,7 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
       pinRST(rst),
       pinDIO0(dio0),
       pinBusy(busy),
+      module(nullptr),
       radio(nullptr),
       state(STATE_UNINITIALIZED),
       receiveCallback(nullptr),
@@ -28,13 +29,28 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
     // Set singleton instance for ISR access
     instance = this;
 
-    // Create RadioLib module instance (type depends on radio chip)
+    // Create RadioLib module instance - keep reference for direct access during wakeup
+    module = new Module(pinSS, pinDIO0, pinRST, pinBusy);
+
+    // Create RadioLib radio instance (type depends on radio chip)
 #if defined(RADIO_SX1262)
-    radio = new SX1262(new Module(pinSS, pinDIO0, pinRST, pinBusy));
+    radio = new SX1262(module);
 #elif defined(RADIO_SX1268)
-    radio = new SX1268(new Module(pinSS, pinDIO0, pinRST, pinBusy));
+    radio = new SX1268(module);
 #else
 #error "No supported RADIO defined! Please define RADIO_SX1262, or RADIO_SX1268"
+#endif
+}
+
+void LoRaManager::initSPI()
+{
+#if defined(ARDUINO_ARCH_ESP32)
+    // ESP32: Initialize SPI with custom pins
+    SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
+#elif defined(ARDUINO_ARCH_NRF52)
+    // nRF52: SPI needs to be reinitialized after System OFF wakeup
+    // The Arduino core handles pin configuration, we just need to start SPI
+    SPI.begin();
 #endif
 }
 
@@ -42,10 +58,8 @@ bool LoRaManager::begin()
 {
     LOG_I(TAG, "Initializing LoRa radio");
 
-#if defined(ARDUINO_ARCH_ESP32)
-    // ESP32: Initialize SPI with custom pins
-    SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
-#endif
+    initSPI();
+
     // nRF52: SPI initialization happens elsewhere (in Arduino core)
     for (int attempt = 1; attempt <= LoRaConstants::INIT_RETRY_COUNT; attempt++)
     {
@@ -176,7 +190,7 @@ bool LoRaManager::startReceive(bool dutyCycle)
     return true;
 }
 
-bool LoRaManager::startTransmit(const uint8_t *data, size_t len, bool sendWakeUp)
+bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 {
     if (state == STATE_UNINITIALIZED)
     {
@@ -190,54 +204,6 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len, bool sendWakeUp
         return false;
     }
 
-    if (sendWakeUp)
-    {
-        // Send blocking WakeUp message (blocking) to wake duty-cycled receivers
-        LOG_I(TAG, "Sending WakeUp message...");
-        Message wakeUpMsg = Message::createWakeUp();
-        uint8_t wakeUpBuf[64];
-        int wakeUpLen = wakeUpMsg.serialize(wakeUpBuf, sizeof(wakeUpBuf));
-
-        if (wakeUpLen > 0)
-        {
-            // Clear RX interrupt temporarily
-            radio->clearPacketReceivedAction();
-
-            // Send WakeUp synchronously (blocking)
-            int wakeUpState = radio->transmit(wakeUpBuf, wakeUpLen);
-
-            if (wakeUpState != RADIOLIB_ERR_NONE)
-            {
-                LOG_W(TAG, "WakeUp transmission failed, code %d - continuing anyway", wakeUpState);
-            }
-            else
-            {
-                LOG_I(TAG, "WakeUp sent successfully, %d bytes, seq: %d", wakeUpLen, (int)wakeUpMsg.textData.seq);
-            }
-
-            // Wait for receiver to wake up and switch to continuous RX
-            // This delay accounts for: WakeUp ToA + Deep Sleep Wake Time + RX Settle + Margin
-            int wakeupDelay = LoRaManager::calculateToA_ms(
-                                  LoRaConstants::SPREADING_FACTOR,
-                                  LoRaConstants::BANDWIDTH,
-                                  LoRaConstants::CODING_RATE,
-                                  LoRaConstants::PREAMBLE_LENGTH,
-                                  1 // WakeUp message is only 1 byte
-                                  ) +
-                              LoRaConstants::DEEP_SLEEP_WAKE_TIME_MS;
-            delay(wakeupDelay);
-        }
-        else
-        {
-            LOG_W(TAG, "Failed to serialize WakeUp message");
-        }
-    }
-    else
-    {
-        LOG_I(TAG, "Skipping WakeUp message before transmission");
-    }
-
-    // Send actual message (non-blocking)
     LOG_I(TAG, "Starting transmission of %d bytes", len);
 
     // Switch to transmit mode with interrupt
@@ -354,6 +320,79 @@ float LoRaManager::getSNR() const
     if (state == STATE_UNINITIALIZED || !radio)
         return 0.0f;
     return radio->getSNR();
+}
+
+bool LoRaManager::handleSleepWakeup()
+{
+    LOG_I(TAG, "Resuming from deep sleep (LoRa wakeup)");
+
+    // 1. Initialize SPI
+    initSPI();
+
+    // 2. Initialize RadioLib Module (HAL and pins) - this is critical!
+    // The Module must be properly initialized before any SPI communication.
+    module->init();
+
+    // 3. Configure SPI settings for SX126x protocol
+    // Without this, RadioLib sends malformed SPI commands and reads garbage.
+    module->spiConfig.widths[RADIOLIB_MODULE_SPI_WIDTH_ADDR] = Module::BITS_16;
+    module->spiConfig.widths[RADIOLIB_MODULE_SPI_WIDTH_CMD] = Module::BITS_8;
+    module->spiConfig.statusPos = 1;
+    module->spiConfig.cmds[RADIOLIB_MODULE_SPI_COMMAND_READ] = RADIOLIB_SX126X_CMD_READ_REGISTER;
+    module->spiConfig.cmds[RADIOLIB_MODULE_SPI_COMMAND_WRITE] = RADIOLIB_SX126X_CMD_WRITE_REGISTER;
+    module->spiConfig.cmds[RADIOLIB_MODULE_SPI_COMMAND_NOP] = RADIOLIB_SX126X_CMD_NOP;
+    module->spiConfig.cmds[RADIOLIB_MODULE_SPI_COMMAND_STATUS] = RADIOLIB_SX126X_CMD_GET_STATUS;
+    module->spiConfig.stream = true;
+
+    // 4. Set DIO0 as input for interrupt
+    pinMode(pinDIO0, INPUT);
+
+    // 5. Read packet from the SX1262's buffer
+    // The chip retains its configuration and buffer during duty cycle mode.
+    LoRaPacket packet;
+    size_t len = radio->getPacketLength();
+    packet.len = len;
+
+    if (packet.len > 0 && packet.len <= 255)
+    {
+        LOG_I(TAG, "Detected pending packet: %d bytes", packet.len);
+
+        // readData reads from the buffer and checks CRC from hardware flags
+        int readState = radio->readData(packet.buffer, packet.len);
+
+        if (readState == RADIOLIB_ERR_NONE)
+        {
+            packet.rssi = radio->getRSSI();
+            packet.snr = radio->getSNR();
+
+            LOG_I(TAG, "Wakeup packet received (%d bytes, RSSI: %d dBm, SNR: %.1f dB)",
+                  packet.len, packet.rssi, packet.snr);
+
+            // Re-initialize radio to ensure consistent state for ACK/future RX
+            // This resets the radio, but we already have the packet.
+            begin();
+
+            if (receiveCallback)
+            {
+                receiveCallback(packet);
+            }
+            return true;
+        }
+        else
+        {
+            LOG_E(TAG, "Failed to read wakeup packet, code %d", readState);
+        }
+    }
+    else if (packet.len > 255)
+    {
+        LOG_W(TAG, "Invalid packet length detected: %d (likely uninitialized state)", packet.len);
+    }
+    else
+    {
+        LOG_W(TAG, "Wakeup triggered but no packet length detected");
+    }
+
+    return false;
 }
 
 // ISR handlers

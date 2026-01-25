@@ -15,11 +15,11 @@
 		"lit": "^3.3.2"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.3.11",
+		"@biomejs/biome": "2.3.12",
 		"@open-wc/testing": "^4.0.0",
 		"@tailwindcss/postcss": "^4.1.18",
 		"@tailwindcss/vite": "^4.1.18",
-		"@types/node": "^25.0.6",
+		"@types/node": "^25.0.10",
 		"@types/web-bluetooth": "^0.0.21",
 		"autoprefixer": "^10.4.23",
 		"daisyui": "^5.5.14",
@@ -29,7 +29,7 @@
 		"typescript": "^5.9.3",
 		"vite": "^7.3.1",
 		"vite-plugin-pwa": "^1.2.0",
-		"vitest": "^4.0.16",
+		"vitest": "^4.0.18",
 		"workbox-window": "^7.0.0"
 	}
 }

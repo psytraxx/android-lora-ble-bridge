@@ -8,7 +8,7 @@ static const char *TAG = "BLE";
 BLEManager *BLEManager::instance = nullptr;
 
 BLEManager::BLEManager(MessageQueue *bleToLoraQueue)
-    : loraService(BLEConstants::SERVICE_UUID),
+    : dataService(BLEConstants::SERVICE_UUID),
       txCharacteristic(BLEConstants::TX_CHARACTERISTIC_UUID),
       rxCharacteristic(BLEConstants::RX_CHARACTERISTIC_UUID),
       bleToLoraQueue(bleToLoraQueue)
@@ -55,7 +55,7 @@ bool BLEManager::setup(const char *deviceName)
     LOG_I(TAG, "Battery service initialized with actual level: %u%%", lastBatteryLevel);
 
     // Configure custom LoRa Service
-    loraService.begin();
+    dataService.begin();
 
     // Configure TX Characteristic (ESP32 -> Android)
     txCharacteristic.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY);
@@ -86,7 +86,7 @@ void BLEManager::startAdvertising()
     // Advertising packet
     Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
     Bluefruit.Advertising.addTxPower();
-    Bluefruit.Advertising.addService(loraService);
+    Bluefruit.Advertising.addService(dataService);
     Bluefruit.Advertising.addName();
 
     // Secondary Scan Response packet (optional)

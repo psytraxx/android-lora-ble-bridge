@@ -14,10 +14,6 @@ class PowerManager
 public:
     /// Initialize power management
     static bool configurePowerManagement();
-
-    /// Read battery voltage in millivolts with filtering and averaging
-    static uint16_t readBatteryVoltage();
-
     /// Read battery level (0-100%) using OCV lookup table
     static uint8_t readBatteryLevel();
 
@@ -27,7 +23,13 @@ public:
     /// Print wakeup reason after boot or from sleep
     static void printWakeupReason();
 
+    /// Determine if the wakeup source was LoRa
+    static bool isLoraWakeUp();
+
 private:
+    /// Read battery voltage in millivolts with filtering and averaging
+    static uint16_t readBatteryVoltage();
+
     /// Enable battery ADC (set VBAT_ENABLE low)
     static void batteryAdcEnable();
 

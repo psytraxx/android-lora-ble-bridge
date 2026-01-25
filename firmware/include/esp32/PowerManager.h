@@ -81,22 +81,6 @@ public:
     static void printWakeupReason();
 
     /**
-     * @brief Read battery voltage from ADC
-     *
-     * Reads the battery voltage via ADC and applies the voltage divider ratio.
-     * On Heltec boards, enables ADC control pin before reading.
-     *
-     * Features:
-     *  - Multiple sample averaging to reduce noise
-     *  - Low-pass filtering for smooth readings
-     *  - ESP32 ADC calibration using eFuse data
-     *  - Minimum read interval throttling (5 seconds)
-     *
-     * @return Battery voltage in millivolts (e.g., 3700mV)
-     */
-    static uint16_t readBatteryVoltage();
-
-    /**
      * @brief Read battery level as percentage
      *
      * Reads battery voltage and converts to percentage (0-100%) using
@@ -120,7 +104,30 @@ public:
 
     static void disableBluetoothClassic();
 
+    /**
+     * @brief Determine the cause of the system wakeup was from LoRa
+     *
+     * @return true if the wakeup source was LoRa, false otherwise
+     */
+    static bool isLoraWakeUp();
+
 private:
+    /**
+     * @brief Read battery voltage from ADC
+     *
+     * Reads the battery voltage via ADC and applies the voltage divider ratio.
+     * On Heltec boards, enables ADC control pin before reading.
+     *
+     * Features:
+     *  - Multiple sample averaging to reduce noise
+     *  - Low-pass filtering for smooth readings
+     *  - ESP32 ADC calibration using eFuse data
+     *  - Minimum read interval throttling (5 seconds)
+     *
+     * @return Battery voltage in millivolts (e.g., 3700mV)
+     */
+    static uint16_t readBatteryVoltage();
+
     /**
      * @brief Disable external peripherals by setting VEXT to input mode
      *

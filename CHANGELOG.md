@@ -1,16 +1,23 @@
 ## Changelog
 
+### Firmware v3.5 (January 2026)
+- **Removed WakeUp message type (0x03)** - Protocol simplified to Text and Ack messages only
+- Preamble extended from 32 to 64 symbols - text messages now directly wake duty-cycled receivers
+- ACK timing simplified - short delay (~150-450ms) instead of ToA-based calculation (~2+ seconds)
+- Removed WAKEUP_TO_MESSAGE_DELAY_MS - no longer needed with extended preamble
+- Documentation updated across README.md, protocol.md, AGENTS.md
+
 ### Firmware v3.4 (November 29, 2025)
 - LoRa configuration optimized for dense urban environments
 - Updated to SF11 + BW125 kHz + CR4/8 for maximum range (~3.5x improvement)
 - Preamble reduced from 512 to 32 symbols
-- Auto-calculated timing constants (ACK_DELAY_MS, WAKEUP_TO_MESSAGE_DELAY_MS)
+- Auto-calculated timing constants (ACK_DELAY_MS)
 - Documentation updated across README.md, protocol.md, GEMINI.md
 - Range improvement: 3-10 km → 10-35 km typical
 
 ### Firmware v3.3 (November 24-26, 2025)
 - Sleep method renamed: `goToSleep()` → `enterDeepSleep()`
-- Wake-up reason detection (EXT0 vs EXT1) to prevent WakeUp loops
+- Wake-up reason detection (EXT0 vs EXT1) for proper handling
 - LED pin corrected (blue → green)
 - CPU frequency reduced to 160 MHz (30-40% power savings)
 - Optional WakeUp parameter in `startTransmit()`

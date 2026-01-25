@@ -57,34 +57,32 @@ namespace LoRaConstants
     constexpr int RX_SETTLE_TIME_MS = 50;
 
     /// Safety margin added to Time-on-Air calculations to ensure reliability
-    constexpr int TIMING_MARGIN_MS = 500;
+    constexpr int TIMING_MARGIN_MS = 300;
 
     /// Estimated deep sleep wake time in milliseconds
     constexpr int DEEP_SLEEP_WAKE_TIME_MS = 600;
 
     /// Preamble length for all LoRa transmissions
-    /// Set to 32 symbols for reliable duty-cycle detection and reception
-    constexpr int PREAMBLE_LENGTH = 32;
+    /// Set to 64 symbols (~525ms at SF11/BW250) to ensure reliable duty-cycle RX detection
+    /// and allow the text message itself to wake sleeping receivers (no separate WakeUp needed)
+    constexpr int PREAMBLE_LENGTH = 64;
 
     /// Returns ACK delay with random jitter to prevent collisions
     /// Jitter prevents multiple receivers from transmitting ACK simultaneously
-    /// Uses actual received packet size for efficient timing
-    /// @param sf Spreading factor from radio
-    /// @param bw Bandwidth in kHz from radio
-    /// @param cr Coding rate from radio
-    /// @param preamble Preamble length from radio
-    /// @param actualPayload Actual payload size in bytes (use received packet length)
+    ///
+    /// The delay only needs to account for:
+    /// - Sender's TX→RX switch time (RX_SETTLE_TIME_MS)
+    /// - Processing margin
+    /// - Random jitter to prevent collision when multiple receivers ACK
+    ///
+    /// Note: We don't need to wait for the full packet ToA because the sender
+    /// has already finished transmitting by the time we start this delay.
     /// @return ACK delay with jitter in milliseconds
-    inline int getAckDelay(uint8_t sf, float bw, uint8_t cr, int preamble, int actualPayload)
+    inline int getAckDelay(uint8_t /*sf*/, float /*bw*/, uint8_t /*cr*/, int /*preamble*/, int /*actualPayload*/)
     {
-        int baseDelay = LoRaManager::calculateToA_ms(
-                            sf,
-                            bw,
-                            cr,
-                            preamble,
-                            actualPayload) +
-                        RX_SETTLE_TIME_MS +
-                        TIMING_MARGIN_MS;
+        // Base delay: sender TX→RX switch + small processing margin
+        int baseDelay = RX_SETTLE_TIME_MS + 100;
+        // Random jitter: 0-300ms to prevent collision
         int jitter = random(0, TIMING_MARGIN_MS);
         return baseDelay + jitter;
     }

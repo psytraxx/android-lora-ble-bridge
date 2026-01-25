@@ -62,8 +62,8 @@ private:
     BLEUart bleuart; // UART Service (not used, but helpful for debugging)
     BLEBas blebas;   // Battery Service
 
-    // Custom LoRa service and characteristics
-    BLEService loraService;
+    // Custom service and characteristics to exhange Protocol messages
+    BLEService dataService;
     BLECharacteristic txCharacteristic;
     BLECharacteristic rxCharacteristic;
 
