@@ -398,6 +398,11 @@ void PowerManager::enterDeepSleep()
     // Disable Serial to save power
     Serial.end();
 
+    // Disable timer/touchpad/ULP wake sources so only LoRa/button stay armed
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TOUCHPAD);
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ULP);
+
     // Enter deep sleep (does not return - device resets on wake)
     esp_deep_sleep_start();
 }
