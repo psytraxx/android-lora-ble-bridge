@@ -7,6 +7,7 @@
 #include "common/FirmwareConfig.h"
 #include "common/Logging.h"
 #include <Adafruit_SleepyDog.h>
+#include <nrf.h>
 
 static const char *PLATFORM_TAG = "nRF52";
 
@@ -60,6 +61,15 @@ struct NRF52PlatformTraits
     static void enterDeepSleep()
     {
         PowerManager::enterDeepSleep();
+    }
+
+    static String getMacSuffix()
+    {
+        uint32_t addr_low = NRF_FICR->DEVICEADDR[0];
+        uint16_t last4 = addr_low & 0xFFFF;
+        char buf[5];
+        sprintf(buf, "%04X", last4);
+        return String(buf);
     }
 };
 #endif // NRF52_PLATFORM_TRAITS_H
