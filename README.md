@@ -82,11 +82,11 @@ android-lora-ble-bridge/
 │   │   └── nrf52/        # nRF52-specific implementations
 │   ├── src/
 │   │   ├── unified_main.cpp  # Single entry point for all platforms
-│   │   ├── Protocol.cpp      # Shared protocol implementation
+│   │   ├── common/           # Shared implementations (Protocol, LoRa, etc.)
 │   │   ├── esp32/            # ESP32 platform code
 │   │   └── nrf52/            # nRF52 platform code
 │   ├── platformio.ini    # Build configuration for all platforms
-│   └── ARCHITECTURE.md   # Firmware architecture documentation
+│   └── docs/             # Firmware documentation
 ├── protocol.md           # Protocol specification
 ├── CHANGELOG.md          # Project changelog
 └── README.md             # This file (you are here)
@@ -140,18 +140,11 @@ npm install
 npm run build
 ```
 
-Output will be in `pwa/dist/` directory. See [pwa/DEPLOYMENT.md](pwa/DEPLOYMENT.md) for deployment options.
+Output will be in `pwa/dist/` directory. Deploy to any static hosting (GitHub Pages, Netlify, etc.).
 
 ### ESP32/nRF52 Firmware Build
 
 #### Using PlatformIO (Recommended)
-
-**For ESP32 (LilyGo T-Display S3):**
-```bash
-cd firmware
-~/.platformio/penv/bin/pio run -e lilygo-t-display-s3              # Build
-~/.platformio/penv/bin/pio run -e lilygo-t-display-s3 --target upload --target monitor
-```
 
 **For ESP32 (Heltec WiFi LoRa V3):**
 ```bash
@@ -172,7 +165,6 @@ cd firmware
 - Default: 433.92 MHz, SF11, BW250 kHz, CR4/5, 20 dBm TX, 64-symbol preamble, 160 MHz CPU
 - Device name auto-generated from chip ID
 - Deep sleep with wake-up reason detection for proper handling
-- See `firmware/ARCHITECTURE.md` for platform-specific details
 
 ### Android App Build
 

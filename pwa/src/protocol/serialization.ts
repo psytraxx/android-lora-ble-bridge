@@ -11,8 +11,7 @@ import {
   MAX_TEXT_LENGTH,
   MESSAGE_TYPE,
   type Message,
-  type TextMessage,
-  type WakeUpMessage
+  type TextMessage
 } from './types';
 
 /**
@@ -20,7 +19,6 @@ import {
  *
  * TextMessage: [Type:1][Seq:1][CharCount:1][PackedLen:1][Packed:N][HasGPS:1][Lat?:4][Lon?:4]
  * AckMessage: [Type:1][Seq:1]
- * WakeUpMessage: [Type:1]
  *
  * @param message Message to serialize
  * @returns Binary representation
@@ -31,8 +29,6 @@ export function serialize(message: Message): Uint8Array {
       return serializeTextMessage(message);
     case MESSAGE_TYPE.ACK:
       return serializeAckMessage(message);
-    case MESSAGE_TYPE.WAKE_UP:
-      return serializeWakeUpMessage(message);
     default:
       throw new Error(`Unknown message type: ${(message as Message).type}`);
   }
@@ -57,8 +53,6 @@ export function deserialize(data: Uint8Array): Message {
       return deserializeTextMessage(data);
     case MESSAGE_TYPE.ACK:
       return deserializeAckMessage(data);
-    case MESSAGE_TYPE.WAKE_UP:
-      return deserializeWakeUpMessage(data);
     default:
       throw new Error(`Unknown message type: 0x${type.toString(16)}`);
   }
@@ -188,26 +182,6 @@ function deserializeAckMessage(data: Uint8Array): AckMessage {
   return {
     type: MESSAGE_TYPE.ACK,
     seq: data[1]
-  };
-}
-
-/**
- * Serializes WakeUpMessage
- */
-function serializeWakeUpMessage(_msg: WakeUpMessage): Uint8Array {
-  return new Uint8Array([MESSAGE_TYPE.WAKE_UP]);
-}
-
-/**
- * Deserializes WakeUpMessage
- */
-function deserializeWakeUpMessage(data: Uint8Array): WakeUpMessage {
-  if (data.length < 1) {
-    throw new Error('WakeUpMessage too short');
-  }
-
-  return {
-    type: MESSAGE_TYPE.WAKE_UP
   };
 }
 

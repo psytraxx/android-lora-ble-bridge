@@ -16,7 +16,11 @@ This document summarizes all unit tests for the LoRa Bridge application.
 | **LocationDataTest** | 9 | Location model and conversions | UC-2.2 |
 | **ChatMessageTest** | 10 | Chat message model | UC-6.1 |
 | **MessageRepositoryTest** | 11 | Message state management | UC-6.1, UC-6.2 |
-| **TOTAL** | **43** | - | - |
+| **ChatViewModelTest** | 17 | ViewModel logic and state | UC-3.1, UC-4.1 |
+| **ChatViewModelConnectionTest** | 6 | Connection handling | UC-1.1, UC-1.3 |
+| **DiscoveredDeviceTest** | 4 | Device discovery model | UC-1.1 |
+| **BleConnectionStateTest** | 4 | BLE connection states | UC-1.1 |
+| **TOTAL** | **74** | - | - |
 
 ---
 

@@ -1,13 +1,12 @@
 /**
- * LoRa Protocol v3.0 - Type Definitions
+ * LoRa Protocol v3.5 - Type Definitions
  *
  * Binary message format for ESP32-S3 LoRa communication
  */
 
 export const MESSAGE_TYPE = {
   TEXT: 0x01,
-  ACK: 0x02,
-  WAKE_UP: 0x03
+  ACK: 0x02
 } as const;
 
 export type MessageType = (typeof MESSAGE_TYPE)[keyof typeof MESSAGE_TYPE];
@@ -34,15 +33,7 @@ export interface AckMessage {
   seq: number; // 0-255, matches TextMessage sequence
 }
 
-/**
- * WakeUpMessage: [Type]
- * Size: 1 byte (LoRa-only, never sent via BLE)
- */
-export interface WakeUpMessage {
-  type: typeof MESSAGE_TYPE.WAKE_UP;
-}
-
-export type Message = TextMessage | AckMessage | WakeUpMessage;
+export type Message = TextMessage | AckMessage;
 
 /**
  * 6-bit character set (64 characters total)

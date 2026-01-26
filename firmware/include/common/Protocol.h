@@ -9,7 +9,7 @@
 
 /// Maximum text length in characters for optimal long-range LoRa transmission.
 /// With 6-bit packing: 50 chars = 38 bytes (was 50 bytes)
-/// With SF10, BW125, 433MHz: 50 bytes (12 header + 38 text) = ~600ms Time on Air
+/// With SF11, BW250, 433MHz: 51 bytes max (5 header + 38 text + 8 GPS) = ~1.5s Time on Air
 const uint8_t MAX_TEXT_LENGTH = 50;
 
 /// Character set for 6-bit encoding (64 characters)

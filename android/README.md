@@ -9,7 +9,7 @@ A long-range messaging system enabling text messages (up to 50 characters) and G
 ## 🎯 Features
 
 - ✅ **BLE Communication** - Connect to ESP32S3-LoRa via Bluetooth Low Energy
-- ✅ **LoRa Messaging** - Send/receive messages over 5-15 km range
+- ✅ **LoRa Messaging** - Send/receive messages over 10-25 km range
 - ✅ **GPS Integration** - Attach location coordinates to messages
 - ✅ **6-bit Encoding** - Efficient text packing (24% bandwidth savings)
 - ✅ **ACK Tracking** - Delivery confirmation with visual indicators
@@ -134,7 +134,7 @@ cd lorabridge
 ### Implementation: 92%
 - ✅ **23/25 use cases** fully implemented
 - ⚠️ **1/25 use cases** partially implemented (UC-7.3)
-- ✅ **43 unit tests** passing
+- ✅ **74 unit tests** passing
 
 ### Test Coverage: 24%
 - ✅ Protocol serialization (100%)
@@ -353,8 +353,8 @@ Same as original project.
 
 ---
 
-**Version:** 1.0.3
-**Last Updated:** 2025-10-26
-**Protocol:** v3.0
+**Version:** 1.0.4
+**Last Updated:** 2026-01-26
+**Protocol:** v3.5
 **Implementation:** 92% (23/25 use cases)
-**Tests:** 43 unit tests passing
+**Tests:** 74 unit tests passing

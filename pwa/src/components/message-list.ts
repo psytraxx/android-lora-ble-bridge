@@ -34,7 +34,7 @@ export class MessageList extends LitElement {
               <div class="stats shadow">
                 <div class="stat place-items-center py-3">
                   <div class="stat-title text-xs">Max Range</div>
-                  <div class="stat-value text-primary text-xl">5-15 km</div>
+                  <div class="stat-value text-primary text-xl">10-25 km</div>
                 </div>
                 <div class="stat place-items-center py-3">
                   <div class="stat-title text-xs">Max Length</div>

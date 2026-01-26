@@ -1,7 +1,8 @@
 ## Changelog
 
 ### Firmware v3.5 (January 2026)
-- **Removed WakeUp message type (0x03)** - Protocol simplified to Text and Ack messages only
+- **Removed WakeUp message type (0x03)** - Protocol simplified to Text (0x01) and Ack (0x02) messages only
+- **LoRa config updated**: BW250 kHz + CR4/5 (was BW125 + CR4/8) for better throughput
 - Preamble extended from 32 to 64 symbols - text messages now directly wake duty-cycled receivers
 - ACK timing simplified - short delay (~150-450ms) instead of ToA-based calculation (~2+ seconds)
 - Removed WAKEUP_TO_MESSAGE_DELAY_MS - no longer needed with extended preamble
@@ -46,7 +47,7 @@
 
 ### Protocol v3.0 (October 2025)
 - Unified TextMessage with optional GPS (was separate messages)
-- Message types: TEXT (0x01), ACK (0x02), WAKE_UP (0x03)
+- Message types: TEXT (0x01), ACK (0x02) - Note: WAKE_UP (0x03) was removed in v3.5
 - 6-bit character packing (64-char set, 24% bandwidth savings)
 - GPS coordinates optional (hasGps flag)
 - Click message to open Google Maps

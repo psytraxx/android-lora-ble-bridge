@@ -61,19 +61,23 @@ This document outlines all use cases extracted from the existing Android applica
 
 ---
 
-### UC-1.3: No Message Sending When Disconnected
-**Actor:** User  
-**Trigger:** User attempts to send message  
+### UC-1.3: Auto-Reconnect on Disconnection
+**Actor:** User
+**Trigger:** User attempts to send message while disconnected
 **Preconditions:**
 - BLE not connected
 
 **Flow:**
-1. User attempts to send a message.
-2. System detects disconnected state.
-3. System prevents sending and disables send button.
+1. User types message while disconnected.
+2. User clicks Send button (enabled when not waiting for ACK).
+3. Message is queued and input field cleared.
+4. System shows "Reconnecting..." toast.
+5. BLE scan initiates to find device.
+6. When connection established, shows "Connected! Sending message..." toast.
+7. Queued message sent automatically.
 
 **Postconditions:**
-- Message is not sent or queued.
+- Message is queued and sent when connection is re-established.
 
 ---
 

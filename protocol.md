@@ -36,10 +36,10 @@ Used to acknowledge receipt of text messages.
 ### Text Length Limit
 - **Maximum**: 50 characters (enforced in both Android and ESP32)
 - **Rationale**: Optimized for long-range LoRa transmission
-  - With SF11, BW125 kHz, CR4/8, 433.92 MHz configuration
-  - Time on Air: ~3.1 seconds for max message with GPS (64 bytes)
-  - Allows ~11 messages/hour within 1% duty cycle limits (EU)
-  - Range: 10-35 km typical (SF11+BW125 optimized for urban environments)
+  - With SF11, BW250 kHz, CR4/5, 433.92 MHz configuration
+  - Time on Air: ~1.5 seconds for max message with GPS (51 bytes)
+  - Allows ~24 messages/hour within 1% duty cycle limits (EU)
+  - Range: 10-25 km typical (SF11+BW250 balance of range and speed)
 
 ### 6-bit Character Encoding
 - **Character Set**: ` ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'"@#$%&*()[]{}=+/<>_`
@@ -153,54 +153,54 @@ Total: 2 bytes
 
 ### LoRa Configuration
 
-**Current Settings (v3.4 - Nov 2025):**
-- **Spreading Factor**: SF11 (excellent range, urban-optimized)
-- **Bandwidth**: 125 kHz (maximum sensitivity and range)
-- **Coding Rate**: 4/8 (maximum error correction for urban interference)
+**Current Settings (v3.5 - Jan 2026):**
+- **Spreading Factor**: SF11 (excellent range)
+- **Bandwidth**: 250 kHz (balance of range and data rate)
+- **Coding Rate**: 4/5 (25% overhead, efficient for low-interference)
 - **Frequency**: 433.92 MHz (default, configurable)
 - **TX Power**: 20 dBm / ~100 mW (default, configurable -4 to 20 dBm)
 - **Preamble**: 64 symbols (extended preamble for direct wake-up of duty-cycled receivers)
 
-**Note:** Settings optimized for maximum range (10-35 km) in dense urban environments. SF11+BW125 provides ~3.5x better range than SF9+BW250, with excellent penetration through buildings and resistance to interference.
+**Note:** Settings balanced for good range (10-25 km) with reasonable throughput. SF11+BW250+CR4/5 provides faster transmission than BW125 while maintaining excellent range.
 
 ### Time on Air (ToA)
 
-**At SF11, BW125 kHz, CR4/8 (current configuration - v3.4):**
+**At SF11, BW250 kHz, CR4/5 (current configuration - v3.5):**
 
-| Message Size | Content | ToA @ SF11 BW125 CR4/8 | Example |
+| Message Size | Content | ToA @ SF11 BW250 CR4/5 | Example |
 |--------------|---------|------------------------|---------|
-| 2 bytes | ACK | ~0.9 s | Acknowledgment |
-| 8 bytes | 3-char text (no GPS) | ~1.0 s | "SOS" |
-| 20 bytes | 15-char text (no GPS) | ~1.5 s | "AT CHECKPOINT 2" |
-| 28 bytes | 15-char text + GPS | ~2.0 s | "AT CHECKPOINT 2" with location |
-| 40 bytes | 35-char text (no GPS) | ~2.3 s | Medium length text |
-| 64 bytes | 50-char text + GPS | ~3.1 s | Maximum length with GPS |
+| 2 bytes | ACK | ~0.4 s | Acknowledgment |
+| 8 bytes | 3-char text (no GPS) | ~0.5 s | "SOS" |
+| 20 bytes | 15-char text (no GPS) | ~0.7 s | "AT CHECKPOINT 2" |
+| 28 bytes | 15-char text + GPS | ~0.9 s | "AT CHECKPOINT 2" with location |
+| 40 bytes | 35-char text (no GPS) | ~1.1 s | Medium length text |
+| 51 bytes | 50-char text + GPS | ~1.5 s | Maximum length with GPS |
 
-**Benefits of current configuration (SF11 + BW125 + CR4/8):**
-- Maximum range: ~3.5x better than SF9+BW250 (10-35 km typical)
-- Excellent urban penetration through buildings
-- Superior noise immunity and interference resistance
-- CR4/8 provides maximum error correction for multipath/reflections
-- Ideal for dense populated areas with obstacles
+**Benefits of current configuration (SF11 + BW250 + CR4/5):**
+- Good range: 10-25 km typical
+- Faster transmission than BW125 (~2x speed improvement)
+- Lower duty cycle usage allows more messages per hour
+- CR4/5 provides efficient error correction with less overhead
+- Good balance for most use cases
 
 ### Duty Cycle Compliance (EU: 1% = 36 seconds/hour)
 
-**Based on SF11, BW125 kHz, CR4/8 (current configuration - v3.4):**
+**Based on SF11, BW250 kHz, CR4/5 (current configuration - v3.5):**
 
 | Scenario | Per Message | Messages/Hour | Use Case |
 |----------|-------------|---------------|----------|
-| Emergency (5 char) | ~1.0 s | ~36 | SOS messages |
-| Text only (25 char) | ~1.7 s | ~21 | Normal messages |
-| Text (15 char) + GPS | ~2.0 s | ~18 | Status with location |
-| Text only (50 char) | ~2.6 s | ~13 | Detailed updates without GPS |
-| Text (50 char) + GPS | ~3.1 s | ~11 | Full message with location |
-| ACK | ~0.9 s | ~40 | Acknowledgments |
+| Emergency (5 char) | ~0.5 s | ~72 | SOS messages |
+| Text only (25 char) | ~0.8 s | ~45 | Normal messages |
+| Text (15 char) + GPS | ~0.9 s | ~40 | Status with location |
+| Text only (50 char) | ~1.2 s | ~30 | Detailed updates without GPS |
+| Text (50 char) + GPS | ~1.5 s | ~24 | Full message with location |
+| ACK | ~0.4 s | ~90 | Acknowledgments |
 
 **Range vs. Speed Trade-off:**
-- SF11+BW125: ~3.5x range improvement vs SF9+BW250
-- Messages take 5-8x longer but reach much further
-- Ideal for: Urban environments, long-range emergency comms, sparse networks
-- Consider: Lower message throughput requires strategic use
+- SF11+BW250: Good balance of range and throughput
+- Messages transmit ~2x faster than BW125 configuration
+- Ideal for: General messaging, moderate distances, higher throughput needs
+- Consider: For extreme range (30+ km), BW125 may be better
 
 **Note:** Use [LoRa Calculator](https://www.loratools.nl/#/airtime) to calculate exact ToA for your specific messages.
 

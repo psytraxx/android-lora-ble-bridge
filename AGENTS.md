@@ -18,14 +18,14 @@ Your expertise includes low-power design, multi-platform firmware development, a
 
 ## Project Overview
 
-This is a **long-range messaging system** bridging BLE (Android/PWA ↔ ESP32/nRF52) with LoRa radio for 10-35 km communication. The system uses custom 6-bit character encoding to minimize LoRa airtime and supports multiple hardware platforms through a unified trait-based architecture.
+This is a **long-range messaging system** bridging BLE (Android/PWA ↔ ESP32/nRF52) with LoRa radio for 10-25 km communication. The system uses custom 6-bit character encoding to minimize LoRa airtime and supports multiple hardware platforms through a unified trait-based architecture.
 
 **Key Technologies:**
 - **Firmware:** C++17, PlatformIO, RadioLib, NimBLE (ESP32), Arduino BLE (nRF52)
 - **Android:** Kotlin 1.9+, Jetpack Compose, Gradle 8.7+, AGP 8.6+
 - **PWA:** TypeScript, Lit, Vite, Web Bluetooth API
 - **Hardware:** ESP32-S3, nRF52840, SX1262/SX1278 LoRa radios
-- **Radio:** 433.92 MHz, SF11, BW125 kHz, CR4/8, 20 dBm, 32-symbol preamble
+- **Radio:** 433.92 MHz, SF11, BW250 kHz, CR4/5, 20 dBm, 64-symbol preamble
 
 **For complete documentation, see [README.md](README.md)**
 
@@ -36,12 +36,8 @@ This is a **long-range messaging system** bridging BLE (Android/PWA ↔ ESP32/nR
 ### Firmware Build & Flash
 
 ```bash
-# ESP32 (LilyGo T-Display S3 with SX1278)
-cd firmware
-~/.platformio/penv/bin/pio run -e lilygo-t-display-s3
-~/.platformio/penv/bin/pio run -e lilygo-t-display-s3 --target upload --target monitor
-
 # ESP32 (Heltec WiFi LoRa V3 with SX1262)
+cd firmware
 ~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3
 ~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3 --target upload --target monitor
 
@@ -119,7 +115,7 @@ android-lora-ble-bridge/
 │   │   ├── esp32/                     # ESP32 platform code
 │   │   └── nrf52/                     # nRF52 platform code
 │   ├── platformio.ini                 # ⚙️ Build config for all platforms
-│   └── ARCHITECTURE.md                # Firmware architecture docs
+│   └── docs/                          # Firmware documentation
 ├── android/
 │   ├── app/src/main/java/com/example/lorabridge/
 │   │   ├── data/
@@ -196,7 +192,7 @@ int32_t lon_encoded = longitude * 1_000_000;  // Little-endian
 ### ✅ Good: Deep Sleep Wake-Up Handling
 
 ```cpp
-// firmware/src/esp32/main.cpp
+// firmware/src/unified_main.cpp
 void setup() {
     esp_sleep_wakeup_cause_t reason = esp_sleep_get_wakeup_cause();
 
@@ -291,9 +287,9 @@ fun testStatusMessageSerialization() { /* ... */ }
 ```cpp
 // firmware/include/common/FirmwareConfig.h
 LORA_FREQUENCY:        433.92 MHz  // Worldwide ISM band
-LORA_BANDWIDTH:        125 kHz     // Optimized for range
+LORA_BANDWIDTH:        250 kHz     // Balance of range and speed
 LORA_SPREADING_FACTOR: 11          // Excellent range + reliability
-LORA_CODING_RATE:      8           // CR4/8 (50% overhead)
+LORA_CODING_RATE:      5           // CR4/5 (25% overhead)
 LORA_TX_POWER:         20 dBm      // 100 mW (check regional limits!)
 LORA_PREAMBLE_LENGTH:  64 symbols  // Extended preamble for direct wake-up
 ```
@@ -376,7 +372,7 @@ cd android && ./gradlew test
 
 # 3. Flash firmware to test devices
 cd firmware
-~/.platformio/penv/bin/pio run -e lilygo-t-display-s3 --target upload
+~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3 --target upload
 
 # 4. Test on hardware with serial monitoring
 ~/.platformio/penv/bin/pio device monitor
@@ -393,8 +389,8 @@ cd firmware
 # Verify in FirmwareConfig.h::getAckDelay()
 
 # 3. Reflash ALL devices
-~/.platformio/penv/bin/pio run -e lilygo-t-display-s3 --target upload
 ~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3 --target upload
+~/.platformio/penv/bin/pio run -e xiao_nrf52840 --target upload
 
 # 4. Test communication between devices
 # Monitor: ~/.platformio/penv/bin/pio device monitor
@@ -514,7 +510,7 @@ cd android
 ## Performance Expectations
 
 **Range:**
-- Urban: 3-10 km (SF11 + BW125)
+- Urban: 3-10 km (SF11 + BW250)
 - Suburban: 10-25 km
 - Line-of-sight: 25-35 km
 
@@ -523,9 +519,9 @@ cd android
 - SX1278 (continuous RX): ~7 days on 2500 mAh
 
 **Airtime:**
-- Typical message (30 chars + GPS): ~1.3s at SF11 + BW125
-- ACK message (2 bytes): ~686ms at SF11 + BW125
-- Total round-trip: ~4-5s including ACK delays
+- Typical message (30 chars + GPS): ~0.7s at SF11 + BW250
+- ACK message (2 bytes): ~0.4s at SF11 + BW250
+- Total round-trip: ~2-3s including ACK delays
 
 **Duty Cycle (EU 433 MHz):**
 - Legal limit: 1% (36s/hour)
