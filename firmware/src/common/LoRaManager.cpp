@@ -108,6 +108,26 @@ bool LoRaManager::begin()
                 LOG_I(TAG, "TCXO configured at %.1fV via DIO3", LoRaConstants::TCXO_VOLTAGE);
             }
 
+            res = radio->setRegulatorDCDC();
+            if (res != RADIOLIB_ERR_NONE)
+            {
+                LOG_E(TAG, "Failed to set DC-DC regulator, code %d", res);
+            }
+            else
+            {
+                LOG_I(TAG, "DC-DC regulator enabled");
+            }
+
+            res = radio->setRxBoostedGainMode(true);
+            if (res != RADIOLIB_ERR_NONE)
+            {
+                LOG_E(TAG, "Failed to enable boosted RX gain, code %d", res);
+            }
+            else
+            {
+                LOG_I(TAG, "Boosted RX gain mode enabled");
+            }
+
             radio->setDio2AsRfSwitch(true);
             LOG_I(TAG, "DIO2 configured as RF switch");
 
