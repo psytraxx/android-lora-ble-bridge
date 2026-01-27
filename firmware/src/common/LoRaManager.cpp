@@ -94,6 +94,10 @@ bool LoRaManager::begin()
                 LOG_E(TAG, "Failed to configure CRC, code %d", res);
                 return false;
             }
+            else
+            {
+                LOG_I(TAG, "CRC enabled");
+            }
 
 #if defined(RADIO_SX1262) || defined(RADIO_SX1268)
             // Explicitly set TCXO control via DIO3 (redundant if begin() does it, but safe)
