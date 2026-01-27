@@ -79,6 +79,10 @@ public:
      */
     LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy);
 
+    // Non-copyable (singleton with dynamic allocation)
+    LoRaManager(const LoRaManager&) = delete;
+    LoRaManager& operator=(const LoRaManager&) = delete;
+
     /**
      * @brief Initialize LoRa radio - This method must be called on cold start of the device.
      * @return true on success, false on failure

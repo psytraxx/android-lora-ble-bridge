@@ -50,7 +50,7 @@ public:
     TextMessage textData;
     AckMessage ackData;
 
-    Message() : type(MessageType::Text) {}
+    Message() : type(MessageType::Text), textData{}, ackData{} {}
 
     static Message createText(uint8_t seq, const char *text);
     static Message createTextWithGps(uint8_t seq, const char *text, int32_t lat, int32_t lon);
