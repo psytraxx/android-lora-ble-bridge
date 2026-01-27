@@ -142,7 +142,8 @@ bool BLEManager::sendMessage(const Message &msg)
 
     if (success)
     {
-        LOG_D(TAG, "Sent message, type: %d, seq: %d, size: %d", (int)msg.type, (int)msg.textData.seq, length);
+        int seq = (msg.type == MessageType::Ack) ? msg.ackData.seq : msg.textData.seq;
+        LOG_D(TAG, "Sent message, type: %d, seq: %d, size: %d", (int)msg.type, seq, length);
     }
     else
     {

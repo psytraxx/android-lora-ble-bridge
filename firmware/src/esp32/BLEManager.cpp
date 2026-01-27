@@ -208,7 +208,8 @@ bool BLEManager::sendMessage(const Message &msg)
     bool success = pTxCharacteristic->notify();
     if (success)
     {
-        LOG_D(TAG, "Sent message, type: %d, seq: %d, size: %d", (int)msg.type, (int)msg.textData.seq, len);
+        int seq = (msg.type == MessageType::Ack) ? msg.ackData.seq : msg.textData.seq;
+        LOG_D(TAG, "Sent message, type: %d, seq: %d, size: %d", (int)msg.type, seq, len);
     }
     else
     {
