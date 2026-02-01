@@ -15,7 +15,7 @@
 		"lit": "^3.3.2"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.3.12",
+		"@biomejs/biome": "2.3.13",
 		"@open-wc/testing": "^4.0.0",
 		"@tailwindcss/postcss": "^4.1.18",
 		"@tailwindcss/vite": "^4.1.18",
