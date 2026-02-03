@@ -22,5 +22,6 @@ data class ChatMessage(
 enum class AckStatus {
     NONE,       // Not applicable (received messages)
     PENDING,    // Sent, waiting for ACK
-    DELIVERED   // ACK received
+    DELIVERED,  // ACK received
+    FAILED      // Max retries exceeded, no ACK received
 }

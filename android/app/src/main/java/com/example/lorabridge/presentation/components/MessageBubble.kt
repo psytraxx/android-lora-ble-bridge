@@ -88,6 +88,7 @@ fun MessageBubble(
                         text = when (message.ackStatus) {
                             AckStatus.PENDING -> "⏱"
                             AckStatus.DELIVERED -> "✓"
+                            AckStatus.FAILED -> "✗"
                             AckStatus.NONE -> ""
                         },
                         fontSize = 12.sp,
@@ -95,6 +96,7 @@ fun MessageBubble(
                         color = when (message.ackStatus) {
                             AckStatus.PENDING -> Color(0xFFFF9800)  // Orange
                             AckStatus.DELIVERED -> Color(0xFF4CAF50)  // Green
+                            AckStatus.FAILED -> Color(0xFFF44336)  // Red
                             AckStatus.NONE -> Color.Transparent
                         }
                     )

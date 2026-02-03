@@ -337,9 +337,11 @@ class ChatViewModel @Inject constructor(
         ackTimeoutJob = viewModelScope.launch {
             delay(BleConstants.ACK_TIMEOUT_MS)
             if (pendingAckSeq == seq) {
-                Log.d(TAG, "ACK timeout for seq $seq")
+                Log.d(TAG, "ACK timeout for seq $seq - marking as failed")
                 pendingAckSeq = null
+                messageRepository.updateAckStatus(seq, AckStatus.FAILED)
                 _uiState.value = _uiState.value.copy(canSendMessage = true)
+                _toastMessage.tryEmit("Message delivery failed (no ACK)")
             }
         }
     }
