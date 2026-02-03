@@ -7,7 +7,8 @@
 export enum AckStatus {
   NONE = 'NONE',
   PENDING = 'PENDING',
-  DELIVERED = 'DELIVERED'
+  DELIVERED = 'DELIVERED',
+  FAILED = 'FAILED'
 }
 
 export interface ChatMessage {

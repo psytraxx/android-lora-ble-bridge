@@ -12,6 +12,7 @@ import {
   MAX_TEXT_LENGTH
 } from '../protocol';
 import { sharedStylesheet } from '../shared-styles';
+import { paperAirplaneIcon } from '../utils/icons';
 
 @customElement('message-input')
 export class MessageInput extends LitElement {
@@ -60,9 +61,7 @@ export class MessageInput extends LitElement {
             ?disabled=${!canSend}
             aria-label="Send message"
           >
-            <svg class="w-6 h-6" viewBox="0 -960 960 960" fill="currentColor">
-              <path d="M120-160v-640l760 320-760 320Zm80-120 474-200-474-200v140l240 60-240 60v140Zm0 0v-400 400Z"/>
-            </svg>
+            ${paperAirplaneIcon()}
           </button>
         </div>
       </div>

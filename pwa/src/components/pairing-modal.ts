@@ -1,6 +1,7 @@
 import { css, html, LitElement } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import { sharedStylesheet } from '../shared-styles';
+import { informationCircleIcon, wifiIcon } from '../utils/icons';
 
 @customElement('pairing-modal')
 export class PairingModal extends LitElement {
@@ -49,10 +50,8 @@ export class PairingModal extends LitElement {
     return html`
       <dialog class="modal modal-open">
         <div class="modal-box">
-          <div class="flex justify-center mb-6">
-            <svg class="w-20 h-20 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-            </svg>
+          <div class="flex justify-center mb-6 text-primary">
+            ${wifiIcon('w-20 h-20')}
           </div>
 
           <h2 class="text-2xl font-bold mb-4 text-center">Let's Connect Your Device</h2>
@@ -88,9 +87,7 @@ export class PairingModal extends LitElement {
           </div>
 
           <div class="alert alert-warning mt-6">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+            ${informationCircleIcon('w-5 h-5 shrink-0')}
             <div>
               <h3 class="font-semibold">Don't See Your Device?</h3>
               <ul class="text-sm mt-1 space-y-1 ml-5 list-disc">
