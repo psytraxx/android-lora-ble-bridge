@@ -23,7 +23,7 @@ class MessageRepository @Inject constructor() {
      * @see UC-6.1: Display Chat Message
      */
     fun addMessage(message: ChatMessage) {
-        _messages.value = _messages.value + message
+        _messages.value += message
     }
 
     /**
