@@ -390,6 +390,9 @@ void onLoRaReceived(const LoRaPacket &packet)
     lastRssi = packet.rssi;
     lastSnr = packet.snr;
 
+    // Update BLE characteristic with fresh RSSI/SNR values
+    bleManager->updateDeviceInfo();
+
 #ifdef LED_PIN
     ledManager->blink(LEDConstants::RX_BLINKS);
 #endif

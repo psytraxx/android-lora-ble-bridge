@@ -49,12 +49,14 @@ public:
     /// Set the callback that provides device info data on demand
     void setInfoDataProvider(InfoDataProvider provider) { infoProvider = provider; }
 
+    /// Update the device info characteristic value (call periodically or when info changes)
+    void updateDeviceInfo();
+
     // Bluefruit callbacks (public for callback registration)
     static void connectCallback(uint16_t conn_handle);
     static void disconnectCallback(uint16_t conn_handle, uint8_t reason);
     static void rxWriteCallback(uint16_t conn_hdl, BLECharacteristic *chr, uint8_t *data, uint16_t len);
     static void cccdCallback(uint16_t conn_hdl, BLECharacteristic *chr, uint16_t value);
-    static void infoReadCallback(uint16_t conn_hdl, BLECharacteristic *chr, ble_gatts_evt_read_t *request);
 
 private:
     // BLE Services
@@ -85,7 +87,6 @@ private:
     // Internal handlers
     void handleRxWrite(uint8_t *data, uint16_t len);
     void handleCccdWrite(uint16_t value);
-    void handleInfoRead(BLECharacteristic *chr);
 };
 
 #endif // BLE_MANAGER_H

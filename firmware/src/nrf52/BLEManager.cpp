@@ -65,11 +65,15 @@ bool BLEManager::setup(const char *deviceName)
     rxCharacteristic.begin();
 
     // Configure Device Info Characteristic (read-only, 16 bytes)
+    // Note: We set the value directly rather than using a read authorize callback,
+    // as Bluefruit's authorize callback has different semantics than ESP32's NimBLE.
     infoCharacteristic.setProperties(CHR_PROPS_READ);
     infoCharacteristic.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-    infoCharacteristic.setReadAuthorizeCallback(BLEManager::infoReadCallback);
     infoCharacteristic.setFixedLen(16);
     infoCharacteristic.begin();
+
+    // Set initial device info value (will be updated periodically)
+    updateDeviceInfo();
 
     LOG_I(TAG, "Initialized successfully");
     return true;
@@ -168,6 +172,9 @@ void BLEManager::connectCallback(uint16_t conn_handle)
 
         instance->isConnectedFlag = true;
 
+        // Update device info characteristic with fresh data
+        instance->updateDeviceInfo();
+
         // Request power-optimized connection parameters
         if (connection)
         {
@@ -226,17 +233,6 @@ void BLEManager::cccdCallback(uint16_t conn_hdl, BLECharacteristic *chr, uint16_
     }
 }
 
-void BLEManager::infoReadCallback(uint16_t conn_hdl, BLECharacteristic *chr, ble_gatts_evt_read_t *request)
-{
-    (void)conn_hdl;
-    (void)request;
-
-    if (instance)
-    {
-        instance->handleInfoRead(chr);
-    }
-}
-
 // Internal handlers
 void BLEManager::handleRxWrite(uint8_t *data, uint16_t len)
 {
@@ -284,14 +280,16 @@ void BLEManager::handleCccdWrite(uint16_t value)
     }
 }
 
-void BLEManager::handleInfoRead(BLECharacteristic *chr)
+void BLEManager::updateDeviceInfo()
 {
+    DeviceInfoData info;
     if (infoProvider)
     {
-        DeviceInfoData info = infoProvider();
-        uint8_t buf[16];
-        info.serialize(buf);
-        chr->write(buf, sizeof(buf));
-        LOG_D(TAG, "Device info read: battery=%d%%, rssi=%d, snr=%d", info.batteryLevel, info.rssi, info.snrX100);
+        info = infoProvider();
     }
+    // Set the characteristic value - BLE stack will return this on reads
+    uint8_t buf[16];
+    info.serialize(buf);
+    infoCharacteristic.write(buf, sizeof(buf));
+    LOG_D(TAG, "Device info updated: battery=%d%%, rssi=%d, snr=%d", info.batteryLevel, info.rssi, info.snrX100);
 }

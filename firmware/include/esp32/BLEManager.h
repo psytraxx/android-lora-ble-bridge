@@ -126,6 +126,9 @@ public:
     /// Set the callback that provides device info data on demand
     void setInfoDataProvider(InfoDataProvider provider) { infoProvider = provider; }
 
+    /// Update the device info characteristic value (no-op on ESP32, uses on-read callback)
+    void updateDeviceInfo() {}
+
     /// Get device info from the registered provider (called by InfoCharacteristicCallbacks)
     DeviceInfoData getDeviceInfo() const;
 
