@@ -62,13 +62,9 @@ void TxCharacteristicCallbacks::onSubscribe(NimBLECharacteristic *pCharacteristi
 }
 
 // Info Characteristic callbacks implementation
-void InfoCharacteristicCallbacks::onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo)
+void InfoCharacteristicCallbacks::onRead()
 {
-    DeviceInfoData info = bleManager->getDeviceInfo();
-    uint8_t buf[16];
-    info.serialize(buf);
-    pCharacteristic->setValue(buf, sizeof(buf));
-    LOG_D(TAG, "Device info read: battery=%d%%, rssi=%d, snr=%d", info.batteryLevel, info.rssi, info.snrX100);
+    bleManager->updateDeviceInfo();
 }
 
 // BLEManager implementation
@@ -318,4 +314,18 @@ DeviceInfoData BLEManager::getDeviceInfo() const
     }
     // Return zeroed data if no provider registered
     return DeviceInfoData{};
+}
+
+void BLEManager::updateDeviceInfo()
+{
+    if (!pInfoCharacteristic)
+    {
+        return;
+    }
+
+    DeviceInfoData info = getDeviceInfo();
+    uint8_t buf[16];
+    info.serialize(buf);
+    pInfoCharacteristic->setValue(buf, sizeof(buf));
+    LOG_D(TAG, "Device info updated: battery=%d%%, rssi=%d, snr=%d", info.batteryLevel, info.rssi, info.snrX100);
 }
