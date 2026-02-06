@@ -17,7 +17,7 @@ class ChatViewModelConnectionTest {
         val uiState = ChatUiState()
 
         assertTrue(uiState.connectionState is BleConnectionState.Disconnected)
-        assertEquals("❌ Disconnected", uiState.connectionStatusText)
+        assertEquals("Disconnected", uiState.connectionStatusText)
     }
 
     @Test
