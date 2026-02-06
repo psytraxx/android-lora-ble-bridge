@@ -17,8 +17,6 @@ void MyServerCallbacks::onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInf
     bleManager->onConnected(connInfo.getConnHandle());
 
     // Request longer connection intervals for power savings
-    // Intervals in 1.25ms units: 80 = 100ms, 160 = 200ms
-    // Longer intervals allow more CPU sleep time between BLE events
     pServer->updateConnParams(connInfo.getConnHandle(),
                               80,   // min interval (100ms)
                               160,  // max interval (200ms)
@@ -63,12 +61,14 @@ void TxCharacteristicCallbacks::onSubscribe(NimBLECharacteristic *pCharacteristi
     }
 }
 
-// Battery Characteristic callbacks implementation
-void BatteryCharacteristicCallbacks::onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo)
+// Info Characteristic callbacks implementation
+void InfoCharacteristicCallbacks::onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo)
 {
-    uint8_t batteryLevel = PowerManager::readBatteryLevel();
-    pCharacteristic->setValue(&batteryLevel, 1);
-    LOG_D(TAG, "Battery level read: %d%%", batteryLevel);
+    DeviceInfoData info = bleManager->getDeviceInfo();
+    uint8_t buf[16];
+    info.serialize(buf);
+    pCharacteristic->setValue(buf, sizeof(buf));
+    LOG_D(TAG, "Device info read: battery=%d%%, rssi=%d, snr=%d", info.batteryLevel, info.rssi, info.snrX100);
 }
 
 // BLEManager implementation
@@ -125,29 +125,16 @@ bool BLEManager::setup(const char *deviceName)
     rxCallbacks = new MyCharacteristicCallbacks(this);
     pRxCharacteristic->setCallbacks(rxCallbacks);
 
+    // Create the Device Info Characteristic (read-only, 16 bytes)
+    pInfoCharacteristic = pService->createCharacteristic(
+        BLEConstants::INFO_CHARACTERISTIC_UUID,
+        NIMBLE_PROPERTY::READ);
+    pInfoCharacteristic->setCallbacks(new InfoCharacteristicCallbacks(this));
+
     // Start the service
     pService->start();
 
-    // Create the Battery Service (standard BLE service 0x180F)
-    NimBLEService *pBatteryService = pServer->createService(BLEConstants::BATTERY_SERVICE_UUID);
-
-    // Create the Battery Level Characteristic (standard characteristic 0x2A19)
-    // BLE Battery Service standard: uint8 value (0-100%)
-    pBatteryCharacteristic = pBatteryService->createCharacteristic(
-        BLEConstants::BATTERY_LEVEL_UUID,
-        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
-
-    // Set callback to update battery level on read
-    pBatteryCharacteristic->setCallbacks(new BatteryCharacteristicCallbacks());
-
-    // Set initial battery level
-    uint8_t initialBattery = PowerManager::readBatteryLevel();
-    pBatteryCharacteristic->setValue(&initialBattery, 1);
-
-    // Start the battery service
-    pBatteryService->start();
-
-    LOG_I(TAG, "Battery service created (initial level: %d%%)", initialBattery);
+    LOG_I(TAG, "Device info characteristic created");
 
     // Get advertising instance and configure for better discoverability
     pAdvertising = NimBLEDevice::getAdvertising();
@@ -183,9 +170,6 @@ bool BLEManager::sendMessage(const Message &msg)
         return false;
     }
 
-    // Do not attempt to send notifications until the client has enabled them.
-    // This prevents messages from being queued internally by NimBLE and left
-    // in a pending/buffered state which was observed on ESP32 but not on nRF52.
     if (!areNotificationsEnabled())
     {
         LOG_W(TAG, "Cannot send message: notifications not enabled by client");
@@ -203,8 +187,6 @@ bool BLEManager::sendMessage(const Message &msg)
 
     pTxCharacteristic->setValue(buf, len);
 
-    // Check if notify() succeeds - it returns false if client hasn't enabled notifications
-    // or if the notification queue is full
     bool success = pTxCharacteristic->notify();
     if (success)
     {
@@ -220,12 +202,10 @@ bool BLEManager::sendMessage(const Message &msg)
 
 bool BLEManager::isConnected() const
 {
-    // Query NimBLE server for active connections
     NimBLEServer *srv = NimBLEDevice::getServer();
     if (!srv)
         return false;
 
-    // NimBLEServer::getConnectedCount() works in both Arduino and ESP-IDF
     return srv->getConnectedCount() > 0;
 }
 
@@ -274,7 +254,6 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
     {
         LOG_D(TAG, "Deserialized message type: %d", (int)msg.type);
 
-        // Push message to queue for processing in main loop
         if (bleToLoraQueue != nullptr)
         {
             if (!bleToLoraQueue->push(msg))
@@ -296,9 +275,8 @@ void BLEManager::onMessageReceived(const uint8_t *data, size_t length)
 void BLEManager::onConnected(uint16_t connHandle)
 {
     currentConnHandle = connHandle;
-    notificationsEnabled = false; // Reset notification flag on new connection
+    notificationsEnabled = false;
 
-    // Call connection callback if registered
     if (connectCallback)
     {
         connectCallback();
@@ -310,9 +288,8 @@ void BLEManager::onDisconnected(uint16_t connHandle)
     if (connHandle == currentConnHandle)
     {
         currentConnHandle = kInvalidConnHandle;
-        notificationsEnabled = false; // Clear notification flag on disconnect
+        notificationsEnabled = false;
 
-        // Call disconnection callback if registered
         if (disconnectCallback)
         {
             disconnectCallback();
@@ -333,15 +310,12 @@ void BLEManager::setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect
     LOG_D(TAG, "Connection callbacks registered");
 }
 
-void BLEManager::updateBatteryLevel(uint8_t level)
+DeviceInfoData BLEManager::getDeviceInfo() const
 {
-    if (pBatteryCharacteristic)
+    if (infoProvider)
     {
-        pBatteryCharacteristic->setValue(&level, 1);
-        if (isConnected())
-        {
-            pBatteryCharacteristic->notify();
-        }
-        LOG_D(TAG, "Battery level updated: %d%%", level);
+        return infoProvider();
     }
+    // Return zeroed data if no provider registered
+    return DeviceInfoData{};
 }

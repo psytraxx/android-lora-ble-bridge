@@ -6,6 +6,7 @@
 import { html, LitElement } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { MESSAGE_TYPE, type Message, PROTOCOL, type TextMessage } from '../protocol';
+import type { DeviceInfo } from '../protocol/types';
 import { bleService, ConnectionState } from '../services/BleService';
 import { locationService } from '../services/LocationService';
 import { AckStatus, type ChatMessage, messageRepository } from '../services/MessageRepository';
@@ -16,6 +17,7 @@ import './message-input';
 import './empty-state';
 import './pairing-modal';
 import './success-toast';
+import './device-info-modal';
 import { sharedStylesheet } from '../shared-styles';
 import { exclamationTriangleIcon } from '../utils/icons';
 
@@ -25,9 +27,11 @@ export class LoraApp extends LitElement {
   @state() private messages: ChatMessage[] = [];
   @state() private hasGps = false;
   @state() private deviceName: string | null = null;
-  @state() private batteryLevel: number | null = null;
   @state() private showPairingModal = false;
   @state() private showSuccessToast = false;
+  @state() private showInfoModal = false;
+  @state() private deviceInfo: DeviceInfo | null = null;
+  @state() private deviceInfoLoading = false;
 
   private ackTimeouts = new Map<number, number>();
   private unsubscribers: (() => void)[] = [];
@@ -76,19 +80,11 @@ export class LoraApp extends LitElement {
       })
     );
 
-    // Subscribe to battery level updates
-    this.unsubscribers.push(
-      bleService.onBatteryChange((level) => {
-        this.batteryLevel = level;
-      })
-    );
-
     // Initial state
     this.connectionState = bleService.getState();
     this.messages = messageRepository.getMessages();
     const dev = bleService.getDevice();
     this.deviceName = dev?.name ?? null;
-    this.batteryLevel = bleService.getBatteryLevel();
 
     // Check if Web Bluetooth is supported
     if (!bleService.isSupported()) {
@@ -131,9 +127,9 @@ export class LoraApp extends LitElement {
             <connection-status
               .state=${this.connectionState}
               .deviceName=${this.deviceName}
-              .batteryLevel=${this.batteryLevel}
               @connect=${this.onConnectDirect}
               @disconnect=${this.onDisconnect}
+              @info-request=${this.onInfoRequest}
             ></connection-status>
             ${isConnecting
         ? html`<progress class="progress progress-primary w-full h-1"></progress>`
@@ -177,6 +173,14 @@ export class LoraApp extends LitElement {
           @proceed-to-pair=${this.onProceedToPair}
         ></pairing-modal>
 
+        <!-- Device Info Modal -->
+        <device-info-modal
+          .open=${this.showInfoModal}
+          .info=${this.deviceInfo}
+          .loading=${this.deviceInfoLoading}
+          @modal-closed=${this.onInfoModalClosed}
+        ></device-info-modal>
+
         <!-- Success Toast -->
         <success-toast
           .show=${this.showSuccessToast}
@@ -205,6 +209,25 @@ export class LoraApp extends LitElement {
   private async onProceedToPair() {
     this.showPairingModal = false;
     await this.onConnect();
+  }
+
+  private async onInfoRequest() {
+    this.showInfoModal = true;
+    this.deviceInfoLoading = true;
+    this.deviceInfo = null;
+
+    try {
+      this.deviceInfo = await bleService.requestDeviceInfo();
+    } catch (error) {
+      console.error('Failed to request device info:', error);
+      toastService.show('Failed to read device info', 'error');
+    } finally {
+      this.deviceInfoLoading = false;
+    }
+  }
+
+  private onInfoModalClosed() {
+    this.showInfoModal = false;
   }
 
   private getFriendlyErrorMessage(error: Error): string {

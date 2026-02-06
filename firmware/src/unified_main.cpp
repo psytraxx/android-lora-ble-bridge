@@ -63,11 +63,12 @@ static LoRaManager *loraManager = nullptr;
 static LEDManager *ledManager = new LEDManager(LED_PIN, LEDConstants::HEARTBEAT_INTERVAL_MS, LEDConstants::HEARTBEAT_DURATION_MS);
 #endif
 
-// Battery monitoring timer
-static TimerHandle_t batteryTimerHandle = nullptr;
-
 // Deep sleep inactivity timer
 static TimerHandle_t deepSleepTimerHandle = nullptr;
+
+// Last received LoRa signal quality (updated on every LoRa receive)
+static int lastRssi = 0;
+static float lastSnr = 0.0f;
 
 // ============================================================================
 // Forward Declarations
@@ -78,6 +79,7 @@ void onBleDisconnected();
 void onLoRaReceived(const LoRaPacket &packet);
 void onLoRaTransmitted(bool success);
 void handleBleMessage(const Message &msg);
+DeviceInfoData provideDeviceInfo();
 
 // ============================================================================
 // Helper Functions
@@ -85,43 +87,33 @@ void handleBleMessage(const Message &msg);
 
 /**
  * @brief Reset inactivity timer on activity (BLE or LoRa events)
- *
- * This function resets the deep sleep timer whenever there's device activity.
- * Should be called when BLE messages are received/sent or LoRa packets arrive.
  */
 static inline void resetInactivityTimer()
 {
     if (deepSleepTimerHandle != nullptr)
     {
-        // Reset timer from any context (ISR-safe version available if needed)
         xTimerReset(deepSleepTimerHandle, 0);
     }
 }
 
-// ============================================================================
-// Battery Timer Callback
-// ============================================================================
-
 /**
- * @brief FreeRTOS timer callback for periodic battery level updates
+ * @brief Device info provider callback for BLEManager
  *
- * This callback runs periodically (every 60 seconds) from the timer task context.
- * It reads the battery level and updates the BLE battery characteristic.
- *
- * @param xTimer Handle of the timer that triggered this callback
+ * Called on-demand when the client reads the device info characteristic.
+ * Returns fresh battery level, stored RSSI/SNR, and compile-time LoRa config.
  */
-static void batteryTimerCallback(TimerHandle_t xTimer)
+DeviceInfoData provideDeviceInfo()
 {
-    (void)xTimer; // Unused parameter
-
-    uint8_t batteryLevel = Platform::readBatteryLevel();
-
-    if (bleManager != nullptr)
-    {
-        bleManager->updateBatteryLevel(batteryLevel);
-    }
-
-    LOG_D(TAG, "Battery: %d%%", batteryLevel);
+    DeviceInfoData info;
+    info.batteryLevel = Platform::readBatteryLevel();
+    info.rssi = static_cast<int16_t>(lastRssi);
+    info.snrX100 = static_cast<int16_t>(lastSnr * 100);
+    info.txPower = static_cast<int8_t>(LoRaConstants::TX_POWER);
+    info.frequencyHz = static_cast<uint32_t>(LoRaConstants::FREQUENCY * 1000000);
+    info.bandwidthHz = static_cast<uint32_t>(LoRaConstants::BANDWIDTH * 1000);
+    info.spreadingFactor = LoRaConstants::SPREADING_FACTOR;
+    info.codingRate = LoRaConstants::CODING_RATE;
+    return info;
 }
 
 /**
@@ -206,10 +198,10 @@ void setup()
             ;
     }
     bleManager->setConnectionCallbacks(onBleConnected, onBleDisconnected);
+    bleManager->setInfoDataProvider(provideDeviceInfo);
     bleManager->startAdvertising();
 
     // Initialize LoRa manager (heap allocation required due to runtime pin configuration)
-    // TODO: Consider static allocation with placement new if memory is constrained
     loraManager = new LoRaManager(
         LORA_SCK,
         LORA_MISO,
@@ -256,31 +248,6 @@ void setup()
         {
             LOG_I(TAG, "Failed to start LoRa receive mode!");
         }
-    }
-
-    // Create and start battery monitoring timer (auto-reload, 60 second period)
-    batteryTimerHandle = xTimerCreate(
-        "BatteryTimer",                                      // Timer name (for debugging)
-        pdMS_TO_TICKS(BatteryConstants::UPDATE_INTERVAL_MS), // Period in ticks (60 seconds)
-        pdTRUE,                                              // Auto-reload timer
-        (void *)0,                                           // Timer ID (not used)
-        batteryTimerCallback                                 // Callback function
-    );
-
-    if (batteryTimerHandle != nullptr)
-    {
-        if (xTimerStart(batteryTimerHandle, 0) == pdPASS)
-        {
-            LOG_I(TAG, "Battery monitoring timer started (interval: %lu ms)", BatteryConstants::UPDATE_INTERVAL_MS);
-        }
-        else
-        {
-            LOG_E(TAG, "Failed to start battery monitoring timer!");
-        }
-    }
-    else
-    {
-        LOG_E(TAG, "Failed to create battery monitoring timer!");
     }
 
     // Create and start deep sleep inactivity timer (one-shot, resets on activity)
@@ -419,6 +386,10 @@ void onLoRaReceived(const LoRaPacket &packet)
     LOG_I(TAG, "LoRa packet received: %d bytes, RSSI: %d dBm, SNR: %.1f dB",
           packet.len, packet.rssi, packet.snr);
 
+    // Store signal quality for device info characteristic
+    lastRssi = packet.rssi;
+    lastSnr = packet.snr;
+
 #ifdef LED_PIN
     ledManager->blink(LEDConstants::RX_BLINKS);
 #endif
@@ -440,8 +411,6 @@ void onLoRaReceived(const LoRaPacket &packet)
             if (ackLen > 0)
             {
                 // Wait for sender to switch to RX mode before sending ACK
-                // Use actual packet length for accurate timing calculation
-                // Random jitter prevents multiple receivers from ACKing simultaneously
                 int ackDelay = LoRaConstants::getAckDelay(
                     LoRaConstants::SPREADING_FACTOR,
                     LoRaConstants::BANDWIDTH,

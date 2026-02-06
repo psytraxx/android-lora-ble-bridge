@@ -5,6 +5,7 @@
  */
 
 import { deserialize, type Message, serialize } from '../protocol';
+import type { DeviceInfo } from '../protocol/types';
 import { messageRepository } from './MessageRepository';
 
 /**
@@ -13,10 +14,7 @@ import { messageRepository } from './MessageRepository';
 const SERVICE_UUID = '00001234-0000-1000-8000-00805f9b34fb';
 const TX_CHAR_UUID = '00005678-0000-1000-8000-00805f9b34fb'; // ESP32 → Web (notifications)
 const RX_CHAR_UUID = '00005679-0000-1000-8000-00805f9b34fb'; // Web → ESP32 (writes)
-
-// Standard BLE Battery Service
-const BATTERY_SERVICE_UUID = '0000180f-0000-1000-8000-00805f9b34fb';
-const BATTERY_LEVEL_UUID = '00002a19-0000-1000-8000-00805f9b34fb';
+const INFO_CHAR_UUID = '0000567a-0000-1000-8000-00805f9b34fb'; // Device info (read-only, 16 bytes)
 
 export enum ConnectionState {
   DISCONNECTED = 'DISCONNECTED',
@@ -37,7 +35,6 @@ export interface BleDevice {
 type StateListener = (state: ConnectionState) => void;
 type MessageListener = (message: Message) => void;
 type ErrorListener = (error: Error) => void;
-type BatteryListener = (level: number | null) => void;
 
 /**
  * BLE Service for Web Bluetooth communication
@@ -47,14 +44,12 @@ export class BleService {
   private server: BluetoothRemoteGATTServer | null = null;
   private txCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
   private rxCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
-  private batteryCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
+  private infoCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
 
   private state: ConnectionState = ConnectionState.DISCONNECTED;
-  private batteryLevel: number | null = null;
   private stateListeners = new Set<StateListener>();
   private messageListeners = new Set<MessageListener>();
   private errorListeners = new Set<ErrorListener>();
-  private batteryListeners = new Set<BatteryListener>();
 
   private disconnectTimeout: number | null = null;
   private readonly AUTO_DISCONNECT_MS = 60_000; // 60 seconds
@@ -89,13 +84,6 @@ export class BleService {
   }
 
   /**
-   * Get current battery level (0-100% or null if unavailable)
-   */
-  getBatteryLevel(): number | null {
-    return this.batteryLevel;
-  }
-
-  /**
    * Request user to select BLE device and connect
    */
   async connect(): Promise<void> {
@@ -106,10 +94,9 @@ export class BleService {
     this.setState(ConnectionState.SCANNING);
 
     try {
-      // Request device with LoRa service filter and optional Battery Service
+      // Request device with LoRa service filter
       this.device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [SERVICE_UUID] }],
-        optionalServices: [BATTERY_SERVICE_UUID]
+        filters: [{ services: [SERVICE_UUID] }]
       });
 
       const selectedDevice = this.device;
@@ -123,9 +110,6 @@ export class BleService {
       selectedDevice.addEventListener('gattserverdisconnected', this.onDisconnected);
 
       this.setState(ConnectionState.CONNECTING);
-
-      this.batteryLevel = null;
-      this.emitBatteryLevel(null);
 
       // Connect to GATT server
       if (!selectedDevice.gatt) {
@@ -145,6 +129,14 @@ export class BleService {
       this.rxCharacteristic = await service.getCharacteristic(RX_CHAR_UUID);
       console.log('Characteristics discovered');
 
+      // Get device info characteristic (optional - don't fail if not present)
+      try {
+        this.infoCharacteristic = await service.getCharacteristic(INFO_CHAR_UUID);
+        console.log('Device info characteristic discovered');
+      } catch {
+        console.log('Device info characteristic not available');
+      }
+
       this.setState(ConnectionState.ENABLING_NOTIFICATIONS);
 
       // Enable notifications on TX characteristic
@@ -152,12 +144,8 @@ export class BleService {
       this.txCharacteristic.addEventListener('characteristicvaluechanged', this.onNotification);
       console.log('Notifications enabled');
 
-
       this.setState(ConnectionState.CONNECTED);
       this.resetDisconnectTimeout();
-
-      // Initialize battery monitoring in the background (non-blocking)
-      void this.initBatteryService();
     } catch (error) {
       console.error('Connection failed:', error);
       this.setState(ConnectionState.ERROR);
@@ -201,6 +189,49 @@ export class BleService {
   }
 
   /**
+   * Read device info from the BLE characteristic
+   * Returns battery, RSSI, SNR, and LoRa configuration
+   */
+  async requestDeviceInfo(): Promise<DeviceInfo | null> {
+    if (!this.infoCharacteristic || !this.isConnected()) {
+      return null;
+    }
+
+    try {
+      const value = await this.infoCharacteristic.readValue();
+      if (value.byteLength < 16) {
+        console.warn('Device info too short:', value.byteLength);
+        return null;
+      }
+
+      const batteryLevel = value.getUint8(0);
+      const rssi = value.getInt16(1, true); // little-endian
+      const snrX100 = value.getInt16(3, true);
+      const txPower = value.getInt8(5);
+      const frequencyHz = value.getUint32(6, true);
+      const bandwidthHz = value.getUint32(10, true);
+      const spreadingFactor = value.getUint8(14);
+      const codingRate = value.getUint8(15);
+
+      this.resetDisconnectTimeout();
+
+      return {
+        batteryLevel,
+        rssi,
+        snr: snrX100 / 100,
+        txPower,
+        frequencyHz,
+        bandwidthHz,
+        spreadingFactor,
+        codingRate
+      };
+    } catch (error) {
+      console.error('Failed to read device info:', error);
+      return null;
+    }
+  }
+
+  /**
    * Check if currently connected
    */
   isConnected(): boolean {
@@ -223,11 +254,6 @@ export class BleService {
   onError(listener: ErrorListener): () => void {
     this.errorListeners.add(listener);
     return () => this.errorListeners.delete(listener);
-  }
-
-  onBatteryChange(listener: BatteryListener): () => void {
-    this.batteryListeners.add(listener);
-    return () => this.batteryListeners.delete(listener);
   }
 
   /**
@@ -270,31 +296,8 @@ export class BleService {
         error
       );
       console.warn('Raw data:', new Uint8Array(value.buffer));
-      // Don't emit error for parse failures - just log and continue
-      // This handles corrupt messages from flash buffer gracefully
     }
   };
-
-  /**
-   * Private: Handle battery level notification
-   */
-  private onBatteryNotification = (event: Event): void => {
-    const characteristic = event.target as BluetoothRemoteGATTCharacteristic;
-    const value = characteristic.value;
-    if (value) {
-      this.handleBatteryUpdate(value);
-    }
-  };
-
-  /**
-   * Private: Process battery level update
-   */
-  private handleBatteryUpdate(value: DataView): void {
-    const level = value.getUint8(0); // Battery level is 0-100%
-    console.log('Battery level:', `${level}%`);
-    this.batteryLevel = level;
-    this.emitBatteryLevel(level);
-  }
 
   /**
    * Private: Set state and notify listeners
@@ -324,15 +327,6 @@ export class BleService {
   private emitError(error: Error): void {
     this.errorListeners.forEach((listener) => {
       listener(error);
-    });
-  }
-
-  /**
-   * Private: Emit battery level to listeners
-   */
-  private emitBatteryLevel(level: number | null): void {
-    this.batteryListeners.forEach((listener) => {
-      listener(level);
     });
   }
 
@@ -380,60 +374,13 @@ export class BleService {
       this.txCharacteristic = null;
     }
 
-    if (this.batteryCharacteristic) {
-      try {
-        this.batteryCharacteristic.removeEventListener(
-          'characteristicvaluechanged',
-          this.onBatteryNotification
-        );
-        if (canStopNotifications) {
-          void this.batteryCharacteristic
-            .stopNotifications()
-            .catch((error) => {
-              console.warn('Error stopping battery notifications:', error);
-            });
-        }
-      } catch (error) {
-        console.warn('Error stopping battery notifications:', error);
-      }
-      this.batteryCharacteristic = null;
-    }
-
     this.rxCharacteristic = null;
+    this.infoCharacteristic = null;
     this.server = null;
-    this.batteryLevel = null;
-    this.emitBatteryLevel(null);
 
     if (this.device) {
       this.device.removeEventListener('gattserverdisconnected', this.onDisconnected);
       this.device = null;
-    }
-  }
-
-  /**
-   * Private: Battery service initialization (non-blocking)
-   */
-  private async initBatteryService(): Promise<void> {
-    if (!this.server) return;
-
-    try {
-      const batteryService = await this.server.getPrimaryService(BATTERY_SERVICE_UUID);
-      this.batteryCharacteristic = await batteryService.getCharacteristic(BATTERY_LEVEL_UUID);
-
-      // Read initial battery level
-      const value = await this.batteryCharacteristic.readValue();
-      this.handleBatteryUpdate(value);
-
-      // Enable notifications for battery updates
-      await this.batteryCharacteristic.startNotifications();
-      this.batteryCharacteristic.addEventListener(
-        'characteristicvaluechanged',
-        this.onBatteryNotification
-      );
-      console.log('Battery service connected');
-    } catch (error) {
-      console.log('Battery service not available:', error);
-      // Continue without battery monitoring
     }
   }
 }

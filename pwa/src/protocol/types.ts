@@ -36,6 +36,21 @@ export interface AckMessage {
 export type Message = TextMessage | AckMessage;
 
 /**
+ * Device info from BLE read characteristic (16 bytes)
+ * [Battery:1][RSSI:2 LE][SNR:2 LE][TxPower:1][Freq:4 LE][BW:4 LE][SF:1][CR:1]
+ */
+export interface DeviceInfo {
+  batteryLevel: number; // 0-100%
+  rssi: number; // dBm (int16)
+  snr: number; // dB (float, decoded from int16 × 100)
+  txPower: number; // dBm (int8)
+  frequencyHz: number; // Hz
+  bandwidthHz: number; // Hz
+  spreadingFactor: number; // 7-12
+  codingRate: number; // 5-8
+}
+
+/**
  * 6-bit character set (64 characters total)
  * Space + A-Z + 0-9 + punctuation
  */

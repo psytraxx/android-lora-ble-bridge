@@ -264,3 +264,4 @@ Total: 2 bytes
 ### Message Type Usage
 - **TEXT (0x01)**: Both LoRa and BLE
 - **ACK (0x02)**: Both LoRa and BLE
+

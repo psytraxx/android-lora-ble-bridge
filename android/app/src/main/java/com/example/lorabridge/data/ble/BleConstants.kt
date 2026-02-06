@@ -11,12 +11,10 @@ object BleConstants {
         UUID.fromString("00005678-0000-1000-8000-00805F9B34FB")  // RX from Android perspective (notifications)
     val RX_CHAR_UUID: UUID =
         UUID.fromString("00005679-0000-1000-8000-00805F9B34FB")  // TX from Android perspective (writes)
+    val INFO_CHAR_UUID: UUID =
+        UUID.fromString("0000567A-0000-1000-8000-00805F9B34FB")  // Device info (read-only, 16 bytes)
     val CCCD_UUID: UUID =
         UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")     // Client Characteristic Configuration Descriptor
-
-    // Standard BLE Battery Service
-    val BATTERY_SERVICE_UUID: UUID = UUID.fromString("0000180F-0000-1000-8000-00805F9B34FB")
-    val BATTERY_LEVEL_UUID: UUID = UUID.fromString("00002A19-0000-1000-8000-00805F9B34FB")
 
     const val MTU_SIZE = 512
     const val SCAN_TIMEOUT_MS = 30_000L  // 30 seconds

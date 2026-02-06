@@ -9,8 +9,8 @@ import { ConnectionState } from '../services/BleService';
 import './theme-switcher';
 import { sharedStylesheet } from '../shared-styles';
 import {
-  batteryIcon,
   exclamationTriangleIcon,
+  informationCircleIcon,
   linkIcon,
   stopCircleIcon,
   xMarkIcon
@@ -21,7 +21,6 @@ export class ConnectionStatus extends LitElement {
   @property({ type: String }) state: ConnectionState = ConnectionState.DISCONNECTED;
   @property({ type: String }) deviceName: string | null = null;
   @property({ type: String }) deviceId: string | null = null;
-  @property({ type: Number }) batteryLevel: number | null = null;
 
   static styles = [sharedStylesheet];
 
@@ -30,6 +29,7 @@ export class ConnectionStatus extends LitElement {
     const showConnectButton =
       this.state === ConnectionState.DISCONNECTED || this.state === ConnectionState.ERROR;
     const showDisconnectButton = this.state === ConnectionState.CONNECTED;
+    const showInfoButton = this.state === ConnectionState.CONNECTED;
 
     return html`
       <nav class="navbar bg-base-200 shadow-lg relative">
@@ -55,11 +55,11 @@ export class ConnectionStatus extends LitElement {
               </div>`
         : ''
       }
-          ${this.batteryLevel !== null
-        ? html`<div class="badge badge-ghost gap-1 text-xs">
-                ${batteryIcon('w-4 h-4')}
-                ${this.batteryLevel}%
-              </div>`
+          ${showInfoButton
+        ? html`<button class="btn btn-ghost btn-xs gap-1" @click=${this.onInfoRequest} title="Device Info">
+                ${informationCircleIcon('w-4 h-4')}
+                <span class="hidden sm:inline">Info</span>
+              </button>`
         : ''
       }
         </div>
@@ -140,6 +140,15 @@ export class ConnectionStatus extends LitElement {
   private onDisconnect() {
     this.dispatchEvent(
       new CustomEvent('disconnect', {
+        bubbles: true,
+        composed: true
+      })
+    );
+  }
+
+  private onInfoRequest() {
+    this.dispatchEvent(
+      new CustomEvent('info-request', {
         bubbles: true,
         composed: true
       })

@@ -2,6 +2,7 @@
 #define FIRMWARE_CONFIG_H
 
 #include <cstdint>
+#include <cstring>
 #include "common/LoRaManager.h"
 
 /**
@@ -93,9 +94,43 @@ namespace LoRaConstants
     /// Delay between LoRa initialization retries (milliseconds)
     constexpr int INIT_RETRY_DELAY_MS = 200;
 
+    /// LoRa TX power from build flags (dBm)
+    constexpr int TX_POWER = LORA_TX_POWER;
+
     /// tcxoVoltage for SX1262/SX1268 radios (1.6V, 1.7V, 1.8V, 2.2V, 2.4V, 2.7V, 3.0V, 3.3V)
     constexpr float TCXO_VOLTAGE = 1.8;
 }
+
+//==============================================================================
+// Device Info BLE Characteristic Data (16 bytes)
+//==============================================================================
+
+/// Data structure for the Device Info BLE characteristic
+/// Populated on-demand when the client reads the characteristic
+struct DeviceInfoData
+{
+    uint8_t batteryLevel;    // 0-100%
+    int16_t rssi;            // Last LoRa RSSI in dBm
+    int16_t snrX100;         // Last LoRa SNR × 100 (e.g., 975 = 9.75 dB)
+    int8_t txPower;          // LoRa TX power in dBm
+    uint32_t frequencyHz;    // LoRa frequency in Hz
+    uint32_t bandwidthHz;    // LoRa bandwidth in Hz
+    uint8_t spreadingFactor; // 7-12
+    uint8_t codingRate;      // 5-8
+
+    /// Serialize to 16-byte little-endian buffer for BLE characteristic
+    void serialize(uint8_t *buf) const
+    {
+        buf[0] = batteryLevel;
+        std::memcpy(buf + 1, &rssi, 2);
+        std::memcpy(buf + 3, &snrX100, 2);
+        buf[5] = static_cast<uint8_t>(txPower);
+        std::memcpy(buf + 6, &frequencyHz, 4);
+        std::memcpy(buf + 10, &bandwidthHz, 4);
+        buf[14] = spreadingFactor;
+        buf[15] = codingRate;
+    }
+};
 
 //==============================================================================
 // BLE Configuration
@@ -112,11 +147,9 @@ namespace BLEConstants
     /// BLE RX characteristic UUID (Android -> Device writes)
     constexpr const char *RX_CHARACTERISTIC_UUID = "00005679-0000-1000-8000-00805f9b34fb";
 
-    /// Standard BLE Battery Service UUID (read-only)
-    constexpr const char *BATTERY_SERVICE_UUID = "0000180f-0000-1000-8000-00805f9b34fb";
-
-    /// Standard BLE Battery Level Characteristic UUID (uint8, 0-100%)
-    constexpr const char *BATTERY_LEVEL_UUID = "00002a19-0000-1000-8000-00805f9b34fb";
+    /// BLE Device Info characteristic UUID (read-only, 16 bytes)
+    /// Returns: [Battery:1][RSSI:2 LE][SNR:2 LE][TxPower:1][Freq:4 LE][BW:4 LE][SF:1][CR:1]
+    constexpr const char *INFO_CHARACTERISTIC_UUID = "0000567a-0000-1000-8000-00805f9b34fb";
 
     /// Minimum BLE advertising interval (in 0.625ms units)
     /// 1600 * 0.625ms = 1000ms (1 second)
@@ -177,17 +210,6 @@ namespace PowerConstants
     /// ADC resolution bits (nRF52840 supports 8, 10, 12, 14-bit)
     constexpr int ADC_RESOLUTION_BITS = 12; // 12-bit = 0-4095
 #endif
-}
-
-//==============================================================================
-// Battery Monitoring Configuration
-//==============================================================================
-
-namespace BatteryConstants
-{
-    /// Interval between battery level updates (milliseconds)
-    /// Battery level is read and published via BLE every 60 seconds
-    constexpr unsigned long UPDATE_INTERVAL_MS = 60000UL;
 }
 
 /// Number of cells in battery pack (1 for single-cell Li-ion)

@@ -11,6 +11,7 @@ BLEManager::BLEManager(MessageQueue *bleToLoraQueue)
     : dataService(BLEConstants::SERVICE_UUID),
       txCharacteristic(BLEConstants::TX_CHARACTERISTIC_UUID),
       rxCharacteristic(BLEConstants::RX_CHARACTERISTIC_UUID),
+      infoCharacteristic(BLEConstants::INFO_CHARACTERISTIC_UUID),
       bleToLoraQueue(bleToLoraQueue)
 {
     instance = this;
@@ -46,34 +47,29 @@ bool BLEManager::setup(const char *deviceName)
     bledis.setModel("nRF52840 LoRa");
     bledis.begin();
 
-    // Configure Battery Service
-    blebas.begin();
-
-    // Read actual battery level instead of using default (100%)
-    lastBatteryLevel = PowerManager::readBatteryLevel();
-    blebas.write(lastBatteryLevel);
-    LOG_I(TAG, "Battery service initialized with actual level: %u%%", lastBatteryLevel);
-
     // Configure custom LoRa Service
     dataService.begin();
 
     // Configure TX Characteristic (ESP32 -> Android)
     txCharacteristic.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY);
     txCharacteristic.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-    // Use variable-length characteristic (default) for efficient BLE bandwidth usage
-    // Removes fixed-length padding - matches ESP32 implementation
     txCharacteristic.setCccdWriteCallback(BLEManager::cccdCallback);
-    txCharacteristic.setMaxLen(BufferConstants::MAX_PROTOCOL_MESSAGE); // Set max length for MTU negotiation
+    txCharacteristic.setMaxLen(BufferConstants::MAX_PROTOCOL_MESSAGE);
     txCharacteristic.begin();
 
     // Configure RX Characteristic (Android -> ESP32)
     rxCharacteristic.setProperties(CHR_PROPS_WRITE | CHR_PROPS_WRITE_WO_RESP);
     rxCharacteristic.setPermission(SECMODE_NO_ACCESS, SECMODE_OPEN);
-    // Use variable-length characteristic (default) for efficient BLE bandwidth usage
-    // Allows messages of any size up to MTU - matches ESP32 implementation
     rxCharacteristic.setWriteCallback(BLEManager::rxWriteCallback);
-    rxCharacteristic.setMaxLen(BufferConstants::MAX_PROTOCOL_MESSAGE); // Set max length for MTU negotiation
+    rxCharacteristic.setMaxLen(BufferConstants::MAX_PROTOCOL_MESSAGE);
     rxCharacteristic.begin();
+
+    // Configure Device Info Characteristic (read-only, 16 bytes)
+    infoCharacteristic.setProperties(CHR_PROPS_READ);
+    infoCharacteristic.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+    infoCharacteristic.setReadAuthorizeCallback(BLEManager::infoReadCallback);
+    infoCharacteristic.setFixedLen(16);
+    infoCharacteristic.begin();
 
     LOG_I(TAG, "Initialized successfully");
     return true;
@@ -159,31 +155,6 @@ void BLEManager::setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect
     disconnectCallback_user = onDisconnect;
 }
 
-void BLEManager::updateBatteryLevel(uint8_t level)
-{
-    LOG_I(TAG, "updateBatteryLevel called: new=%u, last=%u", level, lastBatteryLevel);
-    if (level != lastBatteryLevel)
-    {
-        lastBatteryLevel = level;
-        // Use notify() instead of write() to send BLE notification to client
-        // This ensures the GUI receives the updated battery level
-        if (isConnected())
-        {
-            blebas.notify(level);
-            LOG_I(TAG, "Battery level notified to %u%% via BLE", level);
-        }
-        else
-        {
-            blebas.write(level);
-            LOG_I(TAG, "Battery level updated to %u%% (not connected)", level);
-        }
-    }
-    else
-    {
-        LOG_D(TAG, "Battery level unchanged at %u%%", level);
-    }
-}
-
 // Static callback implementations
 void BLEManager::connectCallback(uint16_t conn_handle)
 {
@@ -198,14 +169,12 @@ void BLEManager::connectCallback(uint16_t conn_handle)
         instance->isConnectedFlag = true;
 
         // Request power-optimized connection parameters
-        // Bluefruit API: conn_interval (1.25ms units), slave_latency, sup_timeout (10ms units)
-        // 160 units * 1.25ms = 200ms interval for power savings
         if (connection)
         {
             connection->requestConnectionParameter(160, 0, 400);
             LOG_I(TAG, "Requested power-optimized connection params (200ms interval)");
 
-            // Request MTU exchange for larger packets (3 bytes for ATT header + MAX_PROTOCOL_MESSAGE)
+            // Request MTU exchange for larger packets
             connection->requestMtuExchange(BufferConstants::MAX_PROTOCOL_MESSAGE + 3);
             LOG_I(TAG, "Requested MTU exchange to %d", BufferConstants::MAX_PROTOCOL_MESSAGE + 3);
         }
@@ -257,6 +226,17 @@ void BLEManager::cccdCallback(uint16_t conn_hdl, BLECharacteristic *chr, uint16_
     }
 }
 
+void BLEManager::infoReadCallback(uint16_t conn_hdl, BLECharacteristic *chr, ble_gatts_evt_read_t *request)
+{
+    (void)conn_hdl;
+    (void)request;
+
+    if (instance)
+    {
+        instance->handleInfoRead(chr);
+    }
+}
+
 // Internal handlers
 void BLEManager::handleRxWrite(uint8_t *data, uint16_t len)
 {
@@ -301,5 +281,17 @@ void BLEManager::handleCccdWrite(uint16_t value)
     {
         LOG_I(TAG, "TX notifications disabled by client");
         notificationsEnabled = false;
+    }
+}
+
+void BLEManager::handleInfoRead(BLECharacteristic *chr)
+{
+    if (infoProvider)
+    {
+        DeviceInfoData info = infoProvider();
+        uint8_t buf[16];
+        info.serialize(buf);
+        chr->write(buf, sizeof(buf));
+        LOG_D(TAG, "Device info read: battery=%d%%, rssi=%d, snr=%d", info.batteryLevel, info.rssi, info.snrX100);
     }
 }
