@@ -45,8 +45,8 @@ export class ConnectionStatus extends LitElement {
           </a>
           <h1 class="text-2xl font-bold hidden sm:block">Chat</h1>
         </div>
-        <!-- Center the badge and device info in the middle of the navbar -->
-        <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 flex items-center gap-3">
+        <!-- Center the badge and device info in the middle of the navbar (only on sm+). On small screens show a right-side icon instead -->
+        <div class="hidden sm:flex sm:absolute sm:left-1/2 sm:top-1/2 sm:transform sm:-translate-x-1/2 sm:-translate-y-1/2 z-10 items-center gap-3">
           <div class="flex items-center">${badge}</div>
           ${this.deviceName || this.deviceId
         ? html`<div class="flex flex-col text-left text-xs ml-2">
@@ -65,6 +65,18 @@ export class ConnectionStatus extends LitElement {
         </div>
 
         <div class="flex-none px-4 flex items-center gap-3 ml-auto">
+          ${showInfoButton
+        ? html`<button class="btn btn-ghost btn-xs gap-1 sm:hidden" @click=${this.onInfoRequest} title="Device Info">
+                  ${informationCircleIcon('w-4 h-4')}
+                </button>`
+        : ''}
+          <!-- Small-screen status/device display -->
+          <div class="flex flex-col items-end sm:hidden text-right mr-2">
+            <div>${badge}</div>
+            ${this.deviceName || this.deviceId
+        ? html`<div class="text-xs font-medium truncate max-w-[10rem]">${this.deviceName ? this.deviceName : this.deviceId}</div>`
+        : ''}
+          </div>
           <theme-switcher></theme-switcher>
           ${showConnectButton
         ? html`<button class="btn btn-primary" @click=${this.onConnect}>
