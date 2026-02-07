@@ -7,6 +7,9 @@
 #include <common/FirmwareConfig.h>
 #include <common/MessageQueue.h>
 
+/// Callback type for providing device info data on demand
+typedef DeviceInfoData (*InfoDataProvider)();
+
 /**
  * @brief BLE manager for nRF52 using Bluefruit library
  *
@@ -20,8 +23,6 @@ public:
     explicit BLEManager(MessageQueue *bleToLoraQueue);
 
     /// Initialize BLE stack and create service/characteristics.
-    /// @param deviceName The BLE device name to advertise
-    /// @return true on success, false on failure
     bool setup(const char *deviceName);
 
     /// Start advertising the GATT service
@@ -37,8 +38,6 @@ public:
     bool isConnected() const;
 
     /// Send a Message to the connected BLE client using notifications.
-    /// @param msg Message object defined in Protocol.h
-    /// @return true if the notification was sent, false otherwise
     bool sendMessage(const Message &msg);
 
     /// Check if client has enabled notifications
@@ -47,8 +46,11 @@ public:
     /// Set callbacks for connection state changes
     void setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)());
 
-    /// Update battery level (0-100%)
-    void updateBatteryLevel(uint8_t level);
+    /// Set the callback that provides device info data on demand
+    void setInfoDataProvider(InfoDataProvider provider) { infoProvider = provider; }
+
+    /// Update the device info characteristic value (call periodically or when info changes)
+    void updateDeviceInfo();
 
     // Bluefruit callbacks (public for callback registration)
     static void connectCallback(uint16_t conn_handle);
@@ -59,24 +61,25 @@ public:
 private:
     // BLE Services
     BLEDis bledis;   // Device Information Service
-    BLEUart bleuart; // UART Service (not used, but helpful for debugging)
-    BLEBas blebas;   // Battery Service
 
-    // Custom service and characteristics to exhange Protocol messages
+    // Custom service and characteristics to exchange Protocol messages
     BLEService dataService;
     BLECharacteristic txCharacteristic;
     BLECharacteristic rxCharacteristic;
+    BLECharacteristic infoCharacteristic;
 
     MessageQueue *bleToLoraQueue;
     String deviceNameStr;
 
     bool notificationsEnabled{false};
     bool isConnectedFlag{false};
-    uint8_t lastBatteryLevel{100};
 
     // Connection state callbacks
     void (*connectCallback_user)(){nullptr};
     void (*disconnectCallback_user)(){nullptr};
+
+    // Device info provider callback
+    InfoDataProvider infoProvider{nullptr};
 
     // Singleton for callbacks
     static BLEManager *instance;

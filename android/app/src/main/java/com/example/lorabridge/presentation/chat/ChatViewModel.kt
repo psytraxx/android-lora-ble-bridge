@@ -11,6 +11,7 @@ import com.example.lorabridge.data.repository.MessageRepository
 import com.example.lorabridge.domain.model.AckStatus
 import com.example.lorabridge.domain.model.BleConnectionState
 import com.example.lorabridge.domain.model.ChatMessage
+import com.example.lorabridge.domain.model.DeviceInfo
 import com.example.lorabridge.domain.model.Message
 import com.example.lorabridge.domain.model.toDisplayString
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -60,7 +61,6 @@ class ChatViewModel @Inject constructor(
         observeLocation()
         observeChatMessages()
         observeDiscoveredDevices()
-        observeBatteryLevel()
     }
 
     /**
@@ -138,17 +138,6 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Observe battery level from ESP32
-     */
-    private fun observeBatteryLevel() {
-        viewModelScope.launch {
-            bleRepository.batteryLevel.collect { batteryLevel ->
-                _uiState.value = _uiState.value.copy(batteryLevel = batteryLevel)
-            }
-        }
-    }
-
-    /**
      * Start BLE scan
      */
     fun startBleScan() {
@@ -182,6 +171,29 @@ class ChatViewModel @Inject constructor(
                 gpsText = location?.toDisplayString() ?: "No GPS fix"
             )
         }
+    }
+
+    /**
+     * Request device info from BLE characteristic
+     */
+    fun requestDeviceInfo() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(showInfoDialog = true, deviceInfo = null)
+            try {
+                val info = bleRepository.requestDeviceInfo()
+                _uiState.value = _uiState.value.copy(deviceInfo = info)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to request device info", e)
+                _toastMessage.tryEmit("Failed to read device info")
+            }
+        }
+    }
+
+    /**
+     * Dismiss device info dialog
+     */
+    fun dismissInfoDialog() {
+        _uiState.value = _uiState.value.copy(showInfoDialog = false, deviceInfo = null)
     }
 
     /**
@@ -322,7 +334,7 @@ class ChatViewModel @Inject constructor(
                     pendingAckSeq = null
                     ackTimeoutJob?.cancel()
                     _uiState.value = _uiState.value.copy(canSendMessage = true)
-                    _toastMessage.tryEmit("✓ Message delivered (seq ${message.seq})")
+                    _toastMessage.tryEmit("Message delivered (seq ${message.seq})")
                 }
             }
         }
@@ -374,7 +386,7 @@ class ChatViewModel @Inject constructor(
  */
 data class ChatUiState(
     val connectionState: BleConnectionState = BleConnectionState.Disconnected,
-    val connectionStatusText: String = "❌ Disconnected",
+    val connectionStatusText: String = "Disconnected",
     val messages: List<ChatMessage> = emptyList(),
     val gpsText: String = "No GPS fix",
     val messageInput: String = "",
@@ -382,5 +394,6 @@ data class ChatUiState(
     val charCountText: String = "0/50 chars (12 bytes)",
     val canSendMessage: Boolean = false,
     val discoveredDevices: List<BleRepository.DiscoveredDevice> = emptyList(),
-    val batteryLevel: Int? = null
+    val deviceInfo: DeviceInfo? = null,
+    val showInfoDialog: Boolean = false
 )

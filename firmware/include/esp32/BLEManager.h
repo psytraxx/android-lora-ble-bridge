@@ -10,10 +10,6 @@
  * @file BLEManager.h
  * @brief Thin wrapper around NimBLE to provide an application-level BLE
  *        interface used by the android-lora-ble-bridge project.
- *
- * This header defines the BLEManager class and lightweight callback
- * helper classes used to adapt NimBLE events into the project's
- * messaging queue and activity callbacks.
  */
 
 class BLEManager;
@@ -27,19 +23,7 @@ class MyServerCallbacks : public NimBLEServerCallbacks
 public:
     explicit MyServerCallbacks(BLEManager *manager) : bleManager(manager) {}
 
-    /**
-     * @brief Called by NimBLE when a client connects.
-     * @param pServer NimBLE server instance.
-     * @param connInfo Connection metadata.
-     */
     void onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo);
-
-    /**
-     * @brief Called by NimBLE when a client disconnects.
-     * @param pServer NimBLE server instance.
-     * @param connInfo Connection metadata.
-     * @param reason Disconnect reason code (implementation defined).
-     */
     void onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo, int reason);
 
 private:
@@ -55,12 +39,6 @@ class MyCharacteristicCallbacks : public NimBLECharacteristicCallbacks
 public:
     explicit MyCharacteristicCallbacks(BLEManager *manager) : bleManager(manager) {}
 
-    /**
-     * @brief Called by NimBLE when the RX characteristic is written by a
-     *        connected client.
-     * @param pCharacteristic The characteristic object that was written.
-     * @param connInfo Connection metadata.
-     */
     void onWrite(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo);
 
 private:
@@ -76,12 +54,6 @@ class TxCharacteristicCallbacks : public NimBLECharacteristicCallbacks
 public:
     explicit TxCharacteristicCallbacks(BLEManager *manager) : bleManager(manager) {}
 
-    /**
-     * @brief Called when client subscribes/unsubscribes to notifications
-     * @param pCharacteristic The characteristic being subscribed to
-     * @param connInfo Connection metadata
-     * @param subValue Subscription value (0x0001 = notifications enabled)
-     */
     void onSubscribe(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo, uint16_t subValue);
 
 private:
@@ -89,40 +61,33 @@ private:
 };
 
 /**
- * @brief Adapter for NimBLECharacteristicCallbacks to handle battery level reads
+ * @brief Adapter for NimBLECharacteristicCallbacks to handle device info reads.
+ *        Populates the characteristic with fresh data on each read.
  */
-class BatteryCharacteristicCallbacks : public NimBLECharacteristicCallbacks
+class InfoCharacteristicCallbacks : public NimBLECharacteristicCallbacks
 {
 public:
-    /**
-     * @brief Called when client reads battery level characteristic
-     * @param pCharacteristic The characteristic being read
-     * @param connInfo Connection metadata
-     */
-    void onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo);
+    explicit InfoCharacteristicCallbacks(BLEManager *manager) : bleManager(manager) {}
+
+    void onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo) override;
+
+private:
+    BLEManager *bleManager;
 };
+
+/// Callback type for providing device info data on demand
+typedef DeviceInfoData (*InfoDataProvider)();
 
 /**
  * @brief High-level BLE manager used by the application.
- *
- * Responsibilities:
- *  - Initialize NimBLE and configure the service/characteristics used by the
- *    application
- *  - Accept writes to the RX characteristic and push to message queue
- *  - Notify a connected client via the TX characteristic
- *  - Expose a small API used by the rest of the firmware (start/stop,
- *    sendMessage, activity callbacks)
  */
 class BLEManager
 {
 public:
     /// Construct BLE manager with message queue for received messages
-    /// @param bleToLoraQueue Queue to push received BLE messages
     BLEManager(MessageQueue *bleToLoraQueue);
 
     /// Initialize BLE stack and create service/characteristics.
-    /// @param deviceName The BLE device name to advertise (defined in platformio.ini)
-    /// @return true on success, false on failure
     bool setup(const char *deviceName);
 
     /// Start advertising the GATT service
@@ -138,13 +103,9 @@ public:
     bool isConnected() const;
 
     /// Send a Message to the connected BLE client using notifications.
-    /// @param msg Message object defined in Protocol.h
-    /// @return true if the notification was queued/sent, false otherwise
     bool sendMessage(const Message &msg);
 
     /// Internal handler invoked by characteristic callbacks when data is received
-    /// @param data Pointer to received bytes
-    /// @param length Number of bytes received
     void onMessageReceived(const uint8_t *data, size_t length);
 
     /// Called by MyServerCallbacks when a client connects
@@ -160,13 +121,16 @@ public:
     bool areNotificationsEnabled() const { return notificationsEnabled; }
 
     /// Set callbacks for connection state changes
-    /// @param onConnect Callback when client connects
-    /// @param onDisconnect Callback when client disconnects
     void setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)());
 
-    /// Update battery level characteristic
-    /// @param level Battery percentage (0-100)
-    void updateBatteryLevel(uint8_t level);
+    /// Set the callback that provides device info data on demand
+    void setInfoDataProvider(InfoDataProvider provider) { infoProvider = provider; }
+
+    /// Update the device info characteristic value
+    void updateDeviceInfo();
+
+    /// Get device info from the registered provider (called by InfoCharacteristicCallbacks)
+    DeviceInfoData getDeviceInfo() const;
 
 private:
     static constexpr uint16_t kInvalidConnHandle = 0xFFFF;
@@ -174,10 +138,10 @@ private:
     NimBLEServer *pServer{nullptr};
     NimBLECharacteristic *pTxCharacteristic{nullptr};
     NimBLECharacteristic *pRxCharacteristic{nullptr};
-    NimBLECharacteristic *pBatteryCharacteristic{nullptr};
+    NimBLECharacteristic *pInfoCharacteristic{nullptr};
     NimBLEAdvertising *pAdvertising{nullptr};
 
-    std::string deviceNameStr; // Store device name for debugging/logs
+    std::string deviceNameStr;
 
     MyServerCallbacks *serverCallbacks{nullptr};
     MyCharacteristicCallbacks *rxCallbacks{nullptr};
@@ -186,12 +150,14 @@ private:
     uint16_t currentConnHandle{kInvalidConnHandle};
     bool notificationsEnabled{false};
 
-    // Message queue for received BLE messages
     MessageQueue *bleToLoraQueue{nullptr};
 
     // Connection state callbacks
     void (*connectCallback)(){nullptr};
     void (*disconnectCallback)(){nullptr};
+
+    // Device info provider callback
+    InfoDataProvider infoProvider{nullptr};
 };
 
 #endif // BLE_MANAGER_H

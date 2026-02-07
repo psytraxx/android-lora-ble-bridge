@@ -19,13 +19,17 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -40,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.example.lorabridge.domain.model.DeviceInfo
 import com.example.lorabridge.presentation.components.ConnectionDialog
 import com.example.lorabridge.presentation.components.MessageBubble
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -129,6 +134,14 @@ fun ChatScreen(
         )
     }
 
+    // Device Info Dialog
+    if (uiState.showInfoDialog) {
+        DeviceInfoDialog(
+            info = uiState.deviceInfo,
+            onDismiss = { viewModel.dismissInfoDialog() }
+        )
+    }
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -137,12 +150,16 @@ fun ChatScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("LoRa Chat", fontWeight = FontWeight.Bold)
-                        if (uiState.batteryLevel != null) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "${uiState.batteryLevel}%",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Normal
+                    }
+                },
+                actions = {
+                    val isConnected =
+                        uiState.connectionState is com.example.lorabridge.domain.model.BleConnectionState.Connected
+                    if (isConnected) {
+                        IconButton(onClick = { viewModel.requestDeviceInfo() }) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = "Device Info"
                             )
                         }
                     }
@@ -185,7 +202,7 @@ fun ChatScreen(
                     style = MaterialTheme.typography.bodySmall,
                     fontSize = 12.sp
                 )
-                
+
                 // Show disconnect button when connected
                 if (isConnected) {
                     IconButton(
@@ -292,5 +309,67 @@ fun ChatScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DeviceInfoDialog(
+    info: DeviceInfo?,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Device Info") },
+        text = {
+            if (info == null) {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else {
+                val freqMHz = info.frequencyHz / 1_000_000.0
+                val bwKHz = info.bandwidthHz / 1_000
+
+                Column {
+                    InfoRow("Battery", "${info.batteryLevel}%")
+                    InfoRow("RSSI", "${info.rssi} dBm")
+                    InfoRow("SNR", "${"%.2f".format(info.snr)} dB")
+                    InfoRow("Frequency", "${"%.2f".format(freqMHz)} MHz")
+                    InfoRow("Bandwidth", "$bwKHz kHz")
+                    InfoRow("Spreading Factor", "SF${info.spreadingFactor}")
+                    InfoRow("Coding Rate", "4/${info.codingRate}")
+                    InfoRow("TX Power", "${info.txPower} dBm")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
+        )
     }
 }

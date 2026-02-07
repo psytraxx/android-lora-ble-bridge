@@ -9,8 +9,8 @@ import { ConnectionState } from '../services/BleService';
 import './theme-switcher';
 import { sharedStylesheet } from '../shared-styles';
 import {
-  batteryIcon,
   exclamationTriangleIcon,
+  informationCircleIcon,
   linkIcon,
   stopCircleIcon,
   xMarkIcon
@@ -21,7 +21,6 @@ export class ConnectionStatus extends LitElement {
   @property({ type: String }) state: ConnectionState = ConnectionState.DISCONNECTED;
   @property({ type: String }) deviceName: string | null = null;
   @property({ type: String }) deviceId: string | null = null;
-  @property({ type: Number }) batteryLevel: number | null = null;
 
   static styles = [sharedStylesheet];
 
@@ -30,6 +29,7 @@ export class ConnectionStatus extends LitElement {
     const showConnectButton =
       this.state === ConnectionState.DISCONNECTED || this.state === ConnectionState.ERROR;
     const showDisconnectButton = this.state === ConnectionState.CONNECTED;
+    const showInfoButton = this.state === ConnectionState.CONNECTED;
 
     return html`
       <nav class="navbar bg-base-200 shadow-lg relative">
@@ -45,8 +45,8 @@ export class ConnectionStatus extends LitElement {
           </a>
           <h1 class="text-2xl font-bold hidden sm:block">Chat</h1>
         </div>
-        <!-- Center the badge and device info in the middle of the navbar -->
-        <div class="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 flex items-center gap-3">
+        <!-- Center the badge and device info in the middle of the navbar (only on sm+). On small screens show a right-side icon instead -->
+        <div class="hidden sm:flex sm:absolute sm:left-1/2 sm:top-1/2 sm:transform sm:-translate-x-1/2 sm:-translate-y-1/2 z-10 items-center gap-3">
           <div class="flex items-center">${badge}</div>
           ${this.deviceName || this.deviceId
         ? html`<div class="flex flex-col text-left text-xs ml-2">
@@ -55,16 +55,28 @@ export class ConnectionStatus extends LitElement {
               </div>`
         : ''
       }
-          ${this.batteryLevel !== null
-        ? html`<div class="badge badge-ghost gap-1 text-xs">
-                ${batteryIcon('w-4 h-4')}
-                ${this.batteryLevel}%
-              </div>`
+          ${showInfoButton
+        ? html`<button class="btn btn-ghost btn-xs gap-1" @click=${this.onInfoRequest} title="Device Info">
+                ${informationCircleIcon('w-4 h-4')}
+                <span class="hidden sm:inline">Info</span>
+              </button>`
         : ''
       }
         </div>
 
         <div class="flex-none px-4 flex items-center gap-3 ml-auto">
+          ${showInfoButton
+        ? html`<button class="btn btn-ghost btn-xs gap-1 sm:hidden" @click=${this.onInfoRequest} title="Device Info">
+                  ${informationCircleIcon('w-4 h-4')}
+                </button>`
+        : ''}
+          <!-- Small-screen status/device display -->
+          <div class="flex flex-col items-end sm:hidden text-right mr-2">
+            <div>${badge}</div>
+            ${this.deviceName || this.deviceId
+        ? html`<div class="text-xs font-medium truncate max-w-[10rem]">${this.deviceName ? this.deviceName : this.deviceId}</div>`
+        : ''}
+          </div>
           <theme-switcher></theme-switcher>
           ${showConnectButton
         ? html`<button class="btn btn-primary" @click=${this.onConnect}>
@@ -140,6 +152,15 @@ export class ConnectionStatus extends LitElement {
   private onDisconnect() {
     this.dispatchEvent(
       new CustomEvent('disconnect', {
+        bubbles: true,
+        composed: true
+      })
+    );
+  }
+
+  private onInfoRequest() {
+    this.dispatchEvent(
+      new CustomEvent('info-request', {
         bubbles: true,
         composed: true
       })

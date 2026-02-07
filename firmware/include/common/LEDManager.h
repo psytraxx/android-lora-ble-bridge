@@ -21,7 +21,7 @@ public:
      * @param hbIntervalMs Heartbeat interval in milliseconds (default: 1000)
      * @param hbDurationMs Heartbeat blink duration in milliseconds (default: 50)
      */
-    explicit LEDManager(int pin, unsigned long hbIntervalMs = 1000, int hbDurationMs = 50)
+    explicit LEDManager(int pin, unsigned long hbIntervalMs = 1000, unsigned long hbDurationMs = 50)
         : ledPin(pin), blinkActive(false), blinkCount(0),
           blinkTarget(0), blinkDuration(50), blinkDelay(200),
           lastStateChange(0), ledState(false),
@@ -43,7 +43,7 @@ public:
      * @param duration Time LED stays on in each blink in milliseconds (default: 50)
      * @param delayBetween Delay between blinks in milliseconds (default: 200)
      */
-    void blink(int times = 1, int duration = 50, int delayBetween = 200)
+    void blink(int times = 1, unsigned long duration = 50, unsigned long delayBetween = 200)
     {
         blinkActive = true;
         blinkTarget = times;
@@ -128,13 +128,13 @@ private:
     bool blinkActive;
     int blinkCount;
     int blinkTarget;
-    int blinkDuration;
-    int blinkDelay;
+    unsigned long blinkDuration;
+    unsigned long blinkDelay;
     unsigned long lastStateChange;
     bool ledState;
     unsigned long lastHeartbeat;
     unsigned long heartbeatIntervalMs;
-    int heartbeatDurationMs;
+    unsigned long heartbeatDurationMs;
 };
 
 #endif // LED_MANAGER_H

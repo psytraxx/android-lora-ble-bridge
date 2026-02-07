@@ -18,6 +18,7 @@ import android.os.ParcelUuid
 import android.util.Log
 import com.example.lorabridge.data.protocol.LoRaProtocol
 import com.example.lorabridge.domain.model.BleConnectionState
+import com.example.lorabridge.domain.model.DeviceInfo
 import com.example.lorabridge.domain.model.Message
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -31,9 +32,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.resume
 
 /**
  * Repository for BLE operations using coroutines and StateFlow
@@ -74,11 +79,10 @@ class BleRepository @Inject constructor(
     private var bluetoothGatt: BluetoothGatt? = null
     private var txCharacteristic: BluetoothGattCharacteristic? = null  // Receive notifications
     private var rxCharacteristic: BluetoothGattCharacteristic? = null  // Send messages
-    private var batteryCharacteristic: BluetoothGattCharacteristic? = null  // Battery level
+    private var infoCharacteristic: BluetoothGattCharacteristic? = null  // Device info (read)
 
-    // Battery level state
-    private val _batteryLevel = MutableStateFlow<Int?>(null)
-    val batteryLevel: StateFlow<Int?> = _batteryLevel.asStateFlow()
+    // Pending device info read continuation
+    private var pendingInfoContinuation: ((DeviceInfo?) -> Unit)? = null
 
     // Scanning
     private var currentScanCallback: ScanCallback? = null
@@ -432,22 +436,15 @@ class BleRepository @Inject constructor(
                 return
             }
 
-            // Get battery service (optional - don't fail if not present)
-            val batteryService = gatt.getService(BleConstants.BATTERY_SERVICE_UUID)
-            if (batteryService != null) {
-                batteryCharacteristic = batteryService.getCharacteristic(BleConstants.BATTERY_LEVEL_UUID)
-                if (batteryCharacteristic != null) {
-                    Log.d(TAG, "Battery service found - reading battery level")
-                    // Read battery level first - must serialize BLE operations!
-                    // onCharacteristicRead will trigger TX notification setup
-                    gatt.readCharacteristic(batteryCharacteristic)
-                    return
-                }
+            // Get device info characteristic (optional)
+            infoCharacteristic = service.getCharacteristic(BleConstants.INFO_CHAR_UUID)
+            if (infoCharacteristic != null) {
+                Log.d(TAG, "Device info characteristic found")
             } else {
-                Log.d(TAG, "Battery service not available on this device")
+                Log.d(TAG, "Device info characteristic not available")
             }
 
-            // If no battery service, start TX notifications immediately
+            // Enable TX notifications
             enableTxNotifications(gatt)
         }
 
@@ -466,37 +463,7 @@ class BleRepository @Inject constructor(
 
             when (descriptor.characteristic.uuid) {
                 BleConstants.TX_CHAR_UUID -> {
-                    Log.d(TAG, "TX notifications enabled")
-
-                    // Now enable battery notifications if available
-                    val batteryChar = batteryCharacteristic
-                    if (batteryChar != null) {
-                        gatt.setCharacteristicNotification(batteryChar, true)
-                        val batteryDescriptor = batteryChar.getDescriptor(BleConstants.CCCD_UUID)
-                        if (batteryDescriptor != null) {
-                            // Use new API for Android 13+ (API 33+)
-                            if (android.os.Build.VERSION.SDK_INT >= 33) {
-                                gatt.writeDescriptor(batteryDescriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
-                            } else {
-                                @Suppress("DEPRECATION")
-                                batteryDescriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                                @Suppress("DEPRECATION")
-                                gatt.writeDescriptor(batteryDescriptor)
-                            }
-                            Log.d(TAG, "Enabling battery notifications...")
-                        } else {
-                            Log.w(TAG, "Battery CCCD descriptor not found, connection complete without battery notifications")
-                            _connectionState.value = BleConnectionState.Connected
-                        }
-                    } else {
-                        // No battery characteristic, we're done
-                        Log.d(TAG, "Notifications enabled - connection complete!")
-                        _connectionState.value = BleConnectionState.Connected
-                    }
-                }
-
-                BleConstants.BATTERY_LEVEL_UUID -> {
-                    Log.d(TAG, "Battery notifications enabled - connection complete!")
+                    Log.d(TAG, "TX notifications enabled - connection complete!")
                     _connectionState.value = BleConnectionState.Connected
                 }
 
@@ -516,7 +483,6 @@ class BleRepository @Inject constructor(
             if (android.os.Build.VERSION.SDK_INT < 33) {
                 when (characteristic.uuid) {
                     BleConstants.TX_CHAR_UUID -> handleReceivedData(characteristic.value)
-                    BleConstants.BATTERY_LEVEL_UUID -> handleBatteryLevelUpdate(characteristic.value)
                 }
             }
         }
@@ -530,7 +496,6 @@ class BleRepository @Inject constructor(
             if (android.os.Build.VERSION.SDK_INT >= 33) {
                 when (characteristic.uuid) {
                     BleConstants.TX_CHAR_UUID -> handleReceivedData(value)
-                    BleConstants.BATTERY_LEVEL_UUID -> handleBatteryLevelUpdate(value)
                 }
             }
         }
@@ -542,16 +507,20 @@ class BleRepository @Inject constructor(
             value: ByteArray,
             status: Int
         ) {
-            if (status == BluetoothGatt.GATT_SUCCESS && characteristic.uuid == BleConstants.BATTERY_LEVEL_UUID) {
-                handleBatteryLevelUpdate(value)
-                // Battery read complete - now enable TX notifications
-                enableTxNotifications(gatt)
+            if (characteristic.uuid == BleConstants.INFO_CHAR_UUID) {
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    val info = parseDeviceInfo(value)
+                    pendingInfoContinuation?.invoke(info)
+                } else {
+                    Log.e(TAG, "Failed to read device info (status=$status)")
+                    pendingInfoContinuation?.invoke(null)
+                }
+                pendingInfoContinuation = null
             }
         }
 
         /**
          * Enable TX characteristic notifications
-         * Must be called after all read operations are complete to avoid BLE operation queue conflicts
          */
         @SuppressLint("MissingPermission")
         private fun enableTxNotifications(gatt: BluetoothGatt) {
@@ -602,13 +571,56 @@ class BleRepository @Inject constructor(
     }
 
     /**
-     * Handle battery level update from BLE characteristic
+     * Parse 16-byte device info characteristic value
      */
-    private fun handleBatteryLevelUpdate(data: ByteArray) {
-        if (data.isNotEmpty()) {
-            val batteryLevel = data[0].toInt() and 0xFF  // Convert to unsigned int (0-100)
-            Log.d(TAG, "Battery level: $batteryLevel%")
-            _batteryLevel.value = batteryLevel
+    private fun parseDeviceInfo(data: ByteArray): DeviceInfo? {
+        if (data.size < 16) {
+            Log.w(TAG, "Device info too short: ${data.size} bytes")
+            return null
+        }
+
+        val buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
+        val batteryLevel = buffer.get().toInt() and 0xFF
+        val rssi = buffer.short.toInt()
+        val snrX100 = buffer.short.toInt()
+        val txPower = buffer.get().toInt()
+        val frequencyHz = buffer.int.toLong() and 0xFFFFFFFFL
+        val bandwidthHz = buffer.int.toLong() and 0xFFFFFFFFL
+        val spreadingFactor = buffer.get().toInt() and 0xFF
+        val codingRate = buffer.get().toInt() and 0xFF
+
+        return DeviceInfo(
+            batteryLevel = batteryLevel,
+            rssi = rssi,
+            snr = snrX100 / 100f,
+            txPower = txPower,
+            frequencyHz = frequencyHz,
+            bandwidthHz = bandwidthHz,
+            spreadingFactor = spreadingFactor,
+            codingRate = codingRate
+        )
+    }
+
+    /**
+     * Read device info from BLE characteristic
+     * Returns null if not connected or characteristic not available
+     */
+    @SuppressLint("MissingPermission")
+    suspend fun requestDeviceInfo(): DeviceInfo? {
+        if (!isConnected()) return null
+        val gatt = bluetoothGatt ?: return null
+        val infoChar = infoCharacteristic ?: return null
+
+        return withTimeoutOrNull(2000L) {
+            suspendCancellableCoroutine { continuation ->
+                pendingInfoContinuation = { info ->
+                    continuation.resume(info)
+                }
+                if (!gatt.readCharacteristic(infoChar)) {
+                    pendingInfoContinuation = null
+                    continuation.resume(null)
+                }
+            }
         }
     }
 
@@ -685,8 +697,8 @@ class BleRepository @Inject constructor(
         bluetoothGatt = null
         txCharacteristic = null
         rxCharacteristic = null
-        batteryCharacteristic = null
-        _batteryLevel.value = null
+        infoCharacteristic = null
+        pendingInfoContinuation = null
     }
 
     /**

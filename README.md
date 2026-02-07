@@ -160,6 +160,32 @@ cd firmware
 ~/.platformio/penv/bin/pio run -e xiao_nrf52840 --target upload --target monitor
 ```
 
+### BLE Device Info Characteristic
+
+A read-only BLE characteristic under the custom LoRa service provides on-demand device status (battery, signal quality, radio config). Clients read this characteristic to populate the "Device Info" dialog.
+
+- **UUID**: `0000567A-0000-1000-8000-00805F9B34FB`
+- **Properties**: Read-only
+- **Size**: 16 bytes (fixed)
+
+**Data Format (16 bytes, little-endian):**
+```
+[Battery:1][RSSI:2 LE][SNR:2 LE][TxPower:1][Freq:4 LE][BW:4 LE][SF:1][CR:1]
+```
+
+| Offset | Size | Type | Field | Description |
+|--------|------|------|-------|-------------|
+| 0 | 1 | uint8 | Battery | Battery level 0-100% |
+| 1 | 2 | int16 LE | RSSI | Last received signal strength (dBm) |
+| 3 | 2 | int16 LE | SNR | Last received SNR × 100 (divide by 100 for dB) |
+| 5 | 1 | int8 | TX Power | Transmit power (dBm) |
+| 6 | 4 | uint32 LE | Frequency | LoRa frequency (Hz), e.g. 433920000 |
+| 10 | 4 | uint32 LE | Bandwidth | LoRa bandwidth (Hz), e.g. 250000 |
+| 14 | 1 | uint8 | SF | Spreading factor (7-12) |
+| 15 | 1 | uint8 | CR | Coding rate denominator (5-8, meaning 4/5 to 4/8) |
+
+On read, the firmware populates fresh battery voltage, last received RSSI/SNR, and compile-time LoRa parameters.
+
 **Configuration:**
 - LoRa settings configured in `firmware/include/common/FirmwareConfig.h`
 - Default: 433.92 MHz, SF11, BW250 kHz, CR4/5, 20 dBm TX, 64-symbol preamble, 160 MHz CPU
