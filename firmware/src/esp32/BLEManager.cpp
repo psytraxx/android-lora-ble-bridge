@@ -62,8 +62,10 @@ void TxCharacteristicCallbacks::onSubscribe(NimBLECharacteristic *pCharacteristi
 }
 
 // Info Characteristic callbacks implementation
-void InfoCharacteristicCallbacks::onRead()
+void InfoCharacteristicCallbacks::onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo)
 {
+    (void)pCharacteristic;
+    (void)connInfo;
     bleManager->updateDeviceInfo();
 }
 

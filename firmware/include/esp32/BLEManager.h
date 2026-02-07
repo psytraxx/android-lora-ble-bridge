@@ -69,7 +69,7 @@ class InfoCharacteristicCallbacks : public NimBLECharacteristicCallbacks
 public:
     explicit InfoCharacteristicCallbacks(BLEManager *manager) : bleManager(manager) {}
 
-    void onRead();
+    void onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo) override;
 
 private:
     BLEManager *bleManager;
