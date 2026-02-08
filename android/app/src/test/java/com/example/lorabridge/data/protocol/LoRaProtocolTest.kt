@@ -19,7 +19,8 @@ class LoRaProtocolTest {
         val original = Message.TextMessage(
             seq = 42,
             text = "HELLO WORLD",
-            hasGps = false
+            hasGps = false,
+            senderTime = 1234567890L
         )
 
         val serialized = LoRaProtocol.serialize(original)
@@ -30,6 +31,7 @@ class LoRaProtocolTest {
         assertEquals(original.hasGps, deserialized.hasGps)
         assertNull(deserialized.latitude)
         assertNull(deserialized.longitude)
+        assertEquals(original.senderTime, deserialized.senderTime)
     }
 
     @Test
@@ -39,7 +41,8 @@ class LoRaProtocolTest {
             text = "TEST MESSAGE",
             hasGps = true,
             latitude = 47.123456,
-            longitude = 8.987654
+            longitude = 8.987654,
+            senderTime = 987654321L
         )
 
         val serialized = LoRaProtocol.serialize(original)
@@ -54,6 +57,7 @@ class LoRaProtocolTest {
         // GPS coordinates should be accurate to 6 decimal places (1 meter precision)
         assertEquals(original.latitude!!, deserialized.latitude!!, 0.000001)
         assertEquals(original.longitude!!, deserialized.longitude!!, 0.000001)
+        assertEquals(original.senderTime, deserialized.senderTime)
     }
 
     @Test

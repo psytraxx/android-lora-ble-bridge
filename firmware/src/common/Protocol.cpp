@@ -212,6 +212,7 @@ int Message::serialize(uint8_t *buf, size_t bufSize) const
         {
             totalSize += 8; // lat + lon
         }
+        totalSize += 4; // sender_time
 
         if (bufSize < totalSize)
         {
@@ -225,11 +226,15 @@ int Message::serialize(uint8_t *buf, size_t bufSize) const
         std::memcpy(buf + 4, packedText, packedLen);
         buf[4 + packedLen] = textData.hasGps ? 1 : 0;
 
+        size_t offset = 5 + packedLen;
         if (textData.hasGps)
         {
-            std::memcpy(buf + 5 + packedLen, &textData.lat, 4); // Little-endian
-            std::memcpy(buf + 9 + packedLen, &textData.lon, 4); // Little-endian
+            std::memcpy(buf + offset, &textData.lat, 4);     // Little-endian
+            std::memcpy(buf + offset + 4, &textData.lon, 4); // Little-endian
+            offset += 8;
         }
+
+        std::memcpy(buf + offset, &textData.sender_time, 4); // Little-endian
 
         return totalSize;
     }
@@ -286,20 +291,28 @@ bool Message::deserialize(const uint8_t *buf, size_t len)
 
         textData.hasGps = (buf[4 + packedLen] != 0);
 
+        size_t offset = 5 + packedLen;
         if (textData.hasGps)
         {
-            if (len < 5 + packedLen + 8)
+            if (len < offset + 8)
             {
                 return false; // Buffer too small for GPS data
             }
-            std::memcpy(&textData.lat, buf + 5 + packedLen, 4); // Little-endian
-            std::memcpy(&textData.lon, buf + 9 + packedLen, 4); // Little-endian
+            std::memcpy(&textData.lat, buf + offset, 4);     // Little-endian
+            std::memcpy(&textData.lon, buf + offset + 4, 4); // Little-endian
+            offset += 8;
         }
         else
         {
             textData.lat = 0;
             textData.lon = 0;
         }
+
+        if (len < offset + 4)
+        {
+            return false; // Buffer too small for sender_time
+        }
+        std::memcpy(&textData.sender_time, buf + offset, 4); // Little-endian
 
         return true;
     }

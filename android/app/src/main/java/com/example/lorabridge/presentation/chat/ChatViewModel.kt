@@ -255,13 +255,15 @@ class ChatViewModel @Inject constructor(
                     text = text.uppercase(),
                     hasGps = true,
                     latitude = location.latitude,
-                    longitude = location.longitude
+                    longitude = location.longitude,
+                    senderTime = System.currentTimeMillis() / 1000
                 )
             } else {
                 Message.TextMessage(
                     seq = seq,
                     text = text.uppercase(),
-                    hasGps = false
+                    hasGps = false,
+                    senderTime = System.currentTimeMillis() / 1000
                 )
             }
 

@@ -71,7 +71,7 @@ function serializeTextMessage(msg: TextMessage): Uint8Array {
   const packedLength = packed.length;
 
   const hasGps = msg.hasGps && msg.latitude != null && msg.longitude != null;
-  const size = 5 + packedLength + (hasGps ? 8 : 0);
+  const size = 5 + packedLength + (hasGps ? 8 : 0) + 4;
   const buffer = new Uint8Array(size);
 
   let offset = 0;
@@ -99,6 +99,10 @@ function serializeTextMessage(msg: TextMessage): Uint8Array {
     writeInt32LE(buffer, offset, lonMicro);
     offset += 4;
   }
+
+  // Sender time (Unix seconds, uint32 LE)
+  writeInt32LE(buffer, offset, msg.senderTime ?? 0);
+  offset += 4;
 
   return buffer;
 }
@@ -151,13 +155,21 @@ function deserializeTextMessage(data: Uint8Array): TextMessage {
     longitude = lonMicro / GPS_PRECISION_MULTIPLIER;
   }
 
+  // Sender time (Unix seconds, uint32 LE)
+  if (data.length < offset + 4) {
+    throw new Error('Insufficient data for sender time');
+  }
+  const senderTime = readInt32LE(data, offset);
+  offset += 4;
+
   return {
     type: MESSAGE_TYPE.TEXT,
     seq,
     text,
     hasGps,
     latitude,
-    longitude
+    longitude,
+    senderTime
   };
 }
 

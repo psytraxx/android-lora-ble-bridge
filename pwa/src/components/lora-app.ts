@@ -308,7 +308,8 @@ export class LoraApp extends LitElement {
         text: text.toUpperCase(), // Protocol uses uppercase
         hasGps: location !== null,
         latitude: location?.latitude,
-        longitude: location?.longitude
+        longitude: location?.longitude,
+        senderTime: Math.floor(Date.now() / 1000)
       };
 
       // Send via BLE

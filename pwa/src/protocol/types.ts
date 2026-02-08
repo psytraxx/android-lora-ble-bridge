@@ -22,6 +22,7 @@ export interface TextMessage {
   hasGps: boolean;
   latitude?: number; // degrees
   longitude?: number; // degrees
+  senderTime?: number; // Unix time (seconds)
 }
 
 /**
