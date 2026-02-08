@@ -341,7 +341,8 @@ export class LoraApp extends LitElement {
         message.seq,
         message.hasGps,
         message.latitude,
-        message.longitude
+        message.longitude,
+        message.senderTime ? message.senderTime * 1000 : undefined
       );
     } else if (message.type === MESSAGE_TYPE.ACK) {
       // Received an ACK

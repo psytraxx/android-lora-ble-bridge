@@ -316,6 +316,7 @@ class ChatViewModel @Inject constructor(
                 val chatMessage = ChatMessage(
                     text = message.text,
                     isSent = false,
+                    timestamp = message.senderTime?.times(1000) ?: System.currentTimeMillis(),
                     seq = message.seq,
                     ackStatus = AckStatus.NONE,
                     hasGps = message.hasGps,
