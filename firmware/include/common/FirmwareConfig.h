@@ -45,11 +45,11 @@ namespace LoRaConstants
 {
     constexpr float FREQUENCY = 433.92; ///< LoRa frequency in MHz
 
-    constexpr float BANDWIDTH = 250.0; ///< LoRa bandwidth in kHz (250 = faster data rate, moderate range)
+    constexpr float BANDWIDTH = 125.0; ///< LoRa bandwidth in kHz (250 = faster data rate, moderate range)
 
     constexpr uint8_t SPREADING_FACTOR = 11; ///< LoRa spreading factor (7-12, higher = longer range, slower)
 
-    constexpr uint8_t CODING_RATE = 5; ///< LoRa coding rate (5=4/5, 6=4/6, 7=4/7, 8=4/8, higher = better error correction)
+    constexpr uint8_t CODING_RATE = 7; ///< LoRa coding rate (5=4/5, 6=4/6, 7=4/7, 8=4/8, higher = better error correction)
 
     /// Default LoRa sync word (0x12 = private network, 0x34 = public LoRaWAN)
     constexpr uint8_t SYNC_WORD = 0x12;
