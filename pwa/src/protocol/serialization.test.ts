@@ -8,7 +8,8 @@ describe('LoRa Protocol Serialization/Deserialization', () => {
       type: MESSAGE_TYPE.TEXT,
       seq: 42,
       text: 'HELLO',
-      hasGps: false
+      hasGps: false,
+      senderTime: 1234567890
     };
 
     const serialized = serialize(originalMessage);
@@ -20,6 +21,7 @@ describe('LoRa Protocol Serialization/Deserialization', () => {
     expect(deserialized.hasGps).toBe(false);
     expect(deserialized.latitude).toBeUndefined();
     expect(deserialized.longitude).toBeUndefined();
+    expect(deserialized.senderTime).toBe(originalMessage.senderTime);
   });
 
   it('should serialize and deserialize a TextMessage with GPS', () => {
@@ -29,7 +31,8 @@ describe('LoRa Protocol Serialization/Deserialization', () => {
       text: 'LOCATION',
       hasGps: true,
       latitude: 47.123456,
-      longitude: 8.987654
+      longitude: 8.987654,
+      senderTime: 987654321
     };
 
     const serialized = serialize(originalMessage);
@@ -41,6 +44,7 @@ describe('LoRa Protocol Serialization/Deserialization', () => {
     expect(deserialized.hasGps).toBe(true);
     expect(deserialized.latitude).toBeCloseTo(originalMessage.latitude ?? 0, 6);
     expect(deserialized.longitude).toBeCloseTo(originalMessage.longitude ?? 0, 6);
+    expect(deserialized.senderTime).toBe(originalMessage.senderTime);
   });
 
   it('should serialize and deserialize an AckMessage', () => {

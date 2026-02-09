@@ -168,7 +168,10 @@ class BleRepository @Inject constructor(
                     _discoveredDevices.value = currentList.toMutableList().apply {
                         set(existingDeviceIndex, updatedDevice)
                     }
-                    Log.d(TAG, "Updated device timestamp. Total devices: ${_discoveredDevices.value.size}")
+                    Log.d(
+                        TAG,
+                        "Updated device timestamp. Total devices: ${_discoveredDevices.value.size}"
+                    )
                 } else {
                     // Add new device
                     val discoveredDevice = DiscoveredDevice(
@@ -238,7 +241,10 @@ class BleRepository @Inject constructor(
 
                     if (filteredList.size != currentList.size) {
                         val removedCount = currentList.size - filteredList.size
-                        Log.d(TAG, "Removed $removedCount stale device(s). Remaining: ${filteredList.size}")
+                        Log.d(
+                            TAG,
+                            "Removed $removedCount stale device(s). Remaining: ${filteredList.size}"
+                        )
                         _discoveredDevices.value = filteredList
                     }
                 }
@@ -407,7 +413,10 @@ class BleRepository @Inject constructor(
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 Log.e(TAG, "Service discovery failed (status=$status)")
                 disconnect()
-                _connectionState.value = BleConnectionState.Error("Service discovery failed (status=$status)", canRetry = true)
+                _connectionState.value = BleConnectionState.Error(
+                    "Service discovery failed (status=$status)",
+                    canRetry = true
+                )
                 return
             }
 
@@ -420,7 +429,8 @@ class BleRepository @Inject constructor(
                     Log.d(TAG, "  Available service: ${s.uuid}")
                 }
                 disconnect()
-                _connectionState.value = BleConnectionState.Error("LoRa service not found", canRetry = true)
+                _connectionState.value =
+                    BleConnectionState.Error("LoRa service not found", canRetry = true)
                 return
             }
 
@@ -531,7 +541,10 @@ class BleRepository @Inject constructor(
             if (descriptor != null) {
                 // Use new API for Android 13+ (API 33+)
                 val writeResult = if (android.os.Build.VERSION.SDK_INT >= 33) {
-                    gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                    gatt.writeDescriptor(
+                        descriptor,
+                        BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    )
                 } else {
                     @Suppress("DEPRECATION")
                     descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
@@ -544,7 +557,8 @@ class BleRepository @Inject constructor(
                 if (writeResult == BluetoothGatt.GATT_WRITE_NOT_PERMITTED || writeResult == false) {
                     Log.e(TAG, "Failed to initiate TX CCCD descriptor write")
                     disconnect()
-                    _connectionState.value = BleConnectionState.Error("Failed to write TX CCCD descriptor")
+                    _connectionState.value =
+                        BleConnectionState.Error("Failed to write TX CCCD descriptor")
                 }
             } else {
                 Log.e(TAG, "TX CCCD descriptor not found")
@@ -642,7 +656,11 @@ class BleRepository @Inject constructor(
 
         // Use new API for Android 13+ (API 33+)
         val success = if (android.os.Build.VERSION.SDK_INT >= 33) {
-            gatt.writeCharacteristic(rxChar, data, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothGatt.GATT_SUCCESS
+            gatt.writeCharacteristic(
+                rxChar,
+                data,
+                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            ) == BluetoothGatt.GATT_SUCCESS
         } else {
             @Suppress("DEPRECATION")
             rxChar.value = data

@@ -7,7 +7,7 @@ This document defines the binary protocol for LoRa messages between ESP32 device
 All messages are binary and start with a 1-byte message type.
 
 ### Text Message (Type: 0x01)
-Used to send text messages with optional GPS coordinates. Uses 6-bit character packing for bandwidth optimization.
+Used to send text messages with optional GPS coordinates and sender time. Uses 6-bit character packing for bandwidth optimization.
 
 - **Type**: 1 byte (0x01)
 - **Sequence Number**: 1 byte (u8, for acknowledgment)
@@ -17,11 +17,12 @@ Used to send text messages with optional GPS coordinates. Uses 6-bit character p
 - **Has GPS**: 1 byte (0x00 = no GPS, 0x01 = GPS included)
 - **Latitude**: 4 bytes (i32, latitude × 1,000,000) - **only if Has GPS = 1**
 - **Longitude**: 4 bytes (i32, longitude × 1,000,000) - **only if Has GPS = 1**
+- **Sender Time**: 4 bytes (u32, Unix time in seconds, little-endian)
 
 **Character Set**: Uppercase A-Z, 0-9, space, and punctuation (64 chars total)
 **Encoding**: 6 bits per character (not UTF-8)
 **Minimum Size**: 5 bytes (empty text without GPS)
-**Maximum Size**: 51 bytes (50 chars × 6 bits = 38 bytes + 5 byte header + 8 byte GPS)
+**Maximum Size**: 55 bytes (50 chars × 6 bits = 38 bytes + 5 byte header + 8 byte GPS + 4 byte sender time)
 
 ### Acknowledgment Message (Type: 0x02)
 Used to acknowledge receipt of text messages.
@@ -73,17 +74,19 @@ Used to acknowledge receipt of text messages.
 Text: "SOS"
 Sequence: 1
 Has GPS: No
+Sender Time: 1707418551 (Unix seconds)
 
 Hex bytes (6-bit packed):
-01 01 03 03 4A 12 00
+01 01 03 03 4A 12 00 77 2A 5B 65
 │  │  │  │  └──┬─┘ └─ Has GPS: 0 (no)
 │  │  │  │     └─ Packed text: "SOS" (3 chars in 3 bytes)
 │  │  │  └─ Packed length: 3 bytes
 │  │  └─ Character count: 3
 │  └─ Sequence: 1
 └─ Type: TEXT (0x01)
+  └─ Sender Time: 0x655B2A77 (LE)
 
-Total: 8 bytes
+Total: 12 bytes
 ```
 
 ### Example 2: Text Message with GPS Location
@@ -92,9 +95,10 @@ Text: "AT CHECKPOINT 2"
 Latitude: 37.7742° (San Francisco)
 Longitude: -122.4192°
 Sequence: 5
+Sender Time: 1707418551 (Unix seconds)
 
 Hex bytes:
-01 05 0F 0C [12 bytes of 6-bit packed text] 01 18 61 3F 02 00 0D 83 8A
+01 05 0F 0C [12 bytes of 6-bit packed text] 01 18 61 3F 02 00 0D 83 8A 77 2A 5B 65
 │  │  │  │  └──────────┬──────────────┘ │  └──┬───┘ └──┬───┘
 │  │  │  │             │                  │     │        └─ Longitude: -122419200 (LE)
 │  │  │  │             │                  │     └─ Latitude: 37774200 (LE)
@@ -104,8 +108,9 @@ Hex bytes:
 │  │  └─ Character count: 15
 │  └─ Sequence: 5
 └─ Type: TEXT (0x01)
+  └─ Sender Time: 0x655B2A77 (LE)
 
-Total: 26 bytes
+Total: 30 bytes
 ```
 
 ### Example 3: Maximum Length Message with GPS

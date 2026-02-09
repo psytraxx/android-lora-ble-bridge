@@ -82,13 +82,14 @@ export class MessageRepository {
     seq: number,
     hasGps: boolean,
     latitude?: number,
-    longitude?: number
+    longitude?: number,
+    timestamp?: number
   ): ChatMessage {
     const message: ChatMessage = {
       id: this.generateId(),
       text,
       isSent: false,
-      timestamp: Date.now(),
+      timestamp: timestamp ?? Date.now(),
       seq,
       ackStatus: AckStatus.NONE,
       hasGps,

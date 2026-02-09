@@ -12,7 +12,8 @@ sealed class Message {
         val text: String,
         val hasGps: Boolean = false,
         val latitude: Double? = null,  // Only valid if hasGps = true
-        val longitude: Double? = null  // Only valid if hasGps = true
+        val longitude: Double? = null,  // Only valid if hasGps = true
+        val senderTime: Long? = null   // Unix time (seconds)
     ) : Message() {
         override val type = MessageType.TEXT
 

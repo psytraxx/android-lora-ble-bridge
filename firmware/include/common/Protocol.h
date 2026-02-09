@@ -32,6 +32,7 @@ struct TextMessage
     bool hasGps;                    // Whether GPS coordinates are included
     int32_t lat;                    // latitude * 1_000_000 (only valid if hasGps=true)
     int32_t lon;                    // longitude * 1_000_000 (only valid if hasGps=true)
+    uint32_t sender_time;           // Unix time (seconds)
 };
 
 /// Acknowledgment message

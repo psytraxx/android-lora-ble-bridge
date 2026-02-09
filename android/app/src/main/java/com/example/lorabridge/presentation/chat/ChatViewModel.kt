@@ -255,13 +255,15 @@ class ChatViewModel @Inject constructor(
                     text = text.uppercase(),
                     hasGps = true,
                     latitude = location.latitude,
-                    longitude = location.longitude
+                    longitude = location.longitude,
+                    senderTime = System.currentTimeMillis() / 1000
                 )
             } else {
                 Message.TextMessage(
                     seq = seq,
                     text = text.uppercase(),
-                    hasGps = false
+                    hasGps = false,
+                    senderTime = System.currentTimeMillis() / 1000
                 )
             }
 
@@ -314,6 +316,7 @@ class ChatViewModel @Inject constructor(
                 val chatMessage = ChatMessage(
                     text = message.text,
                     isSent = false,
+                    timestamp = message.senderTime?.times(1000) ?: System.currentTimeMillis(),
                     seq = message.seq,
                     ackStatus = AckStatus.NONE,
                     hasGps = message.hasGps,

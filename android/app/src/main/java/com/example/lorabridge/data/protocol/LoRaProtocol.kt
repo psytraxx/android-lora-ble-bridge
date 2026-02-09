@@ -68,7 +68,7 @@ object LoRaProtocol {
 
     private fun serializeTextMessage(msg: Message.TextMessage): ByteArray {
         val packedText = packText(msg.text)
-        val totalSize = 5 + packedText.size + if (msg.hasGps) 8 else 0
+        val totalSize = 5 + packedText.size + (if (msg.hasGps) 8 else 0) + 4
 
         val buffer = ByteBuffer.allocate(totalSize).order(ByteOrder.LITTLE_ENDIAN)
 
@@ -90,6 +90,9 @@ object LoRaProtocol {
             buffer.putInt(lat)                    // [N+2..N+5] Latitude
             buffer.putInt(lon)                    // [N+6..N+9] Longitude
         }
+
+        // Sender time (Unix seconds)
+        buffer.putInt((msg.senderTime ?: 0L).toInt())
 
         return buffer.array()
     }
@@ -116,14 +119,19 @@ object LoRaProtocol {
         val text = unpackText(packedBytes, charCount)
         val hasGps = buffer.get() != 0.toByte()
 
-        return if (hasGps) {
+        var latitude: Double? = null
+        var longitude: Double? = null
+        if (hasGps) {
             require(data.size >= 5 + packedLen + 8) { "Data too short for GPS data" }
-            val lat = buffer.int / 1_000_000.0
-            val lon = buffer.int / 1_000_000.0
-            Message.TextMessage(seq, text, hasGps = true, latitude = lat, longitude = lon)
-        } else {
-            Message.TextMessage(seq, text, hasGps = false)
+            latitude = buffer.int / 1_000_000.0
+            longitude = buffer.int / 1_000_000.0
         }
+
+        // Sender time (Unix seconds)
+        require(data.size >= buffer.position() + 4) { "Data too short for sender time" }
+        val senderTime = buffer.int.toLong() and 0xFFFFFFFFL
+
+        return Message.TextMessage(seq, text, hasGps, latitude, longitude, senderTime)
     }
 
     private fun deserializeAckMessage(data: ByteArray): Message.AckMessage {
