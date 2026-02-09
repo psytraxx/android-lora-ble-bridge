@@ -18,6 +18,12 @@
 #include "common/FirmwareConfig.h"
 #include "common/LEDManager.h"
 
+#ifdef MESHTASTIC_PROTOCOL
+#include "common/MeshProtocol.h"
+#include "common/MeshPacket.h"
+#include "common/NodeDB.h"
+#endif
+
 // Platform-specific FreeRTOS includes
 #if defined(ARDUINO_ARCH_ESP32)
 #include <freertos/FreeRTOS.h>
@@ -205,6 +211,19 @@ void setup()
     bleManager->setConnectionCallbacks(onBleConnected, onBleDisconnected);
     bleManager->setInfoDataProvider(provideDeviceInfo);
     bleManager->startAdvertising();
+
+#ifdef MESHTASTIC_PROTOCOL
+    // Initialize Meshtastic protocol (NodeDB, channel keys)
+    if (!MeshProtocol::init())
+    {
+        LOG_E(TAG, "Meshtastic protocol initialization failed!");
+        while (1)
+            ;
+    }
+    LOG_I(TAG, "Protocol: Meshtastic (sync word 0x2B)");
+#else
+    LOG_I(TAG, "Protocol: Custom (sync word 0x12)");
+#endif
 
     // Initialize LoRa manager (heap allocation required due to runtime pin configuration)
     loraManager = std::unique_ptr<LoRaManager>(new LoRaManager(
@@ -409,37 +428,56 @@ void onLoRaReceived(const LoRaPacket &packet)
 #endif
 
     Message msg;
-    if (msg.deserialize(packet.buffer, packet.len))
+    bool parsed = false;
+
+#ifdef MESHTASTIC_PROTOCOL
+    // Parse Meshtastic packet
+    parsed = MeshProtocol::meshtasticToMessage(packet.buffer, packet.len, msg);
+    // TODO: ACK handling in Phase 3 (ROUTING_APP)
+#else
+    // Parse custom protocol
+    parsed = msg.deserialize(packet.buffer, packet.len);
+
+    // Send ACK for Text messages (custom protocol)
+    if (parsed && msg.type == MessageType::Text)
     {
-        LOG_D(TAG, "Message type: %d", (int)msg.type);
+        LOG_D(TAG, "Sending ACK for seq %d", msg.textData.seq);
 
-        // Send ACK for Text messages
-        if (msg.type == MessageType::Text)
+        Message ackMsg = Message::createAck(msg.textData.seq);
+        uint8_t ackBuffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
+        int ackLen = ackMsg.serialize(ackBuffer, sizeof(ackBuffer));
+
+        if (ackLen > 0)
         {
-            LOG_D(TAG, "Sending ACK for seq %d", msg.textData.seq);
+            // Wait for sender to switch to RX mode before sending ACK
+            int ackDelay = LoRaConstants::getAckDelay(
+                LoRaConstants::SPREADING_FACTOR,
+                LoRaConstants::BANDWIDTH,
+                LoRaConstants::CODING_RATE,
+                LoRaConstants::PREAMBLE_LENGTH,
+                packet.len);
+            LOG_D(TAG, "ACK delay: %d ms (includes jitter, based on %d byte packet)", ackDelay, packet.len);
+            delay(ackDelay);
 
-            Message ackMsg = Message::createAck(msg.textData.seq);
-            uint8_t ackBuffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
-            int ackLen = ackMsg.serialize(ackBuffer, sizeof(ackBuffer));
-
-            if (ackLen > 0)
+            // Send ACK (will be queued after current RX processing completes)
+            if (loraManager->startTransmit(ackBuffer, (size_t)ackLen))
             {
-                // Enqueue ACK — CAD handles collision avoidance (no delay needed)
-                if (loraManager->queueTransmit(ackBuffer, (size_t)ackLen))
-                {
-                    LOG_I(TAG, "ACK queued for seq %d", msg.textData.seq);
-                }
-                else
-                {
-                    LOG_W(TAG, "Failed to queue ACK transmission");
-                }
+                LOG_I(TAG, "ACK transmission started for seq %d", msg.textData.seq);
             }
             else
             {
-                LOG_I(TAG, "Failed to serialize ACK");
+                LOG_W(TAG, "Failed to start ACK transmission");
             }
         }
+        else
+        {
+            LOG_I(TAG, "Failed to serialize ACK");
+        }
+    }
+#endif
 
+    if (parsed)
+    {
         if (loraToBleQueue.push(msg))
         {
             resetInactivityTimer();
@@ -451,7 +489,7 @@ void onLoRaReceived(const LoRaPacket &packet)
     }
     else
     {
-        LOG_I(TAG, "Failed to deserialize LoRa message");
+        LOG_I(TAG, "Failed to parse LoRa message");
     }
 }
 
@@ -474,8 +512,20 @@ void handleBleMessage(const Message &msg)
 {
     LOG_D(TAG, "BLE message queued for LoRa, type: %d", (int)msg.type);
 
+#ifdef MESHTASTIC_PROTOCOL
+    uint8_t msgBuffer[MeshPacket::MAX_PACKET_SIZE];
+#else
     uint8_t msgBuffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
-    int msgLen = msg.serialize(msgBuffer, sizeof(msgBuffer));
+#endif
+    int msgLen = 0;
+
+#ifdef MESHTASTIC_PROTOCOL
+    // Convert custom Message to Meshtastic packet
+    msgLen = MeshProtocol::textMessageToMeshtastic(msg, msgBuffer, sizeof(msgBuffer));
+#else
+    // Use custom protocol serialization
+    msgLen = msg.serialize(msgBuffer, sizeof(msgBuffer));
+#endif
 
     if (msgLen > 0)
     {

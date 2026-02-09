@@ -51,8 +51,15 @@ namespace LoRaConstants
 
     constexpr uint8_t CODING_RATE = 7; ///< LoRa coding rate (5=4/5, 6=4/6, 7=4/7, 8=4/8, higher = better error correction)
 
-    /// Default LoRa sync word (0x12 = private network, 0x34 = public LoRaWAN)
-    constexpr uint8_t SYNC_WORD = 0x12;
+    /// LoRa sync word
+    /// 0x12 = private network (custom protocol)
+    /// 0x2B = Meshtastic network
+    /// 0x34 = public LoRaWAN
+#ifdef MESHTASTIC_PROTOCOL
+    constexpr uint8_t SYNC_WORD = 0x2B;  // Meshtastic
+#else
+    constexpr uint8_t SYNC_WORD = 0x12;  // Custom protocol
+#endif
 
     /// Time to wait for radio hardware to settle after mode change (TX/RX switch)
     constexpr int RX_SETTLE_TIME_MS = 50;
