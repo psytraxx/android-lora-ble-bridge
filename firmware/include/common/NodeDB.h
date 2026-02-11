@@ -103,6 +103,23 @@ namespace NodeDB
      * @param snr Signal-to-noise ratio
      */
     void recordSeenNode(uint32_t nodeNum, int rssi, float snr);
+
+    /**
+     * @brief Get reboot count (persisted across reboots)
+     * @return Number of reboots since factory reset
+     */
+    uint32_t getRebootCount();
+
+    /**
+     * @brief Increment and persist reboot count (call in setup())
+     */
+    void incrementRebootCount();
+
+    /**
+     * @brief Get number of known nodes in the database
+     * @return Count of nodes (including self)
+     */
+    uint16_t getNodeDBCount();
 }
 
 #endif // NODE_DB_H

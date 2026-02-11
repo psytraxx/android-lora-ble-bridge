@@ -3,90 +3,103 @@
 
 #include <bluefruit.h>
 #include <Arduino.h>
-#include <common/Protocol.h>
 #include <common/FirmwareConfig.h>
 #include <common/MessageQueue.h>
-
-/// Callback type for providing device info data on demand
-typedef DeviceInfoData (*InfoDataProvider)();
+#include "meshtastic/mesh.pb.h"
+#include <pb_encode.h>
+#include <pb_decode.h>
 
 /**
- * @brief BLE manager for nRF52 using Bluefruit library
+ * @file BLEManager.h (nRF52)
+ * @brief Meshtastic-compatible BLE service using Bluefruit
  *
- * Uses the Adafruit Bluefruit nRF52 library for BLE communication.
- * Maintains protocol compatibility with ESP32 firmware.
+ * Provides FromRadio/ToRadio/FromNum characteristics matching
+ * the official Meshtastic BLE API for app compatibility.
  */
 class BLEManager
 {
 public:
-    /// Construct with a message queue to post incoming BLE messages to (LoRa side)
-    explicit BLEManager(MessageQueue *bleToLoraQueue);
+    /// Construct with queue for BLE->LoRa message passing
+    explicit BLEManager(MessageQueue<meshtastic_ToRadio> *toRadioQueue);
 
-    /// Initialize BLE stack and create service/characteristics.
+    /// Initialize BLE stack and create Meshtastic service
     bool setup(const char *deviceName);
 
-    /// Start advertising the GATT service
+    /// Start BLE advertising
     void startAdvertising();
 
-    /// Stop advertising
+    /// Stop BLE advertising
     void stopAdvertising();
 
-    /// Disconnect any currently connected BLE client
+    /// Disconnect current client
     void disconnect();
 
-    /// Check whether a client is currently connected
+    /// Check if a client is connected
     bool isConnected() const;
 
-    /// Send a Message to the connected BLE client using notifications.
-    bool sendMessage(const Message &msg);
+    /// Check if notifications are enabled
+    bool areNotificationsEnabled() const { return _notificationsEnabled; }
 
-    /// Check if client has enabled notifications
-    bool areNotificationsEnabled() const { return notificationsEnabled; }
+    /// Send a FromRadio message to the connected phone
+    bool sendFromRadio(const meshtastic_FromRadio *fromRadio);
+
+    /// Increment and notify the FromNum counter
+    void incrementFromNum();
+
+    /// Get current FromNum value
+    uint32_t getFromNum() const { return _fromNum; }
+
+    /// Handle config download request (want_config_id)
+    void handleConfigRequest(uint32_t configId);
+
+    /// Check if config download is in progress
+    bool isConfigDownloadInProgress() const { return _configDownloadInProgress; }
 
     /// Set callbacks for connection state changes
     void setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)());
 
-    /// Set the callback that provides device info data on demand
-    void setInfoDataProvider(InfoDataProvider provider) { infoProvider = provider; }
-
-    /// Update the device info characteristic value (call periodically or when info changes)
-    void updateDeviceInfo();
-
-    // Bluefruit callbacks (public for callback registration)
+    // Bluefruit static callbacks
     static void connectCallback(uint16_t conn_handle);
     static void disconnectCallback(uint16_t conn_handle, uint8_t reason);
-    static void rxWriteCallback(uint16_t conn_hdl, BLECharacteristic *chr, uint8_t *data, uint16_t len);
-    static void cccdCallback(uint16_t conn_hdl, BLECharacteristic *chr, uint16_t value);
+    static void toRadioWriteCallback(uint16_t conn_hdl, BLECharacteristic *chr,
+                                     uint8_t *data, uint16_t len);
+    static void fromRadioCccdCallback(uint16_t conn_hdl, BLECharacteristic *chr,
+                                      uint16_t value);
 
 private:
     // BLE Services
-    BLEDis bledis;   // Device Information Service
+    BLEDis _bledis;
 
-    // Custom service and characteristics to exchange Protocol messages
-    BLEService dataService;
-    BLECharacteristic txCharacteristic;
-    BLECharacteristic rxCharacteristic;
-    BLECharacteristic infoCharacteristic;
+    // Meshtastic service and characteristics
+    BLEService _meshService;
+    BLECharacteristic _fromRadioChar;
+    BLECharacteristic _toRadioChar;
+    BLECharacteristic _fromNumChar;
 
-    MessageQueue *bleToLoraQueue;
-    String deviceNameStr;
+    MessageQueue<meshtastic_ToRadio> *_toRadioQueue;
+    String _deviceNameStr;
 
-    bool notificationsEnabled{false};
-    bool isConnectedFlag{false};
+    bool _notificationsEnabled{false};
+    bool _isConnectedFlag{false};
+    uint32_t _fromNum{0};
+    bool _configDownloadInProgress{false};
 
-    // Connection state callbacks
-    void (*connectCallback_user)(){nullptr};
-    void (*disconnectCallback_user)(){nullptr};
-
-    // Device info provider callback
-    InfoDataProvider infoProvider{nullptr};
+    void (*_connectCallback_user)(){nullptr};
+    void (*_disconnectCallback_user)(){nullptr};
 
     // Singleton for callbacks
     static BLEManager *instance;
 
     // Internal handlers
-    void handleRxWrite(uint8_t *data, uint16_t len);
+    void handleToRadioWrite(uint8_t *data, uint16_t len);
     void handleCccdWrite(uint16_t value);
+
+    /// Serialize FromRadio protobuf to bytes
+    size_t serializeFromRadio(const meshtastic_FromRadio *fromRadio,
+                              uint8_t *buffer, size_t maxSize);
+
+    /// Send the full config download sequence
+    void sendConfigDownload(uint32_t configId);
 };
 
 #endif // BLE_MANAGER_H

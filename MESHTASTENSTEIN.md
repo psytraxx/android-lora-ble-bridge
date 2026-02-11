@@ -89,6 +89,10 @@ The current firmware has a killer feature — SX1262 autonomous duty cycling wit
 - Sync word: 0x2B (Meshtastic network)
 - LoRa settings unchanged: SF11, BW250, CR4/5 (matches Meshtastic `LongFast` preset!)
 - Duty cycle preserved: 64-symbol preamble
+
+**Platform Support:**
+- ✅ **ESP32 (Heltec WiFi LoRa V3)**: 671KB flash (20.1%), 37KB RAM (11.4%) — Uses mbedtls hardware AES
+- ✅ **nRF52 (Seeed XIAO nRF52840)**: 213KB flash (26.3%), 14KB RAM (6.0%) — Uses rweather/Crypto library (same as Meshtastic firmware)
   - `meshtastic/mesh.proto` (MeshPacket, Data, Position, User, NodeInfo, FromRadio, ToRadio)
   - `meshtastic/portnums.proto` (PortNum enum)
   - `meshtastic/config.proto` (Config — needed for BLE config flow)

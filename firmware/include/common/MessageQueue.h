@@ -1,8 +1,6 @@
 #ifndef MESSAGE_QUEUE_H
 #define MESSAGE_QUEUE_H
 
-#include <common/Protocol.h>
-
 // Platform-specific FreeRTOS includes
 #if defined(ARDUINO_ARCH_ESP32)
 #include <freertos/FreeRTOS.h>
@@ -23,52 +21,70 @@
  * @brief Thread-safe message queue using FreeRTOS queues
  *
  * Provides a platform-agnostic wrapper around FreeRTOS queue API.
- * Used for in-memory message queuing between BLE and LoRa.
+ * Templated to support any message type (protobuf or otherwise).
  *
  * Thread-safe and ISR-safe (with appropriate methods).
- * Replaces the previous circular buffer implementation with FreeRTOS queues
- * for better thread safety and consistency across platforms.
  */
+template <typename T>
 class MessageQueue
 {
 public:
-    /**
-     * @brief Construct a new Message Queue
-     * Creates FreeRTOS queue with MESSAGE_QUEUE_SIZE capacity
-     */
-    MessageQueue();
+    MessageQueue()
+        : queueHandle(nullptr)
+    {
+        queueHandle = xQueueCreate(MESSAGE_QUEUE_SIZE, sizeof(T));
+    }
 
-    /**
-     * @brief Destroy the Message Queue
-     * Deletes the FreeRTOS queue handle
-     */
-    ~MessageQueue();
+    ~MessageQueue()
+    {
+        if (queueHandle != NULL)
+        {
+            vQueueDelete(queueHandle);
+            queueHandle = NULL;
+        }
+    }
 
     /**
      * @brief Push a message to the queue (non-blocking)
      * @param msg Message to push
      * @return true if message was added, false if queue is full
      */
-    bool push(const Message &msg);
+    bool push(const T &msg)
+    {
+        if (queueHandle == NULL) return false;
+        return xQueueSend(queueHandle, &msg, 0) == pdTRUE;
+    }
 
     /**
      * @brief Pop a message from the queue (non-blocking)
      * @param msg Reference to store the popped message
      * @return true if message was retrieved, false if queue is empty
      */
-    bool pop(Message &msg);
+    bool pop(T &msg)
+    {
+        if (queueHandle == NULL) return false;
+        return xQueueReceive(queueHandle, &msg, 0) == pdTRUE;
+    }
 
     /**
      * @brief Check if queue is empty
-     * @return true if queue has no messages, false otherwise
+     * @return true if queue has no messages
      */
-    bool isEmpty() const;
+    bool isEmpty() const
+    {
+        if (queueHandle == NULL) return true;
+        return uxQueueMessagesWaiting(queueHandle) == 0;
+    }
 
     /**
      * @brief Get current number of messages in queue
      * @return Number of messages currently in queue
      */
-    int getCount() const;
+    int getCount() const
+    {
+        if (queueHandle == NULL) return 0;
+        return (int)uxQueueMessagesWaiting(queueHandle);
+    }
 
 private:
     QueueHandle_t queueHandle;

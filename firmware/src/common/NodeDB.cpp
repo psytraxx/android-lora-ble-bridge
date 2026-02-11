@@ -1,4 +1,5 @@
 #include "common/NodeDB.h"
+#include "common/PeerNodeDB.h"
 #include "common/Logging.h"
 #include <Arduino.h>
 #include <cstdio>
@@ -7,11 +8,28 @@
 // Platform-specific includes
 #if defined(ARDUINO_ARCH_ESP32)
 #include <esp32/PlatformTraits.h>
+#include <nvs_flash.h>
+#include <nvs.h>
 #elif defined(ARDUINO_ARCH_NRF52)
 #include <nrf52/PlatformTraits.h>
+#include <Adafruit_LittleFS.h>
+#include <InternalFileSystem.h>
+using namespace Adafruit_LittleFS_Namespace;
 #endif
 
 static const char *TAG = "NodeDB";
+
+#if defined(ARDUINO_ARCH_ESP32)
+static const char *NVS_NAMESPACE = "node_db";
+static const char *NVS_KEY_SHORT = "short_name";
+static const char *NVS_KEY_LONG = "long_name";
+static const char *NVS_KEY_REBOOT = "reboot_cnt";
+static const char *NVS_KEY_PKT_ID = "pkt_id";
+static nvs_handle_t nvsHandle = 0;
+#elif defined(ARDUINO_ARCH_NRF52)
+static const char *DB_DIR = "/nodedb";
+static const char *DB_FILE = "/nodedb/names.bin";
+#endif
 
 namespace NodeDB
 {
@@ -20,6 +38,14 @@ namespace NodeDB
     static char ownShortName[5] = {0};
     static char ownLongName[40] = {0};
     static uint32_t nextPacketId = 1;
+    static uint32_t rebootCount = 0;
+
+    // Forward declarations
+    static void loadPersistedData();
+    static void persistShortName();
+    static void persistLongName();
+    static void persistRebootCount();
+    static void persistPacketId();
 
     bool init()
     {
@@ -55,10 +81,45 @@ namespace NodeDB
         // Generate default long name: "Meshtastic " + last 4 hex
         snprintf(ownLongName, sizeof(ownLongName), "Meshtastic %s", macSuffix.c_str());
 
+        // Initialize storage and load persisted data (overrides defaults)
+#if defined(ARDUINO_ARCH_ESP32)
+        esp_err_t err = nvs_flash_init();
+        if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND)
+        {
+            LOG_W(TAG, "NVS partition needs erasing");
+            nvs_flash_erase();
+            err = nvs_flash_init();
+        }
+
+        if (err == ESP_OK)
+        {
+            err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvsHandle);
+            if (err == ESP_OK)
+            {
+                loadPersistedData();
+            }
+            else
+            {
+                LOG_W(TAG, "Failed to open NVS namespace: %s", esp_err_to_name(err));
+            }
+        }
+        else
+        {
+            LOG_W(TAG, "Failed to initialize NVS: %s", esp_err_to_name(err));
+        }
+#elif defined(ARDUINO_ARCH_NRF52)
+        InternalFS.begin();
+        if (!InternalFS.exists(DB_DIR))
+        {
+            InternalFS.mkdir(DB_DIR);
+        }
+        loadPersistedData();
+#endif
+
         LOG_I(TAG, "Short name: %s", ownShortName);
         LOG_I(TAG, "Long name: %s", ownLongName);
-
-        // TODO: Load persisted names from NVS in future
+        LOG_I(TAG, "Reboot count: %lu", (unsigned long)rebootCount);
+        LOG_I(TAG, "Next packet ID: %lu", (unsigned long)nextPacketId);
 
         return true;
     }
@@ -119,7 +180,7 @@ namespace NodeDB
         strncpy(ownShortName, name, sizeof(ownShortName) - 1);
         ownShortName[sizeof(ownShortName) - 1] = '\0';
         LOG_I(TAG, "Short name updated: %s", ownShortName);
-        // TODO: Persist to NVS
+        persistShortName();
         return true;
     }
 
@@ -133,14 +194,225 @@ namespace NodeDB
         strncpy(ownLongName, name, sizeof(ownLongName) - 1);
         ownLongName[sizeof(ownLongName) - 1] = '\0';
         LOG_I(TAG, "Long name updated: %s", ownLongName);
-        // TODO: Persist to NVS
+        persistLongName();
         return true;
     }
 
     void recordSeenNode(uint32_t nodeNum, int rssi, float snr)
     {
-        // Minimal tracking for Phase 1 — just log
-        LOG_D(TAG, "Seen node: 0x%08X (RSSI=%d dBm, SNR=%.1f dB)", nodeNum, rssi, snr);
-        // TODO: Full NodeDB tracking in Phase 3
+        LOG_D(TAG, "Seen node: 0x%08lX (RSSI=%d, SNR=%.1f)",
+              (unsigned long)nodeNum, rssi, snr);
+        uint8_t hops = 0; // Direct reception = 0 hops
+        PeerNodeDB::updateSignalInfo(nodeNum, rssi, snr, hops);
+    }
+
+    uint32_t getRebootCount()
+    {
+        return rebootCount;
+    }
+
+    void incrementRebootCount()
+    {
+        rebootCount++;
+        LOG_I(TAG, "Reboot count: %lu", (unsigned long)rebootCount);
+        persistRebootCount();
+    }
+
+    uint16_t getNodeDBCount()
+    {
+        // Own node + peers
+        return 1 + PeerNodeDB::getCount();
+    }
+
+    // ========================================================================
+    // Platform-specific persistence helpers
+    // ========================================================================
+
+    static void loadPersistedData()
+    {
+#if defined(ARDUINO_ARCH_ESP32)
+        // Load short name
+        size_t len = sizeof(ownShortName);
+        esp_err_t err = nvs_get_str(nvsHandle, NVS_KEY_SHORT, ownShortName, &len);
+        if (err == ESP_OK)
+        {
+            LOG_D(TAG, "Loaded persisted short name: %s", ownShortName);
+        }
+
+        // Load long name
+        len = sizeof(ownLongName);
+        err = nvs_get_str(nvsHandle, NVS_KEY_LONG, ownLongName, &len);
+        if (err == ESP_OK)
+        {
+            LOG_D(TAG, "Loaded persisted long name: %s", ownLongName);
+        }
+
+        // Load reboot count
+        err = nvs_get_u32(nvsHandle, NVS_KEY_REBOOT, &rebootCount);
+        if (err == ESP_OK)
+        {
+            LOG_D(TAG, "Loaded reboot count: %lu", (unsigned long)rebootCount);
+        }
+
+        // Load packet ID
+        err = nvs_get_u32(nvsHandle, NVS_KEY_PKT_ID, &nextPacketId);
+        if (err == ESP_OK)
+        {
+            LOG_D(TAG, "Loaded packet ID: %lu", (unsigned long)nextPacketId);
+        }
+
+#elif defined(ARDUINO_ARCH_NRF52)
+        // Load from binary file
+        if (!InternalFS.exists(DB_FILE))
+        {
+            LOG_D(TAG, "No persisted node data (first boot)");
+            return;
+        }
+
+        File file = InternalFS.open(DB_FILE, FILE_O_READ);
+        if (!file)
+        {
+            LOG_W(TAG, "Failed to open node DB file");
+            return;
+        }
+
+        // Read short name (5 bytes)
+        if (file.read(ownShortName, sizeof(ownShortName)) == sizeof(ownShortName))
+        {
+            LOG_D(TAG, "Loaded persisted short name: %s", ownShortName);
+        }
+
+        // Read long name (40 bytes)
+        if (file.read(ownLongName, sizeof(ownLongName)) == sizeof(ownLongName))
+        {
+            LOG_D(TAG, "Loaded persisted long name: %s", ownLongName);
+        }
+
+        // Read reboot count (4 bytes)
+        if (file.read(&rebootCount, sizeof(rebootCount)) == sizeof(rebootCount))
+        {
+            LOG_D(TAG, "Loaded reboot count: %lu", (unsigned long)rebootCount);
+        }
+
+        // Read packet ID (4 bytes)
+        if (file.read(&nextPacketId, sizeof(nextPacketId)) == sizeof(nextPacketId))
+        {
+            LOG_D(TAG, "Loaded packet ID: %lu", (unsigned long)nextPacketId);
+        }
+
+        file.close();
+#endif
+    }
+
+    static void persistShortName()
+    {
+#if defined(ARDUINO_ARCH_ESP32)
+        esp_err_t err = nvs_set_str(nvsHandle, NVS_KEY_SHORT, ownShortName);
+        if (err == ESP_OK)
+        {
+            nvs_commit(nvsHandle);
+            LOG_D(TAG, "Persisted short name");
+        }
+        else
+        {
+            LOG_W(TAG, "Failed to persist short name: %s", esp_err_to_name(err));
+        }
+#elif defined(ARDUINO_ARCH_NRF52)
+        // Re-write entire file (simpler than partial update)
+        File file = InternalFS.open(DB_FILE, FILE_O_WRITE);
+        if (file)
+        {
+            file.write(ownShortName, sizeof(ownShortName));
+            file.write(ownLongName, sizeof(ownLongName));
+            file.write((uint8_t *)&rebootCount, sizeof(rebootCount));
+            file.write((uint8_t *)&nextPacketId, sizeof(nextPacketId));
+            file.close();
+            LOG_D(TAG, "Persisted short name");
+        }
+#endif
+    }
+
+    static void persistLongName()
+    {
+#if defined(ARDUINO_ARCH_ESP32)
+        esp_err_t err = nvs_set_str(nvsHandle, NVS_KEY_LONG, ownLongName);
+        if (err == ESP_OK)
+        {
+            nvs_commit(nvsHandle);
+            LOG_D(TAG, "Persisted long name");
+        }
+        else
+        {
+            LOG_W(TAG, "Failed to persist long name: %s", esp_err_to_name(err));
+        }
+#elif defined(ARDUINO_ARCH_NRF52)
+        // Re-write entire file
+        File file = InternalFS.open(DB_FILE, FILE_O_WRITE);
+        if (file)
+        {
+            file.write(ownShortName, sizeof(ownShortName));
+            file.write(ownLongName, sizeof(ownLongName));
+            file.write((uint8_t *)&rebootCount, sizeof(rebootCount));
+            file.write((uint8_t *)&nextPacketId, sizeof(nextPacketId));
+            file.close();
+            LOG_D(TAG, "Persisted long name");
+        }
+#endif
+    }
+
+    static void persistRebootCount()
+    {
+#if defined(ARDUINO_ARCH_ESP32)
+        esp_err_t err = nvs_set_u32(nvsHandle, NVS_KEY_REBOOT, rebootCount);
+        if (err == ESP_OK)
+        {
+            nvs_commit(nvsHandle);
+            LOG_D(TAG, "Persisted reboot count");
+        }
+        else
+        {
+            LOG_W(TAG, "Failed to persist reboot count: %s", esp_err_to_name(err));
+        }
+#elif defined(ARDUINO_ARCH_NRF52)
+        // Re-write entire file
+        File file = InternalFS.open(DB_FILE, FILE_O_WRITE);
+        if (file)
+        {
+            file.write(ownShortName, sizeof(ownShortName));
+            file.write(ownLongName, sizeof(ownLongName));
+            file.write((uint8_t *)&rebootCount, sizeof(rebootCount));
+            file.write((uint8_t *)&nextPacketId, sizeof(nextPacketId));
+            file.close();
+            LOG_D(TAG, "Persisted reboot count");
+        }
+#endif
+    }
+
+    static void persistPacketId()
+    {
+#if defined(ARDUINO_ARCH_ESP32)
+        esp_err_t err = nvs_set_u32(nvsHandle, NVS_KEY_PKT_ID, nextPacketId);
+        if (err == ESP_OK)
+        {
+            nvs_commit(nvsHandle);
+            LOG_D(TAG, "Persisted packet ID");
+        }
+        else
+        {
+            LOG_W(TAG, "Failed to persist packet ID: %s", esp_err_to_name(err));
+        }
+#elif defined(ARDUINO_ARCH_NRF52)
+        // Re-write entire file
+        File file = InternalFS.open(DB_FILE, FILE_O_WRITE);
+        if (file)
+        {
+            file.write(ownShortName, sizeof(ownShortName));
+            file.write(ownLongName, sizeof(ownLongName));
+            file.write((uint8_t *)&rebootCount, sizeof(rebootCount));
+            file.write((uint8_t *)&nextPacketId, sizeof(nextPacketId));
+            file.close();
+            LOG_D(TAG, "Persisted packet ID");
+        }
+#endif
     }
 }

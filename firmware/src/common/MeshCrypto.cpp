@@ -2,14 +2,13 @@
 #include "common/Logging.h"
 #include <cstring>
 
-// Platform-specific AES implementation
+// Select platform-specific crypto traits
 #if defined(ARDUINO_ARCH_ESP32)
-// ESP32: Use hardware AES via mbedtls
-#include <mbedtls/aes.h>
+#include "esp32/MeshCryptoTraits.h"
+using CryptoTraits = MeshCrypto::ESP32CryptoTraits;
 #elif defined(ARDUINO_ARCH_NRF52)
-// nRF52: Use Tiny-AES or mbedtls if available
-// For now, we'll use mbedtls which is available in Adafruit nRF52 core
-#include <mbedtls/aes.h>
+#include "nrf52/MeshCryptoTraits.h"
+using CryptoTraits = MeshCrypto::NRF52CryptoTraits;
 #else
 #error "Unsupported platform for MeshCrypto"
 #endif
@@ -69,39 +68,12 @@ namespace MeshCrypto
             return true;
         }
 
-        mbedtls_aes_context aes;
-        mbedtls_aes_init(&aes);
-
-        // Set encryption key (256-bit)
-        int ret = mbedtls_aes_setkey_enc(&aes, key, 256);
-        if (ret != 0)
+        bool result = CryptoTraits::encryptAES_CTR(key, nonce, plaintext, plaintextLen, ciphertext);
+        if (result)
         {
-            LOG_E(TAG, "AES setkey failed: %d", ret);
-            mbedtls_aes_free(&aes);
-            return false;
+            LOG_D(TAG, "Encrypted %d bytes", plaintextLen);
         }
-
-        // CTR mode: need a counter buffer (initialized from nonce)
-        uint8_t stream_block[16];
-        size_t nc_off = 0;
-        uint8_t nonce_counter[16];
-        memcpy(nonce_counter, nonce, 16);
-
-        // Encrypt using AES-CTR
-        ret = mbedtls_aes_crypt_ctr(&aes, plaintextLen, &nc_off,
-                                     nonce_counter, stream_block,
-                                     plaintext, ciphertext);
-
-        mbedtls_aes_free(&aes);
-
-        if (ret != 0)
-        {
-            LOG_E(TAG, "AES-CTR encrypt failed: %d", ret);
-            return false;
-        }
-
-        LOG_D(TAG, "Encrypted %d bytes", plaintextLen);
-        return true;
+        return result;
     }
 
     bool decrypt(const uint8_t *ciphertext, size_t ciphertextLen,

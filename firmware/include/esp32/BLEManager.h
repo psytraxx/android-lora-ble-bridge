@@ -2,27 +2,29 @@
 #define BLE_MANAGER_H
 
 #include <NimBLEDevice.h>
-#include <common/Protocol.h>
 #include <common/FirmwareConfig.h>
 #include <common/MessageQueue.h>
+#include "meshtastic/mesh.pb.h"
+#include <pb_encode.h>
+#include <pb_decode.h>
 
 /**
- * @file BLEManager.h
- * @brief Thin wrapper around NimBLE to provide an application-level BLE
- *        interface used by the android-lora-ble-bridge project.
+ * @file BLEManager.h (ESP32)
+ * @brief Meshtastic-compatible BLE service using NimBLE
+ *
+ * Provides FromRadio/ToRadio/FromNum characteristics matching
+ * the official Meshtastic BLE API for app compatibility.
  */
 
 class BLEManager;
 
 /**
- * @brief Adapter for NimBLEServerCallbacks that forwards connect/disconnect
- *        events to the owning BLEManager instance.
+ * @brief Server callbacks for connect/disconnect events
  */
-class MyServerCallbacks : public NimBLEServerCallbacks
+class MeshServerCallbacks : public NimBLEServerCallbacks
 {
 public:
-    explicit MyServerCallbacks(BLEManager *manager) : bleManager(manager) {}
-
+    explicit MeshServerCallbacks(BLEManager *manager) : bleManager(manager) {}
     void onConnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo);
     void onDisconnect(NimBLEServer *pServer, NimBLEConnInfo &connInfo, int reason);
 
@@ -31,14 +33,12 @@ private:
 };
 
 /**
- * @brief Adapter for NimBLECharacteristicCallbacks to receive writes to the
- *        RX characteristic and forward the payload to BLEManager.
+ * @brief ToRadio write callback — receives protobuf from phone
  */
-class MyCharacteristicCallbacks : public NimBLECharacteristicCallbacks
+class ToRadioCallbacks : public NimBLECharacteristicCallbacks
 {
 public:
-    explicit MyCharacteristicCallbacks(BLEManager *manager) : bleManager(manager) {}
-
+    explicit ToRadioCallbacks(BLEManager *manager) : bleManager(manager) {}
     void onWrite(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo);
 
 private:
@@ -46,14 +46,12 @@ private:
 };
 
 /**
- * @brief Adapter for NimBLECharacteristicCallbacks to detect when Android
- *        enables/disables notifications on the TX characteristic.
+ * @brief FromRadio subscribe callback — detects notification enable/disable
  */
-class TxCharacteristicCallbacks : public NimBLECharacteristicCallbacks
+class FromRadioCallbacks : public NimBLECharacteristicCallbacks
 {
 public:
-    explicit TxCharacteristicCallbacks(BLEManager *manager) : bleManager(manager) {}
-
+    explicit FromRadioCallbacks(BLEManager *manager) : bleManager(manager) {}
     void onSubscribe(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo, uint16_t subValue);
 
 private:
@@ -61,103 +59,89 @@ private:
 };
 
 /**
- * @brief Adapter for NimBLECharacteristicCallbacks to handle device info reads.
- *        Populates the characteristic with fresh data on each read.
- */
-class InfoCharacteristicCallbacks : public NimBLECharacteristicCallbacks
-{
-public:
-    explicit InfoCharacteristicCallbacks(BLEManager *manager) : bleManager(manager) {}
-
-    void onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo) override;
-
-private:
-    BLEManager *bleManager;
-};
-
-/// Callback type for providing device info data on demand
-typedef DeviceInfoData (*InfoDataProvider)();
-
-/**
- * @brief High-level BLE manager used by the application.
+ * @brief Meshtastic BLE manager for ESP32 (NimBLE)
  */
 class BLEManager
 {
 public:
-    /// Construct BLE manager with message queue for received messages
-    BLEManager(MessageQueue *bleToLoraQueue);
+    /// Construct with queues for BLE<->LoRa message passing
+    BLEManager(MessageQueue<meshtastic_ToRadio> *toRadioQueue);
 
-    /// Initialize BLE stack and create service/characteristics.
+    /// Initialize BLE stack and create Meshtastic service
     bool setup(const char *deviceName);
 
-    /// Start advertising the GATT service
+    /// Start BLE advertising
     void startAdvertising();
 
-    /// Stop advertising and optionally power down BLE hardware
+    /// Stop BLE advertising
     void stopAdvertising();
 
-    /// Disconnect any currently connected BLE client
+    /// Disconnect current client
     void disconnect();
 
-    /// Check whether a client is currently connected
+    /// Check if a client is connected
     bool isConnected() const;
 
-    /// Send a Message to the connected BLE client using notifications.
-    bool sendMessage(const Message &msg);
+    /// Check if notifications are enabled
+    bool areNotificationsEnabled() const { return _notificationsEnabled; }
 
-    /// Internal handler invoked by characteristic callbacks when data is received
-    void onMessageReceived(const uint8_t *data, size_t length);
+    /// Send a FromRadio message to the connected phone
+    bool sendFromRadio(const meshtastic_FromRadio *fromRadio);
 
-    /// Called by MyServerCallbacks when a client connects
+    /// Increment and notify the FromNum counter
+    void incrementFromNum();
+
+    /// Get current FromNum value
+    uint32_t getFromNum() const { return _fromNum; }
+
+    /// Handle config download request (want_config_id)
+    void handleConfigRequest(uint32_t configId);
+
+    /// Check if config download is in progress
+    bool isConfigDownloadInProgress() const { return _configDownloadInProgress; }
+
+    // Callbacks from NimBLE adapter classes
     void onConnected(uint16_t connHandle);
-
-    /// Called by MyServerCallbacks when a client disconnects
     void onDisconnected(uint16_t connHandle);
-
-    /// Called by TxCharacteristicCallbacks when notifications are enabled/disabled
     void onNotificationsEnabled(bool enabled);
 
-    /// Check if client has enabled notifications (Android is ready to receive)
-    bool areNotificationsEnabled() const { return notificationsEnabled; }
+    /// Process a received ToRadio message (called from callback)
+    void onToRadioReceived(const uint8_t *data, size_t length);
 
     /// Set callbacks for connection state changes
     void setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)());
 
-    /// Set the callback that provides device info data on demand
-    void setInfoDataProvider(InfoDataProvider provider) { infoProvider = provider; }
-
-    /// Update the device info characteristic value
-    void updateDeviceInfo();
-
-    /// Get device info from the registered provider (called by InfoCharacteristicCallbacks)
-    DeviceInfoData getDeviceInfo() const;
-
 private:
     static constexpr uint16_t kInvalidConnHandle = 0xFFFF;
 
-    NimBLEServer *pServer{nullptr};
-    NimBLECharacteristic *pTxCharacteristic{nullptr};
-    NimBLECharacteristic *pRxCharacteristic{nullptr};
-    NimBLECharacteristic *pInfoCharacteristic{nullptr};
-    NimBLEAdvertising *pAdvertising{nullptr};
+    NimBLEServer *_pServer{nullptr};
+    NimBLECharacteristic *_fromRadioChar{nullptr};
+    NimBLECharacteristic *_toRadioChar{nullptr};
+    NimBLECharacteristic *_fromNumChar{nullptr};
+    NimBLEAdvertising *_pAdvertising{nullptr};
 
-    std::string deviceNameStr;
+    std::string _deviceNameStr;
 
-    MyServerCallbacks *serverCallbacks{nullptr};
-    MyCharacteristicCallbacks *rxCallbacks{nullptr};
-    TxCharacteristicCallbacks *txCallbacks{nullptr};
+    MeshServerCallbacks *_serverCallbacks{nullptr};
+    ToRadioCallbacks *_toRadioCallbacks{nullptr};
+    FromRadioCallbacks *_fromRadioCallbacks{nullptr};
 
-    uint16_t currentConnHandle{kInvalidConnHandle};
-    bool notificationsEnabled{false};
+    uint16_t _currentConnHandle{kInvalidConnHandle};
+    bool _notificationsEnabled{false};
+    uint32_t _fromNum{0};
+    bool _configDownloadInProgress{false};
 
-    MessageQueue *bleToLoraQueue{nullptr};
+    MessageQueue<meshtastic_ToRadio> *_toRadioQueue{nullptr};
 
-    // Connection state callbacks
-    void (*connectCallback)(){nullptr};
-    void (*disconnectCallback)(){nullptr};
+    void (*_connectCallback)(){nullptr};
+    void (*_disconnectCallback)(){nullptr};
 
-    // Device info provider callback
-    InfoDataProvider infoProvider{nullptr};
+    /// Serialize FromRadio protobuf to bytes
+    size_t serializeFromRadio(const meshtastic_FromRadio *fromRadio,
+                              uint8_t *buffer, size_t maxSize);
+
+    /// Send the full config download sequence
+    void sendConfigDownload(uint32_t configId);
 };
 
 #endif // BLE_MANAGER_H

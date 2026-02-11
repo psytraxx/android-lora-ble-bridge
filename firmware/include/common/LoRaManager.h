@@ -3,7 +3,6 @@
 
 #include <RadioLib.h>
 #include <functional>
-#include <common/Protocol.h>
 
 // Platform-specific includes and definitions
 #if defined(ARDUINO_ARCH_ESP32)

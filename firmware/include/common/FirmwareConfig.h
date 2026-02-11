@@ -2,7 +2,6 @@
 #define FIRMWARE_CONFIG_H
 
 #include <cstdint>
-#include <cstring>
 #include "common/LoRaManager.h"
 
 /**
@@ -51,15 +50,8 @@ namespace LoRaConstants
 
     constexpr uint8_t CODING_RATE = 7; ///< LoRa coding rate (5=4/5, 6=4/6, 7=4/7, 8=4/8, higher = better error correction)
 
-    /// LoRa sync word
-    /// 0x12 = private network (custom protocol)
-    /// 0x2B = Meshtastic network
-    /// 0x34 = public LoRaWAN
-#ifdef MESHTASTIC_PROTOCOL
-    constexpr uint8_t SYNC_WORD = 0x2B;  // Meshtastic
-#else
-    constexpr uint8_t SYNC_WORD = 0x12;  // Custom protocol
-#endif
+    /// LoRa sync word (Meshtastic network)
+    constexpr uint8_t SYNC_WORD = 0x2B;
 
     /// Time to wait for radio hardware to settle after mode change (TX/RX switch)
     constexpr int RX_SETTLE_TIME_MS = 50;
@@ -95,55 +87,29 @@ namespace LoRaConstants
 }
 
 //==============================================================================
-// Device Info BLE Characteristic Data (16 bytes)
+// BLE Configuration (Meshtastic)
 //==============================================================================
 
-/// Data structure for the Device Info BLE characteristic
-/// Populated on-demand when the client reads the characteristic
-struct DeviceInfoData
+namespace MeshtasticBLE
 {
-    uint8_t batteryLevel;    // 0-100%
-    int16_t rssi;            // Last LoRa RSSI in dBm
-    int16_t snrX100;         // Last LoRa SNR × 100 (e.g., 975 = 9.75 dB)
-    int8_t txPower;          // LoRa TX power in dBm
-    uint32_t frequencyHz;    // LoRa frequency in Hz
-    uint32_t bandwidthHz;    // LoRa bandwidth in Hz
-    uint8_t spreadingFactor; // 7-12
-    uint8_t codingRate;      // 5-8
+    /// Meshtastic BLE service UUID
+    constexpr const char *SERVICE_UUID = "6ba1b218-15a8-461f-9fa8-5dcae273eafd";
 
-    /// Serialize to 16-byte little-endian buffer for BLE characteristic
-    void serialize(uint8_t *buf) const
-    {
-        buf[0] = batteryLevel;
-        std::memcpy(buf + 1, &rssi, 2);
-        std::memcpy(buf + 3, &snrX100, 2);
-        buf[5] = static_cast<uint8_t>(txPower);
-        std::memcpy(buf + 6, &frequencyHz, 4);
-        std::memcpy(buf + 10, &bandwidthHz, 4);
-        buf[14] = spreadingFactor;
-        buf[15] = codingRate;
-    }
-};
+    /// FromRadio characteristic (Device -> Phone): READ, NOTIFY
+    constexpr const char *FROMRADIO_UUID = "2c55e69e-4993-11ed-b878-0242ac120002";
 
-//==============================================================================
-// BLE Configuration
-//==============================================================================
+    /// ToRadio characteristic (Phone -> Device): WRITE
+    constexpr const char *TORADIO_UUID = "f75c76d2-129e-4dad-a1dd-7866124401e7";
+
+    /// FromNum characteristic (Packet counter): READ, NOTIFY, WRITE
+    constexpr const char *FROMNUM_UUID = "ed9da18c-a800-4f66-a670-aa7547e34453";
+
+    /// Max protobuf message size for FromRadio/ToRadio
+    constexpr uint32_t MAX_TO_FROM_RADIO_SIZE = 512;
+}
 
 namespace BLEConstants
 {
-    /// BLE service UUID (application-specific)
-    constexpr const char *SERVICE_UUID = "00001234-0000-1000-8000-00805f9b34fb";
-
-    /// BLE TX characteristic UUID (Device -> Android notifications)
-    constexpr const char *TX_CHARACTERISTIC_UUID = "00005678-0000-1000-8000-00805f9b34fb";
-
-    /// BLE RX characteristic UUID (Android -> Device writes)
-    constexpr const char *RX_CHARACTERISTIC_UUID = "00005679-0000-1000-8000-00805f9b34fb";
-
-    /// BLE Device Info characteristic UUID (read-only, 16 bytes)
-    /// Returns: [Battery:1][RSSI:2 LE][SNR:2 LE][TxPower:1][Freq:4 LE][BW:4 LE][SF:1][CR:1]
-    constexpr const char *INFO_CHARACTERISTIC_UUID = "0000567a-0000-1000-8000-00805f9b34fb";
-
     /// Minimum BLE advertising interval (in 0.625ms units)
     /// 1600 * 0.625ms = 1000ms (1 second)
     constexpr int ADV_MIN_INTERVAL = 1600;
@@ -154,7 +120,6 @@ namespace BLEConstants
 
 #if defined(ARDUINO_ARCH_ESP32)
     /// BLE TX power level for balance of range (~10m) vs power consumption
-    /// ESP32 options: P9 (+9dBm max), P6 (+6dBm), P3 (+3dBm balanced), P0 (0dBm), N3 (-3dBm min)
     constexpr int TX_POWER_LEVEL = 6; // ESP_PWR_LVL_P6
 #elif defined(ARDUINO_ARCH_NRF52)
     /// BLE TX power level (nRF52: -40, -20, -16, -12, -8, -4, 0, +3, +4 dBm)

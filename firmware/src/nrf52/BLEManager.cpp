@@ -1,5 +1,7 @@
 #include "nrf52/BLEManager.h"
-#include "nrf52/PowerManager.h"
+#include "common/ConfigManager.h"
+#include "common/NodeDB.h"
+#include "common/PeerNodeDB.h"
 #include "common/Logging.h"
 
 static const char *TAG = "BLE";
@@ -7,22 +9,22 @@ static const char *TAG = "BLE";
 // Static instance for callbacks
 BLEManager *BLEManager::instance = nullptr;
 
-BLEManager::BLEManager(MessageQueue *bleToLoraQueue)
-    : dataService(BLEConstants::SERVICE_UUID),
-      txCharacteristic(BLEConstants::TX_CHARACTERISTIC_UUID),
-      rxCharacteristic(BLEConstants::RX_CHARACTERISTIC_UUID),
-      infoCharacteristic(BLEConstants::INFO_CHARACTERISTIC_UUID),
-      bleToLoraQueue(bleToLoraQueue)
+BLEManager::BLEManager(MessageQueue<meshtastic_ToRadio> *toRadioQueue)
+    : _meshService(MeshtasticBLE::SERVICE_UUID),
+      _fromRadioChar(MeshtasticBLE::FROMRADIO_UUID),
+      _toRadioChar(MeshtasticBLE::TORADIO_UUID),
+      _fromNumChar(MeshtasticBLE::FROMNUM_UUID),
+      _toRadioQueue(toRadioQueue)
 {
     instance = this;
 }
 
 bool BLEManager::setup(const char *deviceName)
 {
-    deviceNameStr = String(deviceName);
-    LOG_I(TAG, "Initializing BLE: %s", deviceName);
+    _deviceNameStr = String(deviceName);
+    LOG_I(TAG, "Initializing Meshtastic BLE service: %s", deviceName);
 
-    // Initialize Bluefruit with max bandwidth (which also sets max MTU)
+    // Initialize Bluefruit with max bandwidth
     Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
     if (!Bluefruit.begin())
     {
@@ -32,7 +34,7 @@ bool BLEManager::setup(const char *deviceName)
     Bluefruit.setTxPower(BLEConstants::TX_POWER_DBM);
     Bluefruit.setName(deviceName);
 
-    // Log MAC address for debugging
+    // Log MAC address
     uint8_t mac[6];
     Bluefruit.getAddr(mac);
     LOG_I(TAG, "BLE MAC Address: %02X:%02X:%02X:%02X:%02X:%02X",
@@ -43,39 +45,36 @@ bool BLEManager::setup(const char *deviceName)
     Bluefruit.Periph.setDisconnectCallback(BLEManager::disconnectCallback);
 
     // Configure Device Information Service
-    bledis.setManufacturer("Adafruit Industries");
-    bledis.setModel("nRF52840 LoRa");
-    bledis.begin();
+    _bledis.setManufacturer("Meshtastenstein");
+    _bledis.setModel("nRF52840 LoRa Bridge");
+    _bledis.begin();
 
-    // Configure custom LoRa Service
-    dataService.begin();
+    // Configure Meshtastic service
+    _meshService.begin();
 
-    // Configure TX Characteristic (ESP32 -> Android)
-    txCharacteristic.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY);
-    txCharacteristic.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-    txCharacteristic.setCccdWriteCallback(BLEManager::cccdCallback);
-    txCharacteristic.setMaxLen(BufferConstants::MAX_PROTOCOL_MESSAGE);
-    txCharacteristic.begin();
+    // FromRadio characteristic (Device -> Phone): READ + NOTIFY
+    _fromRadioChar.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY);
+    _fromRadioChar.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
+    _fromRadioChar.setCccdWriteCallback(BLEManager::fromRadioCccdCallback);
+    _fromRadioChar.setMaxLen(MeshtasticBLE::MAX_TO_FROM_RADIO_SIZE);
+    _fromRadioChar.begin();
 
-    // Configure RX Characteristic (Android -> ESP32)
-    rxCharacteristic.setProperties(CHR_PROPS_WRITE | CHR_PROPS_WRITE_WO_RESP);
-    rxCharacteristic.setPermission(SECMODE_NO_ACCESS, SECMODE_OPEN);
-    rxCharacteristic.setWriteCallback(BLEManager::rxWriteCallback);
-    rxCharacteristic.setMaxLen(BufferConstants::MAX_PROTOCOL_MESSAGE);
-    rxCharacteristic.begin();
+    // ToRadio characteristic (Phone -> Device): WRITE
+    _toRadioChar.setProperties(CHR_PROPS_WRITE);
+    _toRadioChar.setPermission(SECMODE_NO_ACCESS, SECMODE_OPEN);
+    _toRadioChar.setWriteCallback(BLEManager::toRadioWriteCallback);
+    _toRadioChar.setMaxLen(MeshtasticBLE::MAX_TO_FROM_RADIO_SIZE);
+    _toRadioChar.begin();
 
-    // Configure Device Info Characteristic (read-only, 16 bytes)
-    // Note: We set the value directly rather than using a read authorize callback,
-    // as Bluefruit's authorize callback has different semantics than ESP32's NimBLE.
-    infoCharacteristic.setProperties(CHR_PROPS_READ);
-    infoCharacteristic.setPermission(SECMODE_OPEN, SECMODE_NO_ACCESS);
-    infoCharacteristic.setFixedLen(16);
-    infoCharacteristic.begin();
+    // FromNum characteristic (Counter): READ + NOTIFY + WRITE
+    _fromNumChar.setProperties(CHR_PROPS_READ | CHR_PROPS_NOTIFY | CHR_PROPS_WRITE);
+    _fromNumChar.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+    _fromNumChar.setFixedLen(4);
+    _fromNumChar.begin();
+    _fromNumChar.write32(_fromNum);
 
-    // Set initial device info value (will be updated periodically)
-    updateDeviceInfo();
-
-    LOG_I(TAG, "Initialized successfully");
+    LOG_I(TAG, "Meshtastic BLE service initialized");
+    LOG_I(TAG, "Service UUID: %s", MeshtasticBLE::SERVICE_UUID);
     return true;
 }
 
@@ -83,20 +82,17 @@ void BLEManager::startAdvertising()
 {
     LOG_I(TAG, "Starting advertising");
 
-    // Advertising packet
     Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
     Bluefruit.Advertising.addTxPower();
-    Bluefruit.Advertising.addService(dataService);
+    Bluefruit.Advertising.addService(_meshService);
     Bluefruit.Advertising.addName();
 
-    // Secondary Scan Response packet (optional)
     Bluefruit.ScanResponse.addName();
 
-    // Start advertising - restart handled manually in onBleDisconnected callback
     Bluefruit.Advertising.restartOnDisconnect(false);
     Bluefruit.Advertising.setInterval(BLEConstants::ADV_MIN_INTERVAL, BLEConstants::ADV_MAX_INTERVAL);
-    Bluefruit.Advertising.setFastTimeout(30); // Fast advertising for 30 seconds
-    Bluefruit.Advertising.start(0);           // 0 = Don't stop advertising after n seconds
+    Bluefruit.Advertising.setFastTimeout(30);
+    Bluefruit.Advertising.start(0);
 }
 
 void BLEManager::stopAdvertising()
@@ -116,50 +112,224 @@ void BLEManager::disconnect()
 
 bool BLEManager::isConnected() const
 {
-    return isConnectedFlag;
+    return _isConnectedFlag;
 }
 
-bool BLEManager::sendMessage(const Message &msg)
+// ============================================================================
+// Meshtastic Protocol Methods
+// ============================================================================
+
+void BLEManager::handleToRadioWrite(uint8_t *data, uint16_t len)
 {
-    if (!isConnected() || !notificationsEnabled)
+    if (len == 0 || len > MeshtasticBLE::MAX_TO_FROM_RADIO_SIZE)
     {
-        LOG_W(TAG, "Cannot send: not connected or notifications disabled");
+        LOG_E(TAG, "Invalid ToRadio length: %d", len);
+        return;
+    }
+
+    // Decode ToRadio protobuf
+    meshtastic_ToRadio toRadio = meshtastic_ToRadio_init_zero;
+    pb_istream_t stream = pb_istream_from_buffer(data, len);
+
+    if (!pb_decode(&stream, meshtastic_ToRadio_fields, &toRadio))
+    {
+        LOG_E(TAG, "ToRadio decode failed");
+        return;
+    }
+
+    switch (toRadio.which_payload_variant)
+    {
+    case meshtastic_ToRadio_packet_tag:
+        LOG_D(TAG, "ToRadio: packet for LoRa TX (to=%08X, id=%u)",
+              toRadio.packet.to, toRadio.packet.id);
+        if (_toRadioQueue)
+        {
+            if (!_toRadioQueue->push(toRadio))
+            {
+                LOG_E(TAG, "ToRadio queue full, packet dropped");
+            }
+        }
+        break;
+
+    case meshtastic_ToRadio_want_config_id_tag:
+        LOG_I(TAG, "ToRadio: want_config_id=%u", toRadio.want_config_id);
+        handleConfigRequest(toRadio.want_config_id);
+        break;
+
+    case meshtastic_ToRadio_disconnect_tag:
+        LOG_I(TAG, "ToRadio: disconnect");
+        break;
+
+    case meshtastic_ToRadio_heartbeat_tag:
+        LOG_D(TAG, "ToRadio: heartbeat");
+        break;
+
+    default:
+        LOG_W(TAG, "ToRadio: unknown variant %d", toRadio.which_payload_variant);
+        break;
+    }
+}
+
+void BLEManager::handleConfigRequest(uint32_t configId)
+{
+    _configDownloadInProgress = true;
+    sendConfigDownload(configId);
+    _configDownloadInProgress = false;
+}
+
+void BLEManager::sendConfigDownload(uint32_t configId)
+{
+    LOG_I(TAG, "Starting config download (id=%u)", configId);
+    meshtastic_FromRadio fromRadio = meshtastic_FromRadio_init_zero;
+
+    // 1. MyNodeInfo
+    fromRadio = meshtastic_FromRadio_init_zero;
+    fromRadio.id = _fromNum + 1;
+    fromRadio.which_payload_variant = meshtastic_FromRadio_my_info_tag;
+    if (ConfigManager::getMyNodeInfo(&fromRadio.my_info))
+    {
+        sendFromRadio(&fromRadio);
+        delay(50);
+    }
+
+    // 2. DeviceMetadata
+    fromRadio = meshtastic_FromRadio_init_zero;
+    fromRadio.id = _fromNum + 1;
+    fromRadio.which_payload_variant = meshtastic_FromRadio_metadata_tag;
+    if (ConfigManager::getDeviceMetadata(&fromRadio.metadata))
+    {
+        sendFromRadio(&fromRadio);
+        delay(50);
+    }
+
+    // 3. Config.Device
+    fromRadio = meshtastic_FromRadio_init_zero;
+    fromRadio.id = _fromNum + 1;
+    fromRadio.which_payload_variant = meshtastic_FromRadio_config_tag;
+    if (ConfigManager::getConfig(&fromRadio.config, meshtastic_Config_device_tag))
+    {
+        sendFromRadio(&fromRadio);
+        delay(50);
+    }
+
+    // 4. Config.LoRa
+    fromRadio = meshtastic_FromRadio_init_zero;
+    fromRadio.id = _fromNum + 1;
+    fromRadio.which_payload_variant = meshtastic_FromRadio_config_tag;
+    if (ConfigManager::getConfig(&fromRadio.config, meshtastic_Config_lora_tag))
+    {
+        sendFromRadio(&fromRadio);
+        delay(50);
+    }
+
+    // 5. Config.Bluetooth
+    fromRadio = meshtastic_FromRadio_init_zero;
+    fromRadio.id = _fromNum + 1;
+    fromRadio.which_payload_variant = meshtastic_FromRadio_config_tag;
+    if (ConfigManager::getConfig(&fromRadio.config, meshtastic_Config_bluetooth_tag))
+    {
+        sendFromRadio(&fromRadio);
+        delay(50);
+    }
+
+    // 6. Channel[0] (primary)
+    fromRadio = meshtastic_FromRadio_init_zero;
+    fromRadio.id = _fromNum + 1;
+    fromRadio.which_payload_variant = meshtastic_FromRadio_channel_tag;
+    if (ConfigManager::getChannel(&fromRadio.channel, 0))
+    {
+        sendFromRadio(&fromRadio);
+        delay(50);
+    }
+
+    // 7. Own NodeInfo
+    fromRadio = meshtastic_FromRadio_init_zero;
+    fromRadio.id = _fromNum + 1;
+    fromRadio.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+    if (ConfigManager::getOwnNodeInfo(&fromRadio.node_info))
+    {
+        sendFromRadio(&fromRadio);
+        delay(50);
+    }
+
+    // 7b. Peer NodeInfo entries (Phase 4)
+    uint16_t peerCount = PeerNodeDB::getCount();
+    LOG_I(TAG, "Sending %u peer NodeInfo entries", peerCount);
+    for (uint16_t i = 0; i < peerCount; i++)
+    {
+        fromRadio = meshtastic_FromRadio_init_zero;
+        fromRadio.id = _fromNum + 1;
+        fromRadio.which_payload_variant = meshtastic_FromRadio_node_info_tag;
+        if (PeerNodeDB::getNodeInfo(i, &fromRadio.node_info))
+        {
+            sendFromRadio(&fromRadio);
+            delay(50);
+        }
+    }
+
+    // 8. config_complete_id
+    fromRadio = meshtastic_FromRadio_init_zero;
+    fromRadio.id = _fromNum + 1;
+    fromRadio.which_payload_variant = meshtastic_FromRadio_config_complete_id_tag;
+    fromRadio.config_complete_id = configId;
+    sendFromRadio(&fromRadio);
+
+    LOG_I(TAG, "Config download complete (id=%u)", configId);
+}
+
+bool BLEManager::sendFromRadio(const meshtastic_FromRadio *fromRadio)
+{
+    if (!isConnected())
+    {
+        LOG_W(TAG, "Cannot send FromRadio: not connected");
         return false;
     }
 
-    // Serialize message
-    uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
-    int length = msg.serialize(buffer, sizeof(buffer));
+    uint8_t buffer[MeshtasticBLE::MAX_TO_FROM_RADIO_SIZE];
+    size_t len = serializeFromRadio(fromRadio, buffer, sizeof(buffer));
 
-    if (length <= 0)
+    if (len == 0)
     {
-        LOG_E(TAG, "Failed to serialize message");
+        LOG_E(TAG, "FromRadio serialization failed");
         return false;
     }
 
-    // Send notification
-    bool success = txCharacteristic.notify(buffer, length);
-
+    bool success = _fromRadioChar.notify(buffer, len);
     if (success)
     {
-        int seq = (msg.type == MessageType::Ack) ? msg.ackData.seq : msg.textData.seq;
-        LOG_D(TAG, "Sent message, type: %d, seq: %d, size: %d", (int)msg.type, seq, length);
+        incrementFromNum();
+        LOG_D(TAG, "Sent FromRadio: %d bytes, variant=%d", len, fromRadio->which_payload_variant);
     }
     else
     {
-        LOG_E(TAG, "Failed to send notification");
+        LOG_E(TAG, "FromRadio notify failed");
     }
-
     return success;
 }
 
-void BLEManager::setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)())
+size_t BLEManager::serializeFromRadio(const meshtastic_FromRadio *fromRadio,
+                                      uint8_t *buffer, size_t maxSize)
 {
-    connectCallback_user = onConnect;
-    disconnectCallback_user = onDisconnect;
+    pb_ostream_t stream = pb_ostream_from_buffer(buffer, maxSize);
+    if (!pb_encode(&stream, meshtastic_FromRadio_fields, fromRadio))
+    {
+        LOG_E(TAG, "pb_encode failed: %s", PB_GET_ERROR(&stream));
+        return 0;
+    }
+    return stream.bytes_written;
 }
 
-// Static callback implementations
+void BLEManager::incrementFromNum()
+{
+    _fromNum++;
+    _fromNumChar.write32(_fromNum);
+    _fromNumChar.notify32(_fromNum);
+}
+
+// ============================================================================
+// Static Callback Implementations
+// ============================================================================
+
 void BLEManager::connectCallback(uint16_t conn_handle)
 {
     if (instance)
@@ -169,26 +339,18 @@ void BLEManager::connectCallback(uint16_t conn_handle)
         connection->getPeerName(central_name, sizeof(central_name));
 
         LOG_I(TAG, "Connected: %s", central_name);
-
-        instance->isConnectedFlag = true;
-
-        // Update device info characteristic with fresh data
-        instance->updateDeviceInfo();
+        instance->_isConnectedFlag = true;
 
         // Request power-optimized connection parameters
         if (connection)
         {
             connection->requestConnectionParameter(160, 0, 400);
-            LOG_I(TAG, "Requested power-optimized connection params (200ms interval)");
-
-            // Request MTU exchange for larger packets
-            connection->requestMtuExchange(BufferConstants::MAX_PROTOCOL_MESSAGE + 3);
-            LOG_I(TAG, "Requested MTU exchange to %d", BufferConstants::MAX_PROTOCOL_MESSAGE + 3);
+            connection->requestMtuExchange(MeshtasticBLE::MAX_TO_FROM_RADIO_SIZE + 3);
         }
 
-        if (instance->connectCallback_user)
+        if (instance->_connectCallback_user)
         {
-            instance->connectCallback_user();
+            instance->_connectCallback_user();
         }
     }
 }
@@ -200,29 +362,30 @@ void BLEManager::disconnectCallback(uint16_t conn_handle, uint8_t reason)
     if (instance)
     {
         LOG_I(TAG, "Disconnected, reason: %d", reason);
+        instance->_isConnectedFlag = false;
+        instance->_notificationsEnabled = false;
 
-        instance->isConnectedFlag = false;
-        instance->notificationsEnabled = false;
-
-        if (instance->disconnectCallback_user)
+        if (instance->_disconnectCallback_user)
         {
-            instance->disconnectCallback_user();
+            instance->_disconnectCallback_user();
         }
     }
 }
 
-void BLEManager::rxWriteCallback(uint16_t conn_hdl, BLECharacteristic *chr, uint8_t *data, uint16_t len)
+void BLEManager::toRadioWriteCallback(uint16_t conn_hdl, BLECharacteristic *chr,
+                                      uint8_t *data, uint16_t len)
 {
     (void)conn_hdl;
     (void)chr;
 
     if (instance)
     {
-        instance->handleRxWrite(data, len);
+        instance->handleToRadioWrite(data, len);
     }
 }
 
-void BLEManager::cccdCallback(uint16_t conn_hdl, BLECharacteristic *chr, uint16_t value)
+void BLEManager::fromRadioCccdCallback(uint16_t conn_hdl, BLECharacteristic *chr,
+                                       uint16_t value)
 {
     (void)conn_hdl;
     (void)chr;
@@ -233,63 +396,22 @@ void BLEManager::cccdCallback(uint16_t conn_hdl, BLECharacteristic *chr, uint16_
     }
 }
 
-// Internal handlers
-void BLEManager::handleRxWrite(uint8_t *data, uint16_t len)
-{
-    LOG_D(TAG, "RX received %d bytes", len);
-
-    if (len == 0 || len > BufferConstants::MAX_PROTOCOL_MESSAGE)
-    {
-        LOG_E(TAG, "Invalid message length");
-        return;
-    }
-
-    // Deserialize message
-    Message msg;
-    if (!msg.deserialize(data, len))
-    {
-        LOG_E(TAG, "Failed to deserialize message");
-        return;
-    }
-
-    // Send to LoRa queue
-    if (bleToLoraQueue != nullptr)
-    {
-        if (!bleToLoraQueue->push(msg))
-        {
-            LOG_E(TAG, "Queue full");
-        }
-        else
-        {
-            LOG_D(TAG, "Message queued for LoRa, type: %d", (int)msg.type);
-        }
-    }
-}
-
 void BLEManager::handleCccdWrite(uint16_t value)
 {
     if (value & BLE_GATT_HVX_NOTIFICATION)
     {
-        LOG_I(TAG, "TX notifications enabled by client");
-        notificationsEnabled = true;
+        LOG_I(TAG, "FromRadio notifications enabled");
+        _notificationsEnabled = true;
     }
     else
     {
-        LOG_I(TAG, "TX notifications disabled by client");
-        notificationsEnabled = false;
+        LOG_I(TAG, "FromRadio notifications disabled");
+        _notificationsEnabled = false;
     }
 }
 
-void BLEManager::updateDeviceInfo()
+void BLEManager::setConnectionCallbacks(void (*onConnect)(), void (*onDisconnect)())
 {
-    DeviceInfoData info;
-    if (infoProvider)
-    {
-        info = infoProvider();
-    }
-    // Set the characteristic value - BLE stack will return this on reads
-    uint8_t buf[16];
-    info.serialize(buf);
-    infoCharacteristic.write(buf, sizeof(buf));
-    LOG_D(TAG, "Device info updated: battery=%d%%, rssi=%d, snr=%d", info.batteryLevel, info.rssi, info.snrX100);
+    _connectCallback_user = onConnect;
+    _disconnectCallback_user = onDisconnect;
 }
