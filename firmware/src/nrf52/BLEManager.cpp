@@ -172,6 +172,18 @@ void BLEManager::handleToRadioWrite(uint8_t *data, uint16_t len)
 
 void BLEManager::handleConfigRequest(uint32_t configId)
 {
+    // Defer to processPendingConfig() called from the main loop
+    // to avoid deep stack usage in the BLE callback context.
+    _pendingConfigId = configId;
+}
+
+void BLEManager::processPendingConfig()
+{
+    uint32_t configId = _pendingConfigId;
+    if (configId == 0)
+        return;
+
+    _pendingConfigId = 0;
     _configDownloadInProgress = true;
     sendConfigDownload(configId);
     _configDownloadInProgress = false;

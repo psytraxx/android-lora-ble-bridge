@@ -451,7 +451,8 @@ void setup()
         LOG_I(TAG, "NodeInfo broadcast timer started (30s interval)");
     }
 
-    // ✅ Phase 3: Telemetry broadcast timer (60 seconds)
+    // ✅ Phase 3: Telemetry broadcast timer (60 seconds, delayed start)
+    // Start 15s after setup to avoid collision with NodeInfo timer at 60s multiples.
     TimerHandle_t telemetryTimer = xTimerCreate(
         "Telemetry",
         pdMS_TO_TICKS(60000), // 60 seconds
@@ -461,7 +462,20 @@ void setup()
         { AppHandlers::broadcastTelemetry(); });
     if (telemetryTimer != nullptr)
     {
-        xTimerStart(telemetryTimer, 0);
+        TimerHandle_t telDelayTimer = xTimerCreate(
+            "TelDelay",
+            pdMS_TO_TICKS(15000), // 15s offset
+            pdFALSE,              // One-shot
+            (void *)telemetryTimer,
+            [](TimerHandle_t timer)
+            {
+                xTimerStart((TimerHandle_t)pvTimerGetTimerID(timer), 0);
+                xTimerDelete(timer, 0);
+            });
+        if (telDelayTimer != nullptr)
+        {
+            xTimerStart(telDelayTimer, 0);
+        }
         LOG_I(TAG, "Telemetry broadcast timer started (60s interval)");
     }
 
@@ -495,6 +509,9 @@ void loop()
 #endif
 
     loraManager->process();
+
+    // Process deferred config download (runs on main task stack, not nimble_host)
+    bleManager->processPendingConfig();
 
     // Process BLE -> LoRa (ToRadio packets from phone)
     meshtastic_ToRadio toRadio;
@@ -786,7 +803,6 @@ void handleToRadioPacket(const meshtastic_ToRadio &toRadio)
     {
         LOG_I(TAG, "Transmitting MeshPacket: %lu bytes (to=%08lx, port=%d)",
               (unsigned long)totalLen, (unsigned long)meshPacket.to, data.portnum);
-        resetInactivityTimer();
     }
     else
     {

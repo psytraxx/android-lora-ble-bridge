@@ -64,6 +64,11 @@ void FromRadioCallbacks::onSubscribe(NimBLECharacteristic *pCharacteristic,
     }
 }
 
+void FromRadioCallbacks::onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo)
+{
+    bleManager->onFromRadioRead(pCharacteristic);
+}
+
 // ============================================================================
 // BLEManager Implementation
 // ============================================================================
@@ -78,8 +83,10 @@ bool BLEManager::setup(const char *deviceName)
     LOG_I(TAG, "Initializing Meshtastic BLE service");
 
     _deviceNameStr = std::string(deviceName);
+    _fqMutex = xSemaphoreCreateMutex();
 
     NimBLEDevice::init(deviceName);
+    NimBLEDevice::setMTU(512);
 
     // Log MAC address
     NimBLEAddress address = NimBLEDevice::getAddress();
@@ -93,10 +100,12 @@ bool BLEManager::setup(const char *deviceName)
     // Create Meshtastic service
     NimBLEService *pService = _pServer->createService(MeshtasticBLE::SERVICE_UUID);
 
-    // FromRadio characteristic (Device -> Phone): READ + NOTIFY
+    // FromRadio characteristic (Device -> Phone): READ only
+    // Per official Meshtastic firmware: "Adding NIMBLE_PROPERTY::NOTIFY to
+    // FromRadioCharacteristic appears to break things."
     _fromRadioChar = pService->createCharacteristic(
         MeshtasticBLE::FROMRADIO_UUID,
-        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+        NIMBLE_PROPERTY::READ);
     _fromRadioCallbacks = new FromRadioCallbacks(this);
     _fromRadioChar->setCallbacks(_fromRadioCallbacks);
 
@@ -214,6 +223,19 @@ void BLEManager::onToRadioReceived(const uint8_t *data, size_t length)
 
 void BLEManager::handleConfigRequest(uint32_t configId)
 {
+    // Defer to processPendingConfig() called from the main loop.
+    // Running sendConfigDownload() here would overflow the nimble_host
+    // task stack (4-8 KB) due to large protobuf structs on the stack.
+    _pendingConfigId = configId;
+}
+
+void BLEManager::processPendingConfig()
+{
+    uint32_t configId = _pendingConfigId;
+    if (configId == 0)
+        return;
+
+    _pendingConfigId = 0;
     _configDownloadInProgress = true;
     sendConfigDownload(configId);
     _configDownloadInProgress = false;
@@ -231,7 +253,6 @@ void BLEManager::sendConfigDownload(uint32_t configId)
     if (ConfigManager::getMyNodeInfo(&fromRadio.my_info))
     {
         sendFromRadio(&fromRadio);
-        delay(50);
     }
 
     // 2. DeviceMetadata
@@ -241,7 +262,6 @@ void BLEManager::sendConfigDownload(uint32_t configId)
     if (ConfigManager::getDeviceMetadata(&fromRadio.metadata))
     {
         sendFromRadio(&fromRadio);
-        delay(50);
     }
 
     // 3. Config.Device
@@ -251,7 +271,6 @@ void BLEManager::sendConfigDownload(uint32_t configId)
     if (ConfigManager::getConfig(&fromRadio.config, meshtastic_Config_device_tag))
     {
         sendFromRadio(&fromRadio);
-        delay(50);
     }
 
     // 4. Config.LoRa
@@ -261,7 +280,6 @@ void BLEManager::sendConfigDownload(uint32_t configId)
     if (ConfigManager::getConfig(&fromRadio.config, meshtastic_Config_lora_tag))
     {
         sendFromRadio(&fromRadio);
-        delay(50);
     }
 
     // 5. Config.Bluetooth
@@ -271,7 +289,6 @@ void BLEManager::sendConfigDownload(uint32_t configId)
     if (ConfigManager::getConfig(&fromRadio.config, meshtastic_Config_bluetooth_tag))
     {
         sendFromRadio(&fromRadio);
-        delay(50);
     }
 
     // 6. Channel[0] (primary)
@@ -281,7 +298,6 @@ void BLEManager::sendConfigDownload(uint32_t configId)
     if (ConfigManager::getChannel(&fromRadio.channel, 0))
     {
         sendFromRadio(&fromRadio);
-        delay(50);
     }
 
     // 7. Own NodeInfo
@@ -291,7 +307,6 @@ void BLEManager::sendConfigDownload(uint32_t configId)
     if (ConfigManager::getOwnNodeInfo(&fromRadio.node_info))
     {
         sendFromRadio(&fromRadio);
-        delay(50);
     }
 
     // 7b. Peer NodeInfo entries (Phase 4)
@@ -305,7 +320,6 @@ void BLEManager::sendConfigDownload(uint32_t configId)
         if (PeerNodeDB::getNodeInfo(i, &fromRadio.node_info))
         {
             sendFromRadio(&fromRadio);
-            delay(50);
         }
     }
 
@@ -336,13 +350,78 @@ bool BLEManager::sendFromRadio(const meshtastic_FromRadio *fromRadio)
         return false;
     }
 
-    _fromRadioChar->setValue(buffer, len);
-    _fromRadioChar->notify();
+    if (!enqueueFromRadio(buffer, len))
+    {
+        LOG_W(TAG, "FromRadio queue full, message dropped");
+        return false;
+    }
 
-    incrementFromNum();
+    // Only notify FromNum during steady-state packet forwarding.
+    // During config download, the phone polls FromRadio continuously.
+    if (!_configDownloadInProgress)
+    {
+        incrementFromNum();
+    }
 
-    LOG_D(TAG, "Sent FromRadio: %d bytes, variant=%d", len, fromRadio->which_payload_variant);
+    LOG_D(TAG, "Queued FromRadio: %d bytes, variant=%d", len, fromRadio->which_payload_variant);
     return true;
+}
+
+bool BLEManager::enqueueFromRadio(const uint8_t *data, size_t len)
+{
+    if (xSemaphoreTake(_fqMutex, pdMS_TO_TICKS(100)) != pdTRUE)
+        return false;
+
+    if (_fromRadioQueue.size() >= FROM_RADIO_QUEUE_CAPACITY)
+    {
+        xSemaphoreGive(_fqMutex);
+        return false;
+    }
+
+    _fromRadioQueue.push(std::vector<uint8_t>(data, data + len));
+    xSemaphoreGive(_fqMutex);
+    return true;
+}
+
+void BLEManager::onFromRadioRead(NimBLECharacteristic *pCharacteristic)
+{
+    // The phone reads FromRadio immediately after writing want_config_id.
+    // If the queue is empty but config is pending/in-progress, busy-wait
+    // for the main task to fill the queue via processPendingConfig().
+    // This matches the official Meshtastic firmware pattern.
+    if (_pendingConfigId != 0 || _configDownloadInProgress)
+    {
+        for (int tries = 0; tries < 200; tries++)
+        {
+            if (xSemaphoreTake(_fqMutex, pdMS_TO_TICKS(5)) == pdTRUE)
+            {
+                bool hasData = !_fromRadioQueue.empty();
+                xSemaphoreGive(_fqMutex);
+                if (hasData)
+                    break;
+            }
+            delay(1); // yield to FreeRTOS so main loop can run
+        }
+    }
+
+    if (xSemaphoreTake(_fqMutex, pdMS_TO_TICKS(10)) != pdTRUE)
+    {
+        pCharacteristic->setValue((const uint8_t *)"", 0);
+        return;
+    }
+
+    if (!_fromRadioQueue.empty())
+    {
+        auto &item = _fromRadioQueue.front();
+        pCharacteristic->setValue(item.data(), item.size());
+        _fromRadioQueue.pop();
+    }
+    else
+    {
+        pCharacteristic->setValue((const uint8_t *)"", 0);
+    }
+
+    xSemaphoreGive(_fqMutex);
 }
 
 size_t BLEManager::serializeFromRadio(const meshtastic_FromRadio *fromRadio,
@@ -385,6 +464,16 @@ void BLEManager::onDisconnected(uint16_t connHandle)
     {
         _currentConnHandle = kInvalidConnHandle;
         _notificationsEnabled = false;
+        _configDownloadInProgress = false;
+        _pendingConfigId = 0;
+
+        // Drain stale FromRadio queue so next client starts fresh
+        if (xSemaphoreTake(_fqMutex, pdMS_TO_TICKS(50)) == pdTRUE)
+        {
+            while (!_fromRadioQueue.empty())
+                _fromRadioQueue.pop();
+            xSemaphoreGive(_fqMutex);
+        }
 
         if (_disconnectCallback)
         {

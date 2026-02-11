@@ -7,6 +7,10 @@
 #include "meshtastic/mesh.pb.h"
 #include <pb_encode.h>
 #include <pb_decode.h>
+#include <queue>
+#include <vector>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 /**
  * @file BLEManager.h (ESP32)
@@ -53,6 +57,7 @@ class FromRadioCallbacks : public NimBLECharacteristicCallbacks
 public:
     explicit FromRadioCallbacks(BLEManager *manager) : bleManager(manager) {}
     void onSubscribe(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo, uint16_t subValue);
+    void onRead(NimBLECharacteristic *pCharacteristic, NimBLEConnInfo &connInfo);
 
 private:
     BLEManager *bleManager;
@@ -95,10 +100,17 @@ public:
     uint32_t getFromNum() const { return _fromNum; }
 
     /// Handle config download request (want_config_id)
+    /// Note: Deferred to processPendingConfig() to avoid stack overflow in nimble_host task
     void handleConfigRequest(uint32_t configId);
+
+    /// Process any pending config download (call from main loop)
+    void processPendingConfig();
 
     /// Check if config download is in progress
     bool isConfigDownloadInProgress() const { return _configDownloadInProgress; }
+
+    /// Called from NimBLE onRead callback to serve queued FromRadio data
+    void onFromRadioRead(NimBLECharacteristic *pCharacteristic);
 
     // Callbacks from NimBLE adapter classes
     void onConnected(uint16_t connHandle);
@@ -130,6 +142,7 @@ private:
     bool _notificationsEnabled{false};
     uint32_t _fromNum{0};
     bool _configDownloadInProgress{false};
+    volatile uint32_t _pendingConfigId{0};
 
     MessageQueue<meshtastic_ToRadio> *_toRadioQueue{nullptr};
 
@@ -142,6 +155,14 @@ private:
 
     /// Send the full config download sequence
     void sendConfigDownload(uint32_t configId);
+
+    // FromRadio read queue — Meshtastic protocol uses read-based data transfer.
+    // Items are queued here and served one-per-read via the onRead callback.
+    static constexpr size_t FROM_RADIO_QUEUE_CAPACITY = 32;
+    std::queue<std::vector<uint8_t>> _fromRadioQueue;
+    SemaphoreHandle_t _fqMutex{nullptr};
+
+    bool enqueueFromRadio(const uint8_t *data, size_t len);
 };
 
 #endif // BLE_MANAGER_H

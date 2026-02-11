@@ -52,6 +52,9 @@ public:
     /// Handle config download request (want_config_id)
     void handleConfigRequest(uint32_t configId);
 
+    /// Process any pending config download (call from main loop)
+    void processPendingConfig();
+
     /// Check if config download is in progress
     bool isConfigDownloadInProgress() const { return _configDownloadInProgress; }
 
@@ -83,6 +86,7 @@ private:
     bool _isConnectedFlag{false};
     uint32_t _fromNum{0};
     bool _configDownloadInProgress{false};
+    volatile uint32_t _pendingConfigId{0};
 
     void (*_connectCallback_user)(){nullptr};
     void (*_disconnectCallback_user)(){nullptr};
