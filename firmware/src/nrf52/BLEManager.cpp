@@ -244,14 +244,64 @@ void BLEManager::sendConfigDownload(uint32_t configId)
         delay(50);
     }
 
-    // 6. Channel[0] (primary)
-    fromRadio = meshtastic_FromRadio_init_zero;
-    fromRadio.id = _fromNum + 1;
-    fromRadio.which_payload_variant = meshtastic_FromRadio_channel_tag;
-    if (ConfigManager::getChannel(&fromRadio.channel, 0))
+    // 6. Remaining Config variants
+    const pb_size_t remainingConfigs[] = {
+        meshtastic_Config_position_tag,
+        meshtastic_Config_power_tag,
+        meshtastic_Config_network_tag,
+        meshtastic_Config_display_tag,
+    };
+    for (auto which : remainingConfigs)
     {
-        sendFromRadio(&fromRadio);
-        delay(50);
+        fromRadio = meshtastic_FromRadio_init_zero;
+        fromRadio.id = _fromNum + 1;
+        fromRadio.which_payload_variant = meshtastic_FromRadio_config_tag;
+        if (ConfigManager::getConfig(&fromRadio.config, which))
+        {
+            sendFromRadio(&fromRadio);
+            delay(50);
+        }
+    }
+
+    // 6b. ModuleConfig variants
+    const pb_size_t moduleConfigs[] = {
+        meshtastic_ModuleConfig_mqtt_tag,
+        meshtastic_ModuleConfig_serial_tag,
+        meshtastic_ModuleConfig_external_notification_tag,
+        meshtastic_ModuleConfig_store_forward_tag,
+        meshtastic_ModuleConfig_range_test_tag,
+        meshtastic_ModuleConfig_telemetry_tag,
+        meshtastic_ModuleConfig_canned_message_tag,
+        meshtastic_ModuleConfig_audio_tag,
+        meshtastic_ModuleConfig_remote_hardware_tag,
+        meshtastic_ModuleConfig_neighbor_info_tag,
+        meshtastic_ModuleConfig_ambient_lighting_tag,
+        meshtastic_ModuleConfig_detection_sensor_tag,
+        meshtastic_ModuleConfig_paxcounter_tag,
+    };
+    for (auto which : moduleConfigs)
+    {
+        fromRadio = meshtastic_FromRadio_init_zero;
+        fromRadio.id = _fromNum + 1;
+        fromRadio.which_payload_variant = meshtastic_FromRadio_moduleConfig_tag;
+        if (ConfigManager::getModuleConfig(&fromRadio.moduleConfig, which))
+        {
+            sendFromRadio(&fromRadio);
+            delay(50);
+        }
+    }
+
+    // 7. Channels
+    for (uint8_t i = 0; i < 8; i++)
+    {
+        fromRadio = meshtastic_FromRadio_init_zero;
+        fromRadio.id = _fromNum + 1;
+        fromRadio.which_payload_variant = meshtastic_FromRadio_channel_tag;
+        if (ConfigManager::getChannel(&fromRadio.channel, i))
+        {
+            sendFromRadio(&fromRadio);
+            delay(50);
+        }
     }
 
     // 7. Own NodeInfo

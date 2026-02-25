@@ -47,6 +47,16 @@ namespace AppHandlers
     void handleNodeInfoApp(const meshtastic_Data &data, uint32_t fromNode);
 
     /**
+     * @brief Handle incoming POSITION_APP packets (portnum=3)
+     *
+     * Decodes Position protobuf and stores lat/lon/alt in PeerNodeDB.
+     *
+     * @param data Decoded Data message
+     * @param fromNode Sender node number
+     */
+    void handlePositionApp(const meshtastic_Data &data, uint32_t fromNode);
+
+    /**
      * @brief Handle incoming ROUTING_APP packets (portnum=5)
      *
      * Processes ACK/NACK responses and routing control messages.

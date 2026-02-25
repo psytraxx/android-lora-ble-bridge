@@ -9,16 +9,16 @@
  * @file PeerNodeDB.h
  * @brief Persistent database of peer mesh nodes
  *
- * Phase 4: Stores up to 50 peers with identity, signal info, and telemetry.
+ * Phase 4: Stores up to 50 peers with identity, signal info, telemetry, and position.
  * Persists to NVS (ESP32) or LittleFS (nRF52) for survival across reboots.
  *
- * Total RAM: 50 × 64 bytes = 3.2 KB
+ * Total RAM: 50 × 80 bytes = 4.0 KB
  */
 
 namespace PeerNodeDB
 {
     /**
-     * @brief Peer node record (64 bytes per node)
+     * @brief Peer node record (80 bytes per node)
      */
     struct PeerNode
     {
@@ -32,7 +32,11 @@ namespace PeerNodeDB
         uint8_t hopsAway;        // 1B - Hop count (0 = direct)
         uint8_t batteryLevel;    // 1B - Battery level 0-100%
         bool hasUser;            // 1B - Whether User info has been received
-        uint8_t _padding[1];     // 1B - Align to 64 bytes
+        bool hasPosition;        // 1B - Whether Position info has been received
+        int32_t latitudeI;       // 4B - Latitude × 1e7
+        int32_t longitudeI;      // 4B - Longitude × 1e7
+        int32_t altitude;        // 4B - Meters above MSL
+        uint32_t positionTime;   // 4B - Timestamp of position fix
     };
 
     constexpr size_t MAX_PEER_NODES = 50;
@@ -101,6 +105,17 @@ namespace PeerNodeDB
      * @param telemetry Decoded Telemetry protobuf
      */
     void updateFromTelemetry(uint32_t nodeNum, const meshtastic_Telemetry &telemetry);
+
+    /**
+     * @brief Update peer from POSITION_APP Position protobuf
+     *
+     * Sets latitude, longitude, altitude, and position timestamp.
+     * Automatically calls save() to mark dirty.
+     *
+     * @param nodeNum Node number
+     * @param position Decoded Position protobuf
+     */
+    void updateFromPosition(uint32_t nodeNum, const meshtastic_Position &position);
 
     /**
      * @brief Update signal information for peer

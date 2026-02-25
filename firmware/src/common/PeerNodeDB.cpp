@@ -246,6 +246,37 @@ namespace PeerNodeDB
         save();
     }
 
+    void updateFromPosition(uint32_t nodeNum, const meshtastic_Position &position)
+    {
+        PeerNode *node = getOrCreateNode(nodeNum);
+        if (!node)
+        {
+            return;
+        }
+
+        if (position.has_latitude_i)
+        {
+            node->latitudeI = position.latitude_i;
+        }
+        if (position.has_longitude_i)
+        {
+            node->longitudeI = position.longitude_i;
+        }
+        if (position.has_altitude)
+        {
+            node->altitude = position.altitude;
+        }
+        node->positionTime = position.time;
+        node->hasPosition = true;
+        node->lastHeard = millis() / 1000;
+
+        LOG_D(TAG, "Updated peer position: 0x%08lx lat=%ld lon=%ld alt=%ld",
+              (unsigned long)nodeNum, (long)node->latitudeI,
+              (long)node->longitudeI, (long)node->altitude);
+
+        save();
+    }
+
     uint16_t getCount()
     {
         return peerCount;
@@ -284,7 +315,18 @@ namespace PeerNodeDB
             nodeInfo->user.hw_model = (meshtastic_HardwareModel)node->hwModel;
         }
 
-        nodeInfo->has_position = false;
+        nodeInfo->has_position = node->hasPosition;
+        if (node->hasPosition)
+        {
+            nodeInfo->position.has_latitude_i = true;
+            nodeInfo->position.latitude_i = node->latitudeI;
+            nodeInfo->position.has_longitude_i = true;
+            nodeInfo->position.longitude_i = node->longitudeI;
+            nodeInfo->position.has_altitude = true;
+            nodeInfo->position.altitude = node->altitude;
+            nodeInfo->position.time = node->positionTime;
+        }
+
         nodeInfo->has_device_metrics = (node->batteryLevel > 0);
 
         if (nodeInfo->has_device_metrics)

@@ -3,6 +3,7 @@
 #include "common/NodeDB.h"
 #include "common/PeerNodeDB.h"
 #include "common/ConfigManager.h"
+#include "common/MeshProtocol.h"
 #include "common/MessageQueue.h"
 #include <pb_encode.h>
 #include <pb_decode.h>
@@ -25,6 +26,25 @@ extern uint32_t fromRadioId;
 // ============================================================================
 // RX Handlers (Incoming Packets)
 // ============================================================================
+
+void AppHandlers::handlePositionApp(const meshtastic_Data &data, uint32_t fromNode)
+{
+    meshtastic_Position position;
+    pb_istream_t stream = pb_istream_from_buffer(data.payload.bytes, data.payload.size);
+
+    if (!pb_decode(&stream, meshtastic_Position_fields, &position))
+    {
+        LOG_W(TAG, "Failed to decode Position protobuf");
+        return;
+    }
+
+    LOG_I(TAG, "Position from %08lx: lat=%ld lon=%ld alt=%ld",
+          (unsigned long)fromNode,
+          (long)position.latitude_i, (long)position.longitude_i,
+          (long)position.altitude);
+
+    PeerNodeDB::updateFromPosition(fromNode, position);
+}
 
 void AppHandlers::handleNodeInfoApp(const meshtastic_Data &data, uint32_t fromNode)
 {
@@ -457,6 +477,23 @@ void AppHandlers::handleAdminApp(const meshtastic_Data &data, uint32_t fromNode,
         break;
     }
 
+    case meshtastic_AdminMessage_get_module_config_request_tag:
+    {
+        pb_size_t which = adminMsg.get_module_config_request;
+        LOG_I(TAG, "Admin get_module_config_request (which=%lu)", (unsigned long)which);
+
+        meshtastic_AdminMessage response;
+        memset(&response, 0, sizeof(response));
+        response.which_payload_variant = meshtastic_AdminMessage_get_module_config_response_tag;
+
+        // Map AdminMessage_ModuleConfigType enum to ModuleConfig tag (offset by 1)
+        pb_size_t moduleTag = (pb_size_t)(which + 1);
+        ConfigManager::getModuleConfig(&response.get_module_config_response, moduleTag);
+
+        sendAdminResponse(response, fromNode, requestId, source);
+        break;
+    }
+
     case meshtastic_AdminMessage_set_owner_tag:
     {
         LOG_I(TAG, "Admin set_owner");
@@ -478,6 +515,23 @@ void AppHandlers::handleAdminApp(const meshtastic_Data &data, uint32_t fromNode,
         }
 
         // Send ACK (no response payload needed for set commands)
+        break;
+    }
+
+    case meshtastic_AdminMessage_set_channel_tag:
+    {
+        LOG_I(TAG, "Admin set_channel");
+
+        const auto &channel = adminMsg.set_channel;
+        if (channel.index < MeshProtocol::MAX_CHANNELS)
+        {
+            MeshProtocol::setChannel(channel.index, channel.settings);
+            LOG_I(TAG, "Channel[%u] updated via admin", channel.index);
+        }
+        else
+        {
+            LOG_W(TAG, "set_channel index %u out of range", channel.index);
+        }
         break;
     }
 

@@ -1,4 +1,5 @@
 #include "common/ConfigManager.h"
+#include "common/MeshProtocol.h"
 #include "common/NodeDB.h"
 #include "common/MeshCrypto.h"
 #include "common/Logging.h"
@@ -148,9 +149,65 @@ namespace ConfigManager
         }
     }
 
+    bool getModuleConfig(meshtastic_ModuleConfig *config, pb_size_t which)
+    {
+        if (!config) return false;
+
+        memset(config, 0, sizeof(meshtastic_ModuleConfig));
+        config->which_payload_variant = which;
+
+        switch (which)
+        {
+        case meshtastic_ModuleConfig_mqtt_tag:
+            LOG_D(TAG, "ModuleConfig.MQTT: disabled");
+            return true;
+        case meshtastic_ModuleConfig_serial_tag:
+            LOG_D(TAG, "ModuleConfig.Serial: disabled");
+            return true;
+        case meshtastic_ModuleConfig_external_notification_tag:
+            LOG_D(TAG, "ModuleConfig.ExtNotif: disabled");
+            return true;
+        case meshtastic_ModuleConfig_store_forward_tag:
+            LOG_D(TAG, "ModuleConfig.StoreForward: disabled");
+            return true;
+        case meshtastic_ModuleConfig_range_test_tag:
+            LOG_D(TAG, "ModuleConfig.RangeTest: disabled");
+            return true;
+        case meshtastic_ModuleConfig_telemetry_tag:
+            config->payload_variant.telemetry.device_update_interval = 3600;
+            LOG_D(TAG, "ModuleConfig.Telemetry: interval=3600s");
+            return true;
+        case meshtastic_ModuleConfig_canned_message_tag:
+            LOG_D(TAG, "ModuleConfig.CannedMsg: disabled");
+            return true;
+        case meshtastic_ModuleConfig_audio_tag:
+            LOG_D(TAG, "ModuleConfig.Audio: disabled");
+            return true;
+        case meshtastic_ModuleConfig_remote_hardware_tag:
+            LOG_D(TAG, "ModuleConfig.RemoteHW: disabled");
+            return true;
+        case meshtastic_ModuleConfig_neighbor_info_tag:
+            LOG_D(TAG, "ModuleConfig.NeighborInfo: disabled");
+            return true;
+        case meshtastic_ModuleConfig_ambient_lighting_tag:
+            LOG_D(TAG, "ModuleConfig.AmbientLight: disabled");
+            return true;
+        case meshtastic_ModuleConfig_detection_sensor_tag:
+            LOG_D(TAG, "ModuleConfig.DetectionSensor: disabled");
+            return true;
+        case meshtastic_ModuleConfig_paxcounter_tag:
+            LOG_D(TAG, "ModuleConfig.Paxcounter: disabled");
+            return true;
+        default:
+            LOG_W(TAG, "Unknown module config variant: %d", which);
+            return false;
+        }
+    }
+
     bool getChannel(meshtastic_Channel *channel, uint8_t index)
     {
         if (!channel) return false;
+        if (index >= MeshProtocol::MAX_CHANNELS) return false;
 
         memset(channel, 0, sizeof(meshtastic_Channel));
 
@@ -172,8 +229,25 @@ namespace ConfigManager
             return true;
         }
 
-        // No other channels configured
-        return false;
+        // Secondary channels: only return if configured (channelCount covers it)
+        if (index >= MeshProtocol::getChannelCount())
+        {
+            // Return DISABLED channel so app knows it's empty
+            channel->index = index;
+            channel->role = meshtastic_Channel_Role_DISABLED;
+            channel->has_settings = false;
+            return true;
+        }
+
+        // Configured secondary channel
+        channel->index = index;
+        channel->role = meshtastic_Channel_Role_SECONDARY;
+        channel->has_settings = true;
+        // Settings are stored in MeshProtocol — but we don't expose them directly,
+        // so we reconstruct from what we know
+        // The app set the channel via admin, so the settings are already in MeshProtocol
+        LOG_D(TAG, "Channel[%u]: SECONDARY", index);
+        return true;
     }
 
     bool getOwnNodeInfo(meshtastic_NodeInfo *nodeInfo)

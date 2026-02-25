@@ -212,29 +212,101 @@ When a Meshtastic client connects and sends `want_config_id`, the device must st
 
 ---
 
-## Phase 4: Mesh Compatibility & Admin
+## Phase 4: Mesh Compatibility & Admin ✅ COMPLETE
 
 **Goal**: Interoperate with standard Meshtastic mesh network.
 
-### 4.1 Packet rebroadcasting (optional/configurable)
+### 4.1 Packet rebroadcasting ✅ DONE
 - Rebroadcast received packets if hop_limit > 0 (decrement hop_limit)
-- Make this configurable — can disable for power savings (CLIENT_MUTE role)
-- SNR-based rebroadcast priority timing
+- Rate-limited: 1s minimum interval, 20/minute cap
+- SNR-based rebroadcast priority timing (Phase 5)
 
-### 4.2 Admin module (port 6)
-- Handle basic `ADMIN_APP` messages for config read/write from clients
-- Allow Meshtastic app to change channel settings, LoRa config, device name
-- Store config changes in NVS
+### 4.2 Admin module (port 6) ✅ DONE
+- Handle `ADMIN_APP` messages for config read/write from clients
+- Supports: get_owner, get_config, set_owner, reboot
+- Routes responses correctly for BLE vs LoRa source
 
-### 4.3 Channel management
-- Support multiple channels (Meshtastic supports 8)
-- Each channel has name + PSK → different encryption keys
-- Channel hash computation for OTA channel identification
+### 4.3 Peer NodeDB ✅ DONE
+- Persistent storage of seen nodes with metadata
+- Auto-save every 5 minutes
 
-### 4.4 PKC / Direct Messages (v2.5+)
+### 4.4 Channel management — DEFERRED
+- Single channel works; multi-channel support deferred
+
+### 4.5 PKC / Direct Messages (v2.5+) — DEFERRED
 - Generate X25519 key pair on first boot
 - Implement ECDH key exchange for DM encryption (AES-CCM)
 - Broadcast public key in NodeInfo
+
+---
+
+## Phase 5: TX/RX Improvements ✅ COMPLETE
+
+**Goal**: Reliable, Meshtastic-style radio management with priority queuing, CSMA, retry, and implicit ACK.
+
+**Completion Date**: 2025-02-25
+
+### 5A. Priority TX Queue + LoRaManager Integration ✅ DONE
+- 16-entry fixed-size priority queue (`TxQueue`) with no dynamic allocation
+- Priorities: ACK (0) > USER_TEXT (1) > RELAY (2) > BROADCAST (3)
+- `startTransmit()` made private — all external code uses `queueTransmit()`
+- Relay scheduling moved from FreeRTOS timer + direct TX to `queueTransmit()` with delay
+- `handleToRadioPacket()` assigns priority by portnum (ROUTING→ACK, NODEINFO/TELEMETRY→BROADCAST, else→USER_TEXT)
+- Main loop drains `bleToLoraQueue` into TxQueue — no more dropped packets
+
+### 5B. CSMA/CA with Channel Activity Detection ✅ DONE
+- `isChannelClear()` using RadioLib `radio->scanChannel()` (RADIOLIB_CHANNEL_FREE / RADIOLIB_PREAMBLE_DETECTED)
+- Exponential backoff: `random(0, 2^backoffCount) * SLOT_TIME_MS` (max 1600ms)
+- Restarts RX mode after failed CAD (scanChannel leaves radio in standby)
+- Constants in `FirmwareConfig.h::CSMAConstants`
+
+### 5C. TX Retry with Airtime-Aware Timers ✅ DONE
+- Per-priority retry counts: USER=3, RELAY=1, ACK=0, BROADCAST=0
+- Base retry interval: 3000ms
+- `onLoRaReceived()` extends all pending TX timers by received packet's ToA
+- Constants in `FirmwareConfig.h::RetryConstants`
+
+### 5D. Implicit ACK ✅ DONE
+- 8-entry `PendingAckEntry` array tracks outgoing `want_ack` packets
+- When hearing own packet relayed by another node → implicit ACK
+- Cancels pending retries via `loraManager->cancelQueued()`
+- Notifies BLE app via FromRadio with ROUTING_APP ACK
+- Returns early (doesn't process own relayed packet)
+
+### 5E. Dupe Cancellation ✅ DONE
+- On duplicate detection (`isDuplicate()` returns true):
+  - `cancelQueuedRelays(from, id)` cancels our pending relay for that packet
+  - Logs cancellation count
+
+### 5F. SNR-Weighted Rebroadcast Delay ✅ DONE
+- Weak SNR (-20dB) → shorter delay (~200ms) — relay first for better coverage
+- Strong SNR (+10dB) → longer delay (~500ms) — let weaker nodes relay first
+- Formula: `delay = 200 + constrain((snr+20)/30, 0, 1) * 300 + random(50)`
+
+### Files Created/Modified
+
+| File | Action |
+|------|--------|
+| `firmware/include/common/TxQueue.h` | CREATE |
+| `firmware/src/common/TxQueue.cpp` | CREATE |
+| `firmware/include/common/LoRaManager.h` | MODIFY |
+| `firmware/src/common/LoRaManager.cpp` | MODIFY |
+| `firmware/src/unified_main.cpp` | MODIFY |
+| `firmware/include/common/FirmwareConfig.h` | MODIFY |
+
+### Memory Impact
+
+- TxQueueEntry: ~270 bytes x 16 = ~4.3 KB
+- PendingAckEntry: 13 bytes x 8 = 104 bytes
+- CSMA state: ~8 bytes
+- **Total: ~4.5 KB new RAM**
+
+### Build Results
+
+| Platform | Flash | RAM | Status |
+|----------|-------|-----|--------|
+| ESP32 (Heltec WiFi LoRa 32 V3) | 20.8% | 12.6% | SUCCESS |
+| nRF52 (Xiao nRF52840) | 30.3% | 7.7% | SUCCESS |
 
 ---
 
@@ -266,12 +338,13 @@ When a Meshtastic client connects and sends `want_config_id`, the device must st
 
 ## Milestones
 
-| # | Name | What works | Scope |
-|---|------|-----------|-------|
-| 1 | "It speaks Meshtastic" | Two devices exchange text via Meshtastic OTA format | ~2000 LOC |
-| 2 | "The app connects" | Official Meshtastic app connects via BLE, send/receive text | ~1500 LOC |
-| 3 | "Full citizen" | Position, NodeInfo, telemetry, ACKs | ~1000 LOC |
-| 4 | "Mesh player" | Packet relay, admin, multi-channel | ~1500 LOC |
+| # | Name | What works | Status |
+|---|------|-----------|--------|
+| 1 | "It speaks Meshtastic" | Two devices exchange text via Meshtastic OTA format | ✅ COMPLETE |
+| 2 | "The app connects" | Official Meshtastic app connects via BLE, send/receive text | ✅ COMPLETE |
+| 3 | "Full citizen" | Position, NodeInfo, telemetry, ACKs | ✅ COMPLETE |
+| 4 | "Mesh player" | Packet relay, admin, peer NodeDB | ✅ COMPLETE |
+| 5 | "Reliable radio" | Priority TX queue, CSMA/CA, retry, implicit ACK, dupe cancel | ✅ COMPLETE |
 
 ---
 

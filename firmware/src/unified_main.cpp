@@ -7,6 +7,7 @@
 //! - Meshtastic BLE service (FromRadio/ToRadio/FromNum)
 //! - Native protobuf message queues (no custom protocol)
 //! - Meshtastic OTA packet format (header + AES-encrypted payload)
+//! - Priority TX queue with CSMA/CA, retry, implicit ACK, dupe cancellation
 
 #include <Arduino.h>
 #include <memory>
@@ -77,11 +78,76 @@ static uint32_t bleGattReadyAt = 0;
 static int lastRssi = 0;
 static float lastSnr = 0.0f;
 
-// Channel key for encryption/decryption
-static uint8_t channelKey[32];
+// Channel key buffer (populated per-packet from MeshProtocol multi-channel)
+// No longer a single global — each RX/TX looks up the key by channel index
 
 // FromRadio ID counter (non-static for AppHandlers admin responses)
 uint32_t fromRadioId = 1;
+
+// ============================================================================
+// Implicit ACK Tracking (Phase D)
+// ============================================================================
+
+namespace
+{
+    constexpr size_t PENDING_ACK_SIZE = 8;
+    constexpr uint32_t PENDING_ACK_TIMEOUT_MS = 30000; // 30 seconds
+
+    struct PendingAckEntry
+    {
+        uint32_t fromNode;
+        uint32_t packetId;
+        uint32_t timestamp;
+        bool active;
+    };
+
+    PendingAckEntry pendingAcks[PENDING_ACK_SIZE] = {};
+
+    void recordPendingAck(uint32_t fromNode, uint32_t packetId)
+    {
+        uint32_t now = millis();
+
+        // Find free or oldest expired slot
+        size_t bestIdx = 0;
+        uint32_t oldestTime = UINT32_MAX;
+
+        for (size_t i = 0; i < PENDING_ACK_SIZE; i++)
+        {
+            if (!pendingAcks[i].active ||
+                (now - pendingAcks[i].timestamp) >= PENDING_ACK_TIMEOUT_MS)
+            {
+                bestIdx = i;
+                break;
+            }
+            if (pendingAcks[i].timestamp < oldestTime)
+            {
+                oldestTime = pendingAcks[i].timestamp;
+                bestIdx = i;
+            }
+        }
+
+        pendingAcks[bestIdx] = {fromNode, packetId, now, true};
+        LOG_D(TAG, "Pending ACK recorded: from=%08lx id=%lu",
+              (unsigned long)fromNode, (unsigned long)packetId);
+    }
+
+    bool checkImplicitAck(uint32_t fromNode, uint32_t packetId)
+    {
+        uint32_t now = millis();
+        for (size_t i = 0; i < PENDING_ACK_SIZE; i++)
+        {
+            if (pendingAcks[i].active &&
+                pendingAcks[i].fromNode == fromNode &&
+                pendingAcks[i].packetId == packetId &&
+                (now - pendingAcks[i].timestamp) < PENDING_ACK_TIMEOUT_MS)
+            {
+                pendingAcks[i].active = false;
+                return true;
+            }
+        }
+        return false;
+    }
+}
 
 // ============================================================================
 // Duplicate Detection Cache (Phase 3)
@@ -130,7 +196,7 @@ namespace
     }
 
     // ========================================================================
-    // Mesh Relay Logic (Phase 4)
+    // Mesh Relay Logic (Phase 4 + Phase F: SNR-weighted delay)
     // ========================================================================
 
     constexpr uint32_t RELAY_MIN_INTERVAL_MS = 1000;  // Min 1s between relays
@@ -142,12 +208,6 @@ namespace
         uint32_t relayMinuteStart = 0;
         uint8_t relayCountThisMinute = 0;
     } relayState;
-
-    struct RelayTimerData
-    {
-        uint8_t packet[MeshPacket::MAX_PACKET_SIZE];
-        size_t length;
-    };
 
     bool canRelay()
     {
@@ -176,59 +236,51 @@ namespace
         return true;
     }
 
-    void scheduleRelay(const uint8_t *rawPacket, size_t len)
+    // Phase F: SNR-weighted relay delay
+    // Weaker SNR = shorter delay (relay first for better coverage)
+    // Strong SNR = longer delay (let weaker nodes relay first)
+    uint32_t calculateRelayDelay(float snr)
+    {
+        // Normalize SNR: -20dB -> 0.0, +10dB -> 1.0
+        float normalized = constrain((snr + 20.0f) / 30.0f, 0.0f, 1.0f);
+
+        // Weak signal (-20dB): ~200ms, Strong signal (+10dB): ~500ms
+        uint32_t delayMs = 200 + (uint32_t)(normalized * 300.0f);
+
+        // Add small random jitter to break ties
+        #if defined(ARDUINO_ARCH_ESP32)
+        delayMs += esp_random() % 50;
+        #else
+        delayMs += random(50);
+        #endif
+
+        return delayMs;
+    }
+
+    void scheduleRelay(const uint8_t *rawPacket, size_t len,
+                       uint32_t fromNode, uint32_t packetId, float snr)
     {
         if (!canRelay())
         {
             return;
         }
 
-        // Allocate timer data (freed in callback)
-        RelayTimerData *data = new RelayTimerData();
-        memcpy(data->packet, rawPacket, len);
-        data->length = len;
+        uint32_t delayMs = calculateRelayDelay(snr);
 
-        // Random jitter 200-500ms (avoid collision with other relays)
-        #if defined(ARDUINO_ARCH_ESP32)
-        uint32_t delayMs = 200 + (esp_random() % 300);
-        #else
-        uint32_t delayMs = 200 + (random(300));
-        #endif
-
-        TimerHandle_t relayTimer = xTimerCreate(
-            "RelayTimer",
-            pdMS_TO_TICKS(delayMs),
-            pdFALSE, // One-shot
-            data,
-            [](TimerHandle_t timer)
-            {
-                RelayTimerData *data = (RelayTimerData *)pvTimerGetTimerID(timer);
-
-                // Transmit the relayed packet
-                if (loraManager && loraManager->startTransmit(data->packet, data->length))
-                {
-                    LOG_I(TAG, "Relayed packet (%lu bytes)", (unsigned long)data->length);
-                    relayState.lastRelayTime = millis();
-                    relayState.relayCountThisMinute++;
-                }
-                else
-                {
-                    LOG_W(TAG, "Relay transmission failed");
-                }
-
-                delete data;
-                xTimerDelete(timer, 0);
-            });
-
-        if (relayTimer != nullptr)
+        if (loraManager->queueTransmit(rawPacket, len, TX_PRIORITY_RELAY,
+                                       fromNode, packetId,
+                                       true, // isRelay
+                                       RetryConstants::MAX_RETRIES_RELAY,
+                                       delayMs))
         {
-            xTimerStart(relayTimer, 0);
-            LOG_D(TAG, "Relay scheduled (delay=%lums)", (unsigned long)delayMs);
+            relayState.lastRelayTime = millis();
+            relayState.relayCountThisMinute++;
+            LOG_D(TAG, "Relay queued (delay=%lums, snr=%.1f)",
+                  (unsigned long)delayMs, snr);
         }
         else
         {
-            LOG_W(TAG, "Failed to create relay timer");
-            delete data;
+            LOG_W(TAG, "Failed to queue relay");
         }
     }
 }
@@ -328,6 +380,44 @@ static void deepSleepTimerCallback(TimerHandle_t xTimer)
 }
 
 // ============================================================================
+// Helper: Determine TX priority from portnum
+// ============================================================================
+
+static TxPriority priorityFromPortnum(meshtastic_PortNum portnum)
+{
+    switch (portnum)
+    {
+    case meshtastic_PortNum_ROUTING_APP:
+        return TX_PRIORITY_ACK;
+    case meshtastic_PortNum_NODEINFO_APP:
+    case meshtastic_PortNum_TELEMETRY_APP:
+        return TX_PRIORITY_BROADCAST;
+    default:
+        return TX_PRIORITY_USER_TEXT;
+    }
+}
+
+static uint8_t maxRetriesForPriority(TxPriority priority, bool wantAck)
+{
+    if (!wantAck)
+        return 0;
+
+    switch (priority)
+    {
+    case TX_PRIORITY_ACK:
+        return RetryConstants::MAX_RETRIES_ACK;
+    case TX_PRIORITY_USER_TEXT:
+        return RetryConstants::MAX_RETRIES_USER;
+    case TX_PRIORITY_RELAY:
+        return RetryConstants::MAX_RETRIES_RELAY;
+    case TX_PRIORITY_BROADCAST:
+        return RetryConstants::MAX_RETRIES_BROADCAST;
+    default:
+        return 0;
+    }
+}
+
+// ============================================================================
 // Setup
 // ============================================================================
 
@@ -359,9 +449,6 @@ void setup()
             ;
     }
     LOG_I(TAG, "Protocol: Meshtastic (sync word 0x2B)");
-
-    // Get channel key for packet encryption
-    MeshProtocol::getChannelKey(channelKey);
 
     // Construct Meshtastic device name: "Meshtastic_XXXX"
     char deviceName[20];
@@ -437,7 +524,7 @@ void setup()
         }
     }
 
-    // ✅ Phase 3: NodeInfo broadcast timer (30 seconds)
+    // NodeInfo broadcast timer (30 seconds)
     TimerHandle_t nodeInfoTimer = xTimerCreate(
         "NodeInfo",
         pdMS_TO_TICKS(30000), // 30 seconds
@@ -451,8 +538,7 @@ void setup()
         LOG_I(TAG, "NodeInfo broadcast timer started (30s interval)");
     }
 
-    // ✅ Phase 3: Telemetry broadcast timer (60 seconds, delayed start)
-    // Start 15s after setup to avoid collision with NodeInfo timer at 60s multiples.
+    // Telemetry broadcast timer (60 seconds, delayed start)
     TimerHandle_t telemetryTimer = xTimerCreate(
         "Telemetry",
         pdMS_TO_TICKS(60000), // 60 seconds
@@ -479,7 +565,7 @@ void setup()
         LOG_I(TAG, "Telemetry broadcast timer started (60s interval)");
     }
 
-    // ✅ Phase 4: PeerNodeDB save timer (5 minutes)
+    // PeerNodeDB save timer (5 minutes)
     TimerHandle_t peerDbSaveTimer = xTimerCreate(
         "PeerDBSave",
         pdMS_TO_TICKS(300000), // 5 minutes
@@ -514,6 +600,7 @@ void loop()
     bleManager->processPendingConfig();
 
     // Process BLE -> LoRa (ToRadio packets from phone)
+    // All items enqueue quickly into TxQueue — none dropped
     meshtastic_ToRadio toRadio;
     while (bleToLoraQueue.pop(toRadio))
     {
@@ -594,7 +681,7 @@ void onLoRaReceived(const LoRaPacket &packet)
     ledManager->blink(LEDConstants::RX_BLINKS);
 #endif
 
-    // ✅ Phase 3: Parse header first (needed for dedup check)
+    // Parse header first (needed for dedup check)
     MeshPacket::PacketHeader header;
     if (!MeshPacket::deserializeHeader(packet.buffer, header))
     {
@@ -602,16 +689,73 @@ void onLoRaReceived(const LoRaPacket &packet)
         return;
     }
 
-    // ✅ Phase 3: Duplicate detection (before expensive decryption)
-    if (isDuplicate(header.from, header.id))
+    // Phase C: Extend pending TX timers by this packet's airtime
+    // Avoids transmitting while we're still receiving on-air traffic
+    uint32_t toaMs = (uint32_t)LoRaManager::calculateToA_ms(
+        LoRaConstants::SPREADING_FACTOR,
+        LoRaConstants::BANDWIDTH,
+        LoRaConstants::CODING_RATE,
+        LoRaConstants::PREAMBLE_LENGTH,
+        packet.len);
+    loraManager->extendPendingTimers(toaMs);
+
+    // Phase D: Implicit ACK — check if this is our own packet being relayed
+    uint32_t ownNodeNum = NodeDB::getOwnNodeNum();
+    if (header.from == ownNodeNum)
     {
-        return; // Early exit — don't process duplicate
+        if (checkImplicitAck(header.from, header.id))
+        {
+            LOG_I(TAG, "Implicit ACK: packet id=%lu relayed by another node",
+                  (unsigned long)header.id);
+
+            // Cancel any pending retries for this packet
+            loraManager->cancelQueued(header.from, header.id);
+
+            // Notify BLE app via FromRadio with ROUTING_APP ACK
+            meshtastic_FromRadio ackFromRadio = meshtastic_FromRadio_init_zero;
+            ackFromRadio.id = fromRadioId++;
+            ackFromRadio.which_payload_variant = meshtastic_FromRadio_packet_tag;
+            auto &ackPkt = ackFromRadio.packet;
+            ackPkt.from = header.from;
+            ackPkt.to = ownNodeNum;
+            ackPkt.id = header.id;
+            ackPkt.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+            ackPkt.decoded.portnum = meshtastic_PortNum_ROUTING_APP;
+            ackPkt.decoded.request_id = header.id;
+
+            // Encode Routing ACK payload
+            meshtastic_Routing routing = meshtastic_Routing_init_zero;
+            routing.error_reason = meshtastic_Routing_Error_NONE;
+            pb_ostream_t stream = pb_ostream_from_buffer(
+                ackPkt.decoded.payload.bytes,
+                sizeof(ackPkt.decoded.payload.bytes));
+            if (pb_encode(&stream, meshtastic_Routing_fields, &routing))
+            {
+                ackPkt.decoded.payload.size = stream.bytes_written;
+            }
+
+            loraToBleQueue.push(ackFromRadio);
+        }
+        // Don't process our own relayed packet further
+        return;
     }
 
-    // ✅ Phase 4: Mesh relay (operates on raw encrypted bytes, no decrypt needed)
-    // Relay if: not from self AND hopLimit > 0
-    uint32_t ownNodeNum = NodeDB::getOwnNodeNum();
-    if (header.from != ownNodeNum && header.getHopLimit() > 0)
+    // Duplicate detection (before expensive decryption)
+    if (isDuplicate(header.from, header.id))
+    {
+        // Phase E: Cancel our pending relay if another node already relayed
+        int cancelled = loraManager->cancelQueuedRelays(header.from, header.id);
+        if (cancelled > 0)
+        {
+            LOG_I(TAG, "Dupe cancellation: cancelled %d pending relay(s) for id=%lu",
+                  cancelled, (unsigned long)header.id);
+        }
+        return;
+    }
+
+    // Mesh relay (operates on raw encrypted bytes, no decrypt needed)
+    // Relay if: hopLimit > 0 (already excluded self above)
+    if (header.getHopLimit() > 0)
     {
         // Copy raw packet and decrement hop_limit
         uint8_t relayPacket[MeshPacket::MAX_PACKET_SIZE];
@@ -625,8 +769,20 @@ void onLoRaReceived(const LoRaPacket &packet)
         LOG_D(TAG, "Relay candidate: from=%08lx, hopLimit %u->%u",
               (unsigned long)header.from, currentHopLimit, newHopLimit);
 
-        scheduleRelay(relayPacket, packet.len);
+        // Phase F: SNR-weighted delay
+        scheduleRelay(relayPacket, packet.len, header.from, header.id, packet.snr);
     }
+
+    // Multi-channel: find decryption key by channel hash
+    uint8_t channelIdx;
+    if (!MeshProtocol::findChannelByHash(header.channelHash, channelIdx))
+    {
+        LOG_W(TAG, "No matching channel for hash 0x%02X (relayed but not decoded)",
+              header.channelHash);
+        return;
+    }
+    uint8_t channelKey[32];
+    MeshProtocol::getChannelKey(channelIdx, channelKey);
 
     // Parse Meshtastic packet (decrypt + decode protobuf)
     meshtastic_Data data;
@@ -639,9 +795,12 @@ void onLoRaReceived(const LoRaPacket &packet)
     // Record the sender
     NodeDB::recordSeenNode(header.from, packet.rssi, packet.snr);
 
-    // ✅ Phase 3: Dispatch based on portnum
+    // Dispatch based on portnum
     switch (data.portnum)
     {
+    case meshtastic_PortNum_POSITION_APP:
+        AppHandlers::handlePositionApp(data, header.from);
+        break;
     case meshtastic_PortNum_NODEINFO_APP:
         AppHandlers::handleNodeInfoApp(data, header.from);
         break;
@@ -683,7 +842,7 @@ void onLoRaReceived(const LoRaPacket &packet)
     meshPacket.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     meshPacket.decoded = data;
 
-    // ✅ Phase 3: Check want_ack flag
+    // Check want_ack flag
     if (header.getWantAck() && header.to != 0xFFFFFFFF) // Not broadcast
     {
         scheduleAckResponse(header.from, header.id);
@@ -729,9 +888,6 @@ void handleToRadioPacket(const meshtastic_ToRadio &toRadio)
     LOG_D(TAG, "Processing ToRadio packet: to=%08lx, id=%lu",
           (unsigned long)meshPacket.to, (unsigned long)meshPacket.id);
 
-    // The phone sends a MeshPacket with decoded Data.
-    // We need to encode the Data protobuf, encrypt it, and build the OTA packet.
-
     if (meshPacket.which_payload_variant != meshtastic_MeshPacket_decoded_tag)
     {
         LOG_W(TAG, "ToRadio packet has no decoded payload");
@@ -740,7 +896,7 @@ void handleToRadioPacket(const meshtastic_ToRadio &toRadio)
 
     const meshtastic_Data &data = meshPacket.decoded;
 
-    // ✅ Phase 4: Intercept local admin requests (addressed to self)
+    // Intercept local admin requests (addressed to self)
     if (data.portnum == meshtastic_PortNum_ADMIN_APP &&
         meshPacket.to == NodeDB::getOwnNodeNum())
     {
@@ -769,6 +925,10 @@ void handleToRadioPacket(const meshtastic_ToRadio &toRadio)
     // Use our own node number as sender
     uint32_t fromNode = NodeDB::getOwnNodeNum();
 
+    // Get channel key for the requested channel index
+    uint8_t channelKey[32];
+    MeshProtocol::getChannelKey(meshPacket.channel, channelKey);
+
     // Construct nonce and encrypt
     uint8_t nonce[16];
     MeshCrypto::constructNonce(packetId, fromNode, nonce);
@@ -789,7 +949,7 @@ void handleToRadioPacket(const meshtastic_ToRadio &toRadio)
     header.setChannelIndex(meshPacket.channel);
     header.setHopLimit(meshPacket.hop_limit > 0 ? meshPacket.hop_limit : 3);
     header.setWantAck(meshPacket.want_ack);
-    header.channelHash = MeshPacket::calculateChannelHash("", (const uint8_t *)"\x01", 1);
+    header.channelHash = MeshProtocol::getChannelHash(meshPacket.channel);
     header.reserved = 0;
 
     // Serialize complete OTA packet
@@ -798,14 +958,28 @@ void handleToRadioPacket(const meshtastic_ToRadio &toRadio)
     memcpy(otaBuffer + MeshPacket::HEADER_SIZE, ciphertext, plaintextLen);
     size_t totalLen = MeshPacket::HEADER_SIZE + plaintextLen;
 
-    // Transmit via LoRa
-    if (loraManager->startTransmit(otaBuffer, totalLen))
+    // Determine priority and retry count
+    TxPriority priority = priorityFromPortnum(data.portnum);
+    uint8_t maxRetries = maxRetriesForPriority(priority, meshPacket.want_ack);
+
+    // Phase D: Record pending ACK for implicit ACK detection
+    if (meshPacket.want_ack && meshPacket.to != MeshPacket::BROADCAST_ADDR)
     {
-        LOG_I(TAG, "Transmitting MeshPacket: %lu bytes (to=%08lx, port=%d)",
-              (unsigned long)totalLen, (unsigned long)meshPacket.to, data.portnum);
+        recordPendingAck(fromNode, packetId);
+    }
+
+    // Queue for transmission (replaces direct startTransmit)
+    if (loraManager->queueTransmit(otaBuffer, totalLen, priority,
+                                   fromNode, packetId,
+                                   false, // not a relay
+                                   maxRetries))
+    {
+        LOG_I(TAG, "Queued MeshPacket: %lu bytes (to=%08lx, port=%d, pri=%u, retries=%u)",
+              (unsigned long)totalLen, (unsigned long)meshPacket.to,
+              data.portnum, priority, maxRetries);
     }
     else
     {
-        LOG_W(TAG, "Failed to start LoRa transmission");
+        LOG_W(TAG, "Failed to queue LoRa transmission");
     }
 }

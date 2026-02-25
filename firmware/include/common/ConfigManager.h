@@ -5,6 +5,7 @@
 #include "meshtastic/mesh.pb.h"
 #include "meshtastic/config.pb.h"
 #include "meshtastic/channel.pb.h"
+#include "meshtastic/module_config.pb.h"
 
 /**
  * @file ConfigManager.h
@@ -50,6 +51,14 @@ namespace ConfigManager
      * @return true on success
      */
     bool getChannel(meshtastic_Channel *channel, uint8_t index);
+
+    /**
+     * @brief Populate ModuleConfig for config download
+     * @param config Output ModuleConfig structure
+     * @param which ModuleConfig variant tag (meshtastic_ModuleConfig_mqtt_tag, etc.)
+     * @return true on success
+     */
+    bool getModuleConfig(meshtastic_ModuleConfig *config, pb_size_t which);
 
     /**
      * @brief Get own NodeInfo for config download

@@ -87,6 +87,44 @@ namespace LoRaConstants
 }
 
 //==============================================================================
+// CSMA/CA Configuration
+//==============================================================================
+
+namespace CSMAConstants
+{
+    /// Maximum number of backoff attempts before forcing TX
+    constexpr uint8_t MAX_BACKOFF_ATTEMPTS = 5;
+
+    /// Duration of one CSMA slot (milliseconds)
+    constexpr uint32_t SLOT_TIME_MS = 50;
+
+    /// Maximum total backoff time (milliseconds)
+    constexpr uint32_t MAX_BACKOFF_MS = 1600;
+}
+
+//==============================================================================
+// TX Retry Configuration
+//==============================================================================
+
+namespace RetryConstants
+{
+    /// Max retries for user messages (want_ack)
+    constexpr uint8_t MAX_RETRIES_USER = 3;
+
+    /// Max retries for ACK packets (none — ACKs are fire-and-forget)
+    constexpr uint8_t MAX_RETRIES_ACK = 0;
+
+    /// Max retries for relay packets
+    constexpr uint8_t MAX_RETRIES_RELAY = 1;
+
+    /// Max retries for broadcast packets (NodeInfo, Telemetry)
+    constexpr uint8_t MAX_RETRIES_BROADCAST = 0;
+
+    /// Base interval between retries (milliseconds)
+    constexpr uint32_t BASE_RETRY_INTERVAL_MS = 3000;
+}
+
+//==============================================================================
 // BLE Configuration (Meshtastic)
 //==============================================================================
 

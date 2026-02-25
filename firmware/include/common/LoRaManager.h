@@ -3,6 +3,7 @@
 
 #include <RadioLib.h>
 #include <functional>
+#include "common/TxQueue.h"
 
 // Platform-specific includes and definitions
 #if defined(ARDUINO_ARCH_ESP32)
@@ -13,15 +14,6 @@
 #else
 #error "Unsupported platform"
 #endif
-
-/**
- * @file LoRaManager.h
- * @brief Unified LoRa radio manager for ESP32 and nRF52 platforms
- *
- * This class provides a high-level interface for LoRa communication,
- * abstracting RadioLib details and providing event-driven packet handling.
- * Works on both ESP32 and nRF52.
- */
 
 /// State machine states for LoRa manager
 enum LoRaState : uint8_t
@@ -66,161 +58,81 @@ using LoRaTransmitCallback = std::function<void(bool success)>;
  *
  * Responsibilities:
  *  - Initialize and configure LoRa radio with specified parameters
- *  - Transmit messages via LoRa with interrupt-driven approach
+ *  - Queue and prioritize outgoing transmissions
+ *  - CSMA/CA channel sensing before transmit
+ *  - Retry management for unacked packets
  *  - Receive packets using interrupt-driven approach
  *  - Provide event callbacks for received packets and transmission completion
- *  - Abstract RadioLib implementation details from application
  */
 class LoRaManager
 {
 public:
-    /**
-     * @brief Construct LoRaManager with GPIO pin configuration
-     * @param sck SPI clock pin
-     * @param miso SPI MISO pin
-     * @param mosi SPI MOSI pin
-     * @param ss SPI slave select pin
-     * @param rst Reset pin
-     * @param dio0 DIO0 interrupt pin
-     * @param busy Busy pin (for SX126x radios)
-     */
     LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy);
 
-    // Non-copyable (singleton with dynamic allocation)
+    // Non-copyable
     LoRaManager(const LoRaManager&) = delete;
     LoRaManager& operator=(const LoRaManager&) = delete;
 
-    /**
-     * @brief Initialize LoRa radio - This method must be called on cold start of the device.
-     * @return true on success, false on failure
-     */
     bool begin();
-
-    /**
-     * @brief Handle wakeup from deep sleep caused by LoRa packet.
-     *
-     * Attempts to read the pending packet without resetting the radio.
-     * Should be called instead of begin() if wakeup reason is LoRa.
-     *
-     * @return true if packet was successfully read and handled
-     */
     bool handleSleepWakeup();
-
-    /**
-     * @brief Start continuous receive mode or duty-cycled receive mode
-     *
-     * Uses hardware-based duty cycle mode
-     * where the radio autonomously sleeps between RX windows to save power.
-     *
-     * @return true on success, false on failure
-     */
     bool startReceive(bool dutyCycle = false);
 
     /**
-     * @brief Start non-blocking interrupt-driven transmission
+     * @brief Queue a packet for transmission with priority ordering
      *
-     * This method initiates transmission and returns immediately.
-     * The transmit callback will be invoked when transmission completes.
-     * Automatically switches from RX -> TX, and back to RX after completion.
+     * Replaces direct startTransmit() calls. Packets are stored in a
+     * priority queue and transmitted from process() when the channel is clear.
      *
-     * @param data Pointer to data buffer
-     * @param len Length of data to transmit
-     * @return true if transmission started successfully, false otherwise
+     * @param data Packet data to transmit
+     * @param len Length of data
+     * @param priority Transmission priority
+     * @param fromNode Source node number (for cancellation matching)
+     * @param packetId Packet ID (for cancellation matching)
+     * @param isRelay True if this is a mesh relay
+     * @param maxRetries Number of retry attempts (0 = no retry)
+     * @param delayMs Minimum delay before first TX attempt
+     * @return true if queued successfully
      */
-    bool startTransmit(const uint8_t *data, size_t len);
+    bool queueTransmit(const uint8_t *data, size_t len, TxPriority priority,
+                       uint32_t fromNode, uint32_t packetId,
+                       bool isRelay = false, uint8_t maxRetries = 0,
+                       uint32_t delayMs = 0);
 
     /**
-     * @brief Enqueue a packet for CAD-based transmission
-     *
-     * Adds the packet to an internal TX queue. The packet will be transmitted
-     * when the channel is detected as free via CAD (Channel Activity Detection).
-     *
-     * @param data Pointer to data buffer
-     * @param len Length of data to transmit
-     * @return true if enqueued successfully, false if queue is full
+     * @brief Cancel all queued entries matching fromNode + packetId
      */
-    bool queueTransmit(const uint8_t *data, size_t len);
+    int cancelQueued(uint32_t fromNode, uint32_t packetId);
 
     /**
-     * @brief Check if transmission is in progress
-     * @return true if transmitting, false otherwise
+     * @brief Cancel only relay entries matching fromNode + packetId
      */
+    int cancelQueuedRelays(uint32_t fromNode, uint32_t packetId);
+
+    /**
+     * @brief Extend TX timers for all pending entries (collision avoidance)
+     */
+    void extendPendingTimers(uint32_t ms);
+
     bool isTransmitting() const { return state == STATE_TRANSMITTING; }
 
-    /**
-     * @brief Set callback for received packets
-     *
-     * The callback will be invoked from the main loop (not ISR)
-     * when a packet is successfully received.
-     *
-     * @param callback Function to call with received packet
-     */
     void setReceiveCallback(LoRaReceiveCallback callback);
-
-    /**
-     * @brief Set callback for transmission completion
-     *
-     * The callback will be invoked from the main loop (not ISR)
-     * when transmission completes (success or failure).
-     *
-     * @param callback Function to call with transmission result
-     */
     void setTransmitCallback(LoRaTransmitCallback callback);
 
     /**
-     * @brief Process LoRa events (call from main loop or task)
+     * @brief Process LoRa events and dequeue TX packets
      *
-     * Checks for received packets and transmission completion,
-     * invoking callbacks as needed.
-     * This should be called regularly from the main loop or FreeRTOS task.
+     * Handles RX packet delivery, TX completion, and dequeues the next
+     * ready packet with CSMA/CA channel sensing.
      */
     void process();
 
-    /**
-     * @brief Get current RSSI of last received packet
-     * @return RSSI in dBm
-     */
     int getRSSI() const;
-
-    /**
-     * @brief Get current SNR of last received packet
-     * @return SNR in dB
-     */
     float getSNR() const;
-
-    /**
-     * @brief Check if LoRa radio is initialized
-     * @return true if initialized, false otherwise
-     */
     bool isInitialized() const { return state != STATE_UNINITIALIZED; }
 
-    /**
-     * @brief Static ISR handler for LoRa DIO0 receive interrupt
-     * Must be public to be registered as ISR callback
-     */
     static void LORA_ISR_ATTR onReceiveISR();
-
-    /**
-     * @brief Static ISR handler for LoRa DIO0 transmit interrupt
-     * Must be public to be registered as ISR callback
-     */
     static void LORA_ISR_ATTR onTransmitISR();
 
-    /**
-     * @brief Calculates the Time on Air (ToA) for a LoRa packet.
-     *
-     * This function is based on the formulas provided in the Semtech datasheets.
-     *
-     * @param spreadingFactor The spreading factor (7-12).
-     * @param bandwidth The bandwidth in Hz (e.g., 125000).
-     * @param codingRate The coding rate (1-4, corresponding to 4/5 to 4/8).
-     * @param preambleLength The number of preamble symbols.
-     * @param payloadLength The length of the payload in bytes.
-     * @param explicitHeader True if an explicit header is used, false for implicit.
-     * @param crcEnabled True if CRC is enabled.
-     * @param lowDataRateOptimize True if low data rate optimization is enabled.
-     * @return The Time on Air in milliseconds.
-     */
     static inline double calculateToA_ms(
         uint8_t spreadingFactor,
         double bandwidth,
@@ -230,44 +142,28 @@ public:
         bool explicitHeader = true,
         bool crcEnabled = true)
     {
-        // Symbol duration (bandwidth parameter is in kHz)
         double t_sym = std::pow(2, spreadingFactor) / (bandwidth);
-
         bool lowDataRateOptimize = t_sym >= 16.0;
-        // Preamble duration
         double t_preamble = (preambleLength + 4.25) * t_sym;
 
-        // Payload number of symbols
         int8_t header = explicitHeader ? 0 : 1;
         int8_t crc = crcEnabled ? 16 : 0;
         int8_t de = lowDataRateOptimize ? 1 : 0;
 
         double payload_numerator = 8.0 * payloadLength - 4.0 * spreadingFactor + 28.0 + crc - 20.0 * header;
         double payload_denominator = 4.0 * (spreadingFactor - 2.0 * de);
-
         double n_payload = 8.0 + std::max(0.0, std::ceil(payload_numerator / payload_denominator) * (codingRate + 4.0));
-
-        // Payload duration
         double t_payload = n_payload * t_sym;
 
-        // Total ToA
         return t_preamble + t_payload;
     }
 
 private:
     // GPIO pin configuration
-    int pinSCK;
-    int pinMISO;
-    int pinMOSI;
-    int pinSS;
-    int pinRST;
-    int pinDIO0;
-    int pinBusy; // For SX126x radios
+    int pinSCK, pinMISO, pinMOSI, pinSS, pinRST, pinDIO0, pinBusy;
 
-    // RadioLib Module instance (kept for direct access during wakeup)
     Module *module;
 
-    // RadioLib radio instance (type depends on RADIO_ definition)
 #if defined(RADIO_SX1262)
     SX1262 *radio;
 #elif defined(RADIO_SX1268)
@@ -276,32 +172,34 @@ private:
 #error "No supported RADIO defined! Please define RADIO_SX1262, or RADIO_SX1268"
 #endif
 
-    // State machine
     volatile LoRaState state;
 
-    // Callbacks
     LoRaReceiveCallback receiveCallback;
     LoRaTransmitCallback transmitCallback;
 
-    // Singleton instance for ISR access
     static LoRaManager *instance;
 
-    // Helper to initialize SPI bus
     void initSPI();
 
-    // Internal TX queue (CAD-based transmission)
-    static constexpr int TX_QUEUE_SIZE = 5;
-    TxPacket txQueue[TX_QUEUE_SIZE];
-    int txQueueHead = 0;
-    int txQueueTail = 0;
-    int txQueueCount = 0;
-    int cadRetries = 0;
+    // TX queue and current transmission tracking
+    TxQueue txQueue_;
+    TxQueueEntry *currentTxEntry_;
 
-    // TX→RX settle deadline (millis timestamp, used in STATE_TX_SETTLING)
-    uint32_t txSettleDeadline = 0;
+    // CSMA/CA state
+    uint8_t csmaBackoffCount_;
 
-    /// Process TX queue: CAD check then transmit if channel free
-    bool processTxQueue();
+    /**
+     * @brief Start non-blocking interrupt-driven transmission (internal use)
+     *
+     * Called only from process() after CSMA check passes.
+     */
+    bool startTransmit(const uint8_t *data, size_t len);
+
+    /**
+     * @brief Check if the radio channel is clear using CAD
+     * @return true if channel is free, false if activity detected
+     */
+    bool isChannelClear();
 };
 
 #endif // LORA_MANAGER_H

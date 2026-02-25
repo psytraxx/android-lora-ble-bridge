@@ -6,9 +6,6 @@
 
 static const char *TAG = "LoRa";
 
-// Platform-specific includes will be handled via FirmwareConfig later
-// For now, we'll use conditional compilation for constants
-
 // Static instance for ISR access
 LoRaManager *LoRaManager::instance = nullptr;
 
@@ -24,15 +21,14 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
       radio(nullptr),
       state(STATE_UNINITIALIZED),
       receiveCallback(nullptr),
-      transmitCallback(nullptr)
+      transmitCallback(nullptr),
+      currentTxEntry_(nullptr),
+      csmaBackoffCount_(0)
 {
-    // Set singleton instance for ISR access
     instance = this;
 
-    // Create RadioLib module instance - keep reference for direct access during wakeup
     module = new Module(pinSS, pinDIO0, pinRST, pinBusy);
 
-    // Create RadioLib radio instance (type depends on radio chip)
 #if defined(RADIO_SX1262)
     radio = new SX1262(module);
 #elif defined(RADIO_SX1268)
@@ -45,11 +41,8 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
 void LoRaManager::initSPI()
 {
 #if defined(ARDUINO_ARCH_ESP32)
-    // ESP32: Initialize SPI with custom pins
     SPI.begin(pinSCK, pinMISO, pinMOSI, pinSS);
 #elif defined(ARDUINO_ARCH_NRF52)
-    // nRF52: SPI needs to be reinitialized after System OFF wakeup
-    // The Arduino core handles pin configuration, we just need to start SPI
     SPI.begin();
 #endif
 }
@@ -60,14 +53,11 @@ bool LoRaManager::begin()
 
     initSPI();
 
-    // nRF52: SPI initialization happens elsewhere (in Arduino core)
     for (int attempt = 1; attempt <= LoRaConstants::INIT_RETRY_COUNT; attempt++)
     {
         LOG_I(TAG, "Setup attempt %d/%d", attempt, LoRaConstants::INIT_RETRY_COUNT);
 
-        // Initialize radio based on chip type
         int initResult;
-        // SX12XX: Basic initialization
         initResult = radio->begin(
             LoRaConstants::FREQUENCY,
             LoRaConstants::BANDWIDTH,
@@ -100,9 +90,6 @@ bool LoRaManager::begin()
             }
 
 #if defined(RADIO_SX1262) || defined(RADIO_SX1268)
-            // OPTIONAL: Explicitly set TCXO control via DIO3.
-            // Non-fatal: hardware may not have an external TCXO; begin() may already
-            // configure this. Failure is logged but does not abort initialization.
             res = radio->setTCXO(LoRaConstants::TCXO_VOLTAGE);
             if (res != RADIOLIB_ERR_NONE)
             {
@@ -141,8 +128,6 @@ bool LoRaManager::begin()
             LOG_I(TAG, "DIO2 configured as RF switch");
 
 #if defined(LORA_MAX_CURRENT)
-            // REQUIRED: PA current limit protects the SX126x PA from over-current.
-            // Fatal: without this limit the PA may operate outside safe ratings.
             res = radio->setCurrentLimit(LORA_MAX_CURRENT);
             if (res != RADIOLIB_ERR_NONE)
             {
@@ -181,16 +166,12 @@ bool LoRaManager::startReceive(bool dutyCycle)
         return false;
     }
 
-    // Set receive interrupt handler
     radio->setPacketReceivedAction(LoRaManager::onReceiveISR);
 
 #if defined(RADIO_SX1262) || defined(RADIO_SX1268)
     if (dutyCycle)
     {
-        // SX1262/SX1268: Hardware-based duty cycle mode
         LOG_I(TAG, "Starting duty cycle RX mode");
-        // Use configured preamble length to match sender
-        // Pass 0 for minSymbols to let RadioLib calculate it based on Spreading Factor
         int rxState = radio->startReceiveDutyCycleAuto(
             LoRaConstants::PREAMBLE_LENGTH,
             0);
@@ -204,7 +185,6 @@ bool LoRaManager::startReceive(bool dutyCycle)
     else
     {
 #endif
-        // Standard continuous receive mode (all radios)
         int rxState = radio->startReceive();
         if (rxState != RADIOLIB_ERR_NONE)
         {
@@ -236,11 +216,9 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
 
     LOG_I(TAG, "Starting transmission of %d bytes", len);
 
-    // Switch to transmit mode with interrupt
     radio->clearPacketReceivedAction();
     radio->setPacketSentAction(LoRaManager::onTransmitISR);
 
-    // Start non-blocking transmission
     state = STATE_TRANSMITTING;
     int txState = radio->startTransmit(const_cast<uint8_t *>(data), len);
 
@@ -256,6 +234,62 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
     return true;
 }
 
+// ============================================================================
+// Queue-based TX API
+// ============================================================================
+
+bool LoRaManager::queueTransmit(const uint8_t *data, size_t len, TxPriority priority,
+                                uint32_t fromNode, uint32_t packetId,
+                                bool isRelay, uint8_t maxRetries, uint32_t delayMs)
+{
+    return txQueue_.push(data, len, priority, fromNode, packetId,
+                         isRelay, maxRetries, delayMs);
+}
+
+int LoRaManager::cancelQueued(uint32_t fromNode, uint32_t packetId)
+{
+    return txQueue_.cancel(fromNode, packetId);
+}
+
+int LoRaManager::cancelQueuedRelays(uint32_t fromNode, uint32_t packetId)
+{
+    return txQueue_.cancelRelays(fromNode, packetId);
+}
+
+void LoRaManager::extendPendingTimers(uint32_t ms)
+{
+    txQueue_.extendTimers(ms);
+}
+
+// ============================================================================
+// CSMA/CA Channel Activity Detection
+// ============================================================================
+
+bool LoRaManager::isChannelClear()
+{
+    int result = radio->scanChannel();
+
+    if (result == RADIOLIB_CHANNEL_FREE)
+    {
+        return true;
+    }
+    else if (result == RADIOLIB_PREAMBLE_DETECTED)
+    {
+        LOG_D(TAG, "CSMA: channel busy (preamble detected)");
+        return false;
+    }
+    else
+    {
+        // scanChannel error — treat as clear to avoid permanent stall
+        LOG_W(TAG, "CSMA: scanChannel error %d, treating as clear", result);
+        return true;
+    }
+}
+
+// ============================================================================
+// Callbacks
+// ============================================================================
+
 void LoRaManager::setReceiveCallback(LoRaReceiveCallback callback)
 {
     receiveCallback = callback;
@@ -266,84 +300,17 @@ void LoRaManager::setTransmitCallback(LoRaTransmitCallback callback)
     transmitCallback = callback;
 }
 
-bool LoRaManager::queueTransmit(const uint8_t *data, size_t len)
-{
-    if (len == 0 || len > sizeof(TxPacket::data))
-    {
-        LOG_E(TAG, "TX queue: invalid packet length %d", len);
-        return false;
-    }
-
-    if (txQueueCount >= TX_QUEUE_SIZE)
-    {
-        LOG_W(TAG, "TX queue full, dropping packet");
-        return false;
-    }
-
-    TxPacket &pkt = txQueue[txQueueTail];
-    memcpy(pkt.data, data, len);
-    pkt.len = len;
-    txQueueTail = (txQueueTail + 1) % TX_QUEUE_SIZE;
-    txQueueCount++;
-
-    LOG_I(TAG, "TX queued (%d bytes, queue depth: %d)", len, txQueueCount);
-    return true;
-}
-
-bool LoRaManager::processTxQueue()
-{
-    if (txQueueCount == 0 || state != STATE_IDLE)
-        return false;
-
-    int16_t result = radio->scanChannel();
-
-    if (result == RADIOLIB_CHANNEL_FREE)
-    {
-        LOG_I(TAG, "CAD: channel free, transmitting");
-        TxPacket &pkt = txQueue[txQueueHead];
-        bool ok = startTransmit(pkt.data, pkt.len);
-        txQueueHead = (txQueueHead + 1) % TX_QUEUE_SIZE;
-        txQueueCount--;
-        cadRetries = 0;
-        return ok;
-    }
-    else if (result == RADIOLIB_LORA_DETECTED)
-    {
-        cadRetries++;
-        LOG_I(TAG, "CAD: channel busy (retry %d/%d)", cadRetries, LoRaConstants::CAD_MAX_RETRIES);
-
-        if (cadRetries >= LoRaConstants::CAD_MAX_RETRIES)
-        {
-            LOG_W(TAG, "CAD: max retries reached, force transmitting");
-            TxPacket &pkt = txQueue[txQueueHead];
-            bool ok = startTransmit(pkt.data, pkt.len);
-            txQueueHead = (txQueueHead + 1) % TX_QUEUE_SIZE;
-            txQueueCount--;
-            cadRetries = 0;
-            return ok;
-        }
-
-        // Restart RX since scanChannel() left radio in standby
-        startReceive(true);
-        return false;
-    }
-    else
-    {
-        LOG_E(TAG, "CAD: scan failed with code %d", result);
-        // Restart RX since scanChannel() left radio in standby
-        startReceive(true);
-        return false;
-    }
-}
+// ============================================================================
+// Main Process Loop
+// ============================================================================
 
 void LoRaManager::process()
 {
-    // Check for received packets
+    // Handle received packets
     if (state == STATE_PACKET_RECEIVED)
     {
         LOG_D(TAG, "RX packet detected, processing");
 
-        // Read packet data
         LoRaPacket packet;
         packet.len = radio->getPacketLength();
         int rxState = radio->readData(packet.buffer, packet.len);
@@ -373,7 +340,6 @@ void LoRaManager::process()
         // Restart RX mode if callback didn't start a transmission
         if (state == STATE_PACKET_RECEIVED)
         {
-            // Use duty cycle mode by default for power savings (SX126x)
             startReceive(true);
             state = STATE_IDLE;
             LOG_D(TAG, "RX packet processing complete, receive mode restarted");
@@ -385,41 +351,78 @@ void LoRaManager::process()
         return;
     }
 
-    // Check for completed transmission
+    // Handle completed transmission
     if (state == STATE_PACKET_SENT)
     {
         LOG_I(TAG, "TX complete");
 
-        // Invoke transmit callback
         if (transmitCallback)
         {
             transmitCallback(true);
         }
 
-        // Begin non-blocking settle period before switching to RX mode.
-        // Avoids delay() in the main-loop process() call while still providing
-        // the hardware settle time required for reliable TX->RX transitions.
-        state = STATE_TX_SETTLING;
-        txSettleDeadline = millis() + LoRaConstants::RX_SETTLE_TIME_MS;
-        return;
-    }
-
-    // Wait out the post-TX hardware settle period (non-blocking)
-    if (state == STATE_TX_SETTLING)
-    {
-        if ((uint32_t)millis() >= txSettleDeadline)
+        // Check if current entry needs retry
+        if (currentTxEntry_ && currentTxEntry_->active)
         {
-            startReceive(true);
-            state = STATE_IDLE;
-            LOG_I(TAG, "Now in RX mode");
+            if (currentTxEntry_->maxRetries > 0 &&
+                txQueue_.requeueForRetry(currentTxEntry_, RetryConstants::BASE_RETRY_INTERVAL_MS))
+            {
+                // Entry stays in queue for retry
+                LOG_D(TAG, "Entry requeued for retry");
+            }
+            else
+            {
+                // Done with this entry (no retries or max reached)
+                txQueue_.pop(currentTxEntry_);
+            }
         }
+        currentTxEntry_ = nullptr;
+
+        delay(LoRaConstants::RX_SETTLE_TIME_MS);
+        startReceive(true);
+        state = STATE_IDLE;
+        LOG_I(TAG, "Now in RX mode");
         return;
     }
 
-    // Drain TX queue when idle
-    if (state == STATE_IDLE && txQueueCount > 0)
+    // Dequeue next TX packet when idle
+    if (state == STATE_IDLE)
     {
-        processTxQueue();
+        uint32_t now = millis();
+        TxQueueEntry *entry = txQueue_.peekReady(now);
+
+        if (entry != nullptr)
+        {
+            // CSMA/CA: check channel before transmitting
+            if (!isChannelClear())
+            {
+                // Exponential backoff
+                uint32_t maxSlots = 1u << min(csmaBackoffCount_, CSMAConstants::MAX_BACKOFF_ATTEMPTS);
+                uint32_t backoffMs = random(0, maxSlots) * CSMAConstants::SLOT_TIME_MS;
+                backoffMs = min(backoffMs, CSMAConstants::MAX_BACKOFF_MS);
+
+                entry->earliestTxTime = now + backoffMs;
+                csmaBackoffCount_++;
+
+                LOG_D(TAG, "CSMA backoff #%u: %lums",
+                      csmaBackoffCount_, (unsigned long)backoffMs);
+
+                // Restart RX since scanChannel() leaves radio in standby
+                startReceive(true);
+                return;
+            }
+
+            // Channel clear — transmit
+            csmaBackoffCount_ = 0;
+            currentTxEntry_ = entry;
+
+            if (!startTransmit(entry->packet, entry->length))
+            {
+                LOG_W(TAG, "TX dequeue failed, discarding entry");
+                txQueue_.pop(entry);
+                currentTxEntry_ = nullptr;
+            }
+        }
     }
 }
 
@@ -441,15 +444,10 @@ bool LoRaManager::handleSleepWakeup()
 {
     LOG_I(TAG, "Resuming from deep sleep (LoRa wakeup)");
 
-    // 1. Initialize SPI
     initSPI();
 
-    // 2. Initialize RadioLib Module (HAL and pins) - this is critical!
-    // The Module must be properly initialized before any SPI communication.
     module->init();
 
-    // 3. Configure SPI settings for SX126x protocol
-    // Without this, RadioLib sends malformed SPI commands and reads garbage.
     module->spiConfig.widths[RADIOLIB_MODULE_SPI_WIDTH_ADDR] = Module::BITS_16;
     module->spiConfig.widths[RADIOLIB_MODULE_SPI_WIDTH_CMD] = Module::BITS_8;
     module->spiConfig.statusPos = 1;
@@ -459,11 +457,8 @@ bool LoRaManager::handleSleepWakeup()
     module->spiConfig.cmds[RADIOLIB_MODULE_SPI_COMMAND_STATUS] = RADIOLIB_SX126X_CMD_GET_STATUS;
     module->spiConfig.stream = true;
 
-    // 4. Set DIO0 as input for interrupt
     pinMode(pinDIO0, INPUT);
 
-    // 5. Read packet from the SX1262's buffer
-    // The chip retains its configuration and buffer during duty cycle mode.
     LoRaPacket packet;
     size_t len = radio->getPacketLength();
     packet.len = len;
@@ -472,7 +467,6 @@ bool LoRaManager::handleSleepWakeup()
     {
         LOG_I(TAG, "Detected pending packet: %d bytes", packet.len);
 
-        // readData reads from the buffer and checks CRC from hardware flags
         int readState = radio->readData(packet.buffer, packet.len);
 
         if (readState == RADIOLIB_ERR_NONE)
@@ -483,8 +477,6 @@ bool LoRaManager::handleSleepWakeup()
             LOG_I(TAG, "Wakeup packet received (%d bytes, RSSI: %d dBm, SNR: %.1f dB)",
                   packet.len, packet.rssi, packet.snr);
 
-            // Re-initialize radio to ensure consistent state for ACK/future RX
-            // This resets the radio, but we already have the packet.
             begin();
 
             if (receiveCallback)
