@@ -24,13 +24,14 @@ export class DeviceInfoModal extends LitElement {
         <div class="modal-box">
           <h3 class="text-lg font-bold mb-4">Device Info</h3>
 
-          ${this.loading
-            ? html`<div class="flex justify-center py-8">
+          ${
+            this.loading
+              ? html`<div class="flex justify-center py-8">
                 <span class="loading loading-spinner loading-lg"></span>
               </div>`
-            : this.info
-              ? this.renderInfo(this.info)
-              : html`<p class="text-base-content/60">No device info available</p>`
+              : this.info
+                ? this.renderInfo(this.info)
+                : html`<p class="text-base-content/60">No device info available</p>`
           }
 
           <div class="modal-action">
@@ -46,8 +47,11 @@ export class DeviceInfoModal extends LitElement {
 
   private renderInfo(info: DeviceInfo) {
     const batteryColor =
-      info.batteryLevel > 50 ? 'text-success' :
-      info.batteryLevel > 20 ? 'text-warning' : 'text-error';
+      info.batteryLevel > 50
+        ? 'text-success'
+        : info.batteryLevel > 20
+          ? 'text-warning'
+          : 'text-error';
 
     const freqMHz = (info.frequencyHz / 1_000_000).toFixed(2);
     const bwKHz = info.bandwidthHz / 1_000;

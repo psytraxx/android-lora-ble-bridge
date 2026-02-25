@@ -131,30 +131,33 @@ export class LoraApp extends LitElement {
               @disconnect=${this.onDisconnect}
               @info-request=${this.onInfoRequest}
             ></connection-status>
-            ${isConnecting
-        ? html`<progress class="progress progress-primary w-full h-1"></progress>`
-        : ''
-      }
-            ${showBleWarning
-        ? html`
+            ${
+              isConnecting
+                ? html`<progress class="progress progress-primary w-full h-1"></progress>`
+                : ''
+            }
+            ${
+              showBleWarning
+                ? html`
                   <div role="alert" class="alert alert-warning rounded-none">
                     ${exclamationTriangleIcon('shrink-0 w-6 h-6')}
                     <span>Web Bluetooth not supported. Use Chrome on desktop or Android.</span>
                   </div>
                 `
-        : ''
-      }
+                : ''
+            }
         </header>
 
         <!-- Main content area -->
         <main class="flex-1 mt-20 mb-20 overflow-y-auto">
-          ${showEmptyState
-        ? html`<empty-state
+          ${
+            showEmptyState
+              ? html`<empty-state
                 class="h-full"
                 @connect-requested=${this.onConnectRequest}
               ></empty-state>`
-        : html`<message-list class="h-full" .messages=${this.messages}></message-list>`
-      }
+              : html`<message-list class="h-full" .messages=${this.messages}></message-list>`
+          }
         </main>
 
         <!-- Fixed Footer -->
@@ -185,8 +188,8 @@ export class LoraApp extends LitElement {
         <success-toast
           .show=${this.showSuccessToast}
           @hide=${() => {
-        this.showSuccessToast = false;
-      }}
+            this.showSuccessToast = false;
+          }}
         ></success-toast>
       </div>
     `;

@@ -362,11 +362,9 @@ export class BleService {
           this.onNotification
         );
         if (canStopNotifications) {
-          void this.txCharacteristic
-            .stopNotifications()
-            .catch((error) => {
-              console.warn('Error stopping notifications:', error);
-            });
+          void this.txCharacteristic.stopNotifications().catch((error) => {
+            console.warn('Error stopping notifications:', error);
+          });
         }
       } catch (error) {
         console.warn('Error stopping notifications:', error);

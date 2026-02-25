@@ -48,51 +48,59 @@ export class ConnectionStatus extends LitElement {
         <!-- Center the badge and device info in the middle of the navbar (only on sm+). On small screens show a right-side icon instead -->
         <div class="hidden sm:flex sm:absolute sm:left-1/2 sm:top-1/2 sm:transform sm:-translate-x-1/2 sm:-translate-y-1/2 z-10 items-center gap-3">
           <div class="flex items-center">${badge}</div>
-          ${this.deviceName || this.deviceId
-        ? html`<div class="flex flex-col text-left text-xs ml-2">
+          ${
+            this.deviceName || this.deviceId
+              ? html`<div class="flex flex-col text-left text-xs ml-2">
                 ${this.deviceName ? html`<div class="font-medium">${this.deviceName}</div>` : ''}
                 ${this.deviceId ? html`<div class="text-base-content/70 truncate max-w-xs">${this.deviceId}</div>` : ''}
               </div>`
-        : ''
-      }
-          ${showInfoButton
-        ? html`<button class="btn btn-ghost btn-xs gap-1" @click=${this.onInfoRequest} title="Device Info">
+              : ''
+          }
+          ${
+            showInfoButton
+              ? html`<button class="btn btn-ghost btn-xs gap-1" @click=${this.onInfoRequest} title="Device Info">
                 ${informationCircleIcon('w-4 h-4')}
                 <span class="hidden sm:inline">Info</span>
               </button>`
-        : ''
-      }
+              : ''
+          }
         </div>
 
         <div class="flex-none px-4 flex items-center gap-3 ml-auto">
-          ${showInfoButton
-        ? html`<button class="btn btn-ghost btn-xs gap-1 sm:hidden" @click=${this.onInfoRequest} title="Device Info">
+          ${
+            showInfoButton
+              ? html`<button class="btn btn-ghost btn-xs gap-1 sm:hidden" @click=${this.onInfoRequest} title="Device Info">
                   ${informationCircleIcon('w-4 h-4')}
                 </button>`
-        : ''}
+              : ''
+          }
           <!-- Small-screen status/device display -->
           <div class="flex flex-col items-end sm:hidden text-right mr-2">
             <div>${badge}</div>
-            ${this.deviceName || this.deviceId
-        ? html`<div class="text-xs font-medium truncate max-w-[10rem]">${this.deviceName ? this.deviceName : this.deviceId}</div>`
-        : ''}
+            ${
+              this.deviceName || this.deviceId
+                ? html`<div class="text-xs font-medium truncate max-w-[10rem]">${this.deviceName ? this.deviceName : this.deviceId}</div>`
+                : ''
+            }
           </div>
           <theme-switcher></theme-switcher>
-          ${showConnectButton
-        ? html`<button class="btn btn-primary" @click=${this.onConnect}>
+          ${
+            showConnectButton
+              ? html`<button class="btn btn-primary" @click=${this.onConnect}>
                   Connect
                 </button>`
-        : ''
-      }
-          ${showDisconnectButton
-        ? html`<button class="btn btn-error btn-sm" @click=${this.onDisconnect}>
+              : ''
+          }
+          ${
+            showDisconnectButton
+              ? html`<button class="btn btn-error btn-sm" @click=${this.onDisconnect}>
                   <span class="sm:hidden">
                     ${stopCircleIcon('w-4 h-4')}
                   </span>
                   <span class="hidden sm:inline">Disconnect</span>
                 </button>`
-        : ''
-      }
+              : ''
+          }
         </div>
       </nav>
     `;
