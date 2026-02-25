@@ -12,8 +12,8 @@ export const MESSAGE_TYPE = {
 export type MessageType = (typeof MESSAGE_TYPE)[keyof typeof MESSAGE_TYPE];
 
 /**
- * TextMessage: [Type][Seq][CharCount][PackedLen][PackedText][HasGPS][Lat?][Lon?]
- * Max size: 52 bytes (5 header + 38 text + 9 GPS)
+ * TextMessage: [Type][Seq][CharCount][PackedLen][PackedText][HasGPS][Lat?][Lon?][SenderTime]
+ * Max size: 55 bytes (5 header + 38 text + 8 GPS + 4 sender time)
  */
 export interface TextMessage {
   type: typeof MESSAGE_TYPE.TEXT;

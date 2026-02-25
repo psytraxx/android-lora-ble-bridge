@@ -91,6 +91,12 @@ export class BleService {
       throw new Error('Web Bluetooth is not supported in this browser');
     }
 
+    // Clean up any existing connection before starting a new one
+    // to prevent listener leaks if connect() is called while already connected
+    if (this.device || this.server) {
+      this.cleanup();
+    }
+
     this.setState(ConnectionState.SCANNING);
 
     try {

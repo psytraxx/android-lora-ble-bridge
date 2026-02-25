@@ -370,7 +370,7 @@ export class LoraApp extends LitElement {
       window.clearTimeout(existing);
     }
 
-    // Set new timeout (5 seconds)
+    // Set new timeout
     const timeout = window.setTimeout(() => {
       console.log('ACK timeout for seq:', seq);
       this.ackTimeouts.delete(seq);

@@ -17,7 +17,7 @@ import {
 /**
  * Serializes a Message to binary format
  *
- * TextMessage: [Type:1][Seq:1][CharCount:1][PackedLen:1][Packed:N][HasGPS:1][Lat?:4][Lon?:4]
+ * TextMessage: [Type:1][Seq:1][CharCount:1][PackedLen:1][Packed:N][HasGPS:1][Lat?:4][Lon?:4][SenderTime:4]
  * AckMessage: [Type:1][Seq:1]
  *
  * @param message Message to serialize
