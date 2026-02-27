@@ -68,25 +68,11 @@ namespace LoRaConstants
     /// and allow the text message itself to wake sleeping receivers (no separate WakeUp needed)
     constexpr int PREAMBLE_LENGTH = 64;
 
-    /// Returns ACK delay with random jitter to prevent collisions
-    /// Jitter prevents multiple receivers from transmitting ACK simultaneously
-    ///
-    /// The delay only needs to account for:
-    /// - Sender's TX→RX switch time (RX_SETTLE_TIME_MS)
-    /// - Processing margin
-    /// - Random jitter to prevent collision when multiple receivers ACK
-    ///
-    /// Note: We don't need to wait for the full packet ToA because the sender
-    /// has already finished transmitting by the time we start this delay.
-    /// @return ACK delay with jitter in milliseconds
-    inline int getAckDelay(uint8_t /*sf*/, float /*bw*/, uint8_t /*cr*/, int /*preamble*/, int /*actualPayload*/)
-    {
-        // Base delay: sender TX→RX switch + small processing margin
-        int baseDelay = RX_SETTLE_TIME_MS + 100;
-        // Random jitter: 0-300ms to prevent collision
-        int jitter = random(0, TIMING_MARGIN_MS);
-        return baseDelay + jitter;
-    }
+    /// CAD (Channel Activity Detection) configuration
+    /// Used to check if the channel is free before transmitting
+    constexpr int CAD_MAX_RETRIES = 5;        ///< Max CAD attempts before force-transmitting
+    constexpr int CAD_BACKOFF_BASE_MS = 50;   ///< Base backoff between CAD retries
+    constexpr int CAD_BACKOFF_JITTER_MS = 100; ///< Random jitter added to backoff
 
     /// Number of retry attempts for LoRa initialization
     constexpr int INIT_RETRY_COUNT = 3;
