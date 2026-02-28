@@ -9,8 +9,8 @@
 /// LoRa frequency in Hz (433.92 MHz)
 pub const LORA_FREQUENCY_HZ: u32 = 433_920_000;
 
-/// LoRa bandwidth in Hz (250 kHz)
-pub const LORA_BANDWIDTH_HZ: u32 = 250_000;
+/// LoRa bandwidth in Hz (125 kHz) - matches C++ firmware
+pub const LORA_BANDWIDTH_HZ: u32 = 125_000;
 
 /// LoRa spreading factor (7-12) - SF11 matches Arduino firmware for interoperability
 pub const LORA_SPREADING_FACTOR: u8 = 11;
@@ -40,10 +40,10 @@ pub const LORA_TCXO_VOLTAGE: f32 = 1.8;
 /// The SX1262 alternates between brief RX windows and sleep to save power.
 /// Constraint: rx + sleep < preamble duration so a packet is always detected.
 ///
-/// Symbol period = 2^SF / BW = 2^11/250kHz = 8.192ms
-/// RX window = 9 symbols = 73.7ms (8 min for detection + 1 margin)
-/// Sleep window = 48 symbols = 393.2ms (preamble(64) - 2*8 detection margin)
-/// Total cycle = 466.9ms < 524.3ms preamble → always catches ≥7 preamble symbols
+/// Symbol period = 2^SF / BW = 2^11/125kHz = 16.384ms
+/// RX window = 9 symbols = 147.5ms (8 min for detection + 1 margin)
+/// Sleep window = 48 symbols = 786ms (preamble(64) - 2*8 detection margin)
+/// Total cycle = 933.5ms < 1048.6ms preamble → always catches ≥7 preamble symbols
 ///
 /// Values are SX1262 raw timer steps (15.625µs each).
 const SYMBOL_PERIOD_US: u32 =
@@ -154,6 +154,32 @@ pub const ACK_JITTER_MIN_MS: u64 = 150;
 
 /// Maximum ACK delay in milliseconds
 pub const ACK_JITTER_MAX_MS: u64 = 450;
+
+//==============================================================================
+// CAD (Channel Activity Detection) Configuration
+//==============================================================================
+
+/// Max CAD attempts before force-transmitting (matches C++ CAD_MAX_RETRIES)
+pub const CAD_MAX_RETRIES: u8 = 5;
+
+/// Base backoff delay between CAD retries (milliseconds)
+pub const CAD_BACKOFF_BASE_MS: u64 = 50;
+
+/// Maximum random jitter added to CAD backoff (milliseconds)
+pub const CAD_BACKOFF_JITTER_MS: u64 = 100;
+
+//==============================================================================
+// Message Retry Configuration
+//==============================================================================
+
+/// Number of retransmit attempts for user text messages (BLE → LoRa)
+/// Matches C++ retry behavior: user msgs 3x, ACK/broadcast 0x
+pub const LORA_TEXT_RETRIES: u8 = 3;
+
+/// Timeout before retrying a text message (milliseconds)
+/// Must exceed roundtrip time (our TX + remote ACK TX) at SF11/BW125
+/// SF11/BW125 ~40-byte packet ToA ≈ 2s, so 8s gives comfortable margin
+pub const LORA_RETRY_TIMEOUT_MS: u64 = 8_000;
 
 //==============================================================================
 // Buffer Configuration

@@ -11,6 +11,7 @@ use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Receiver, Sender};
 use embassy_sync::mutex::Mutex;
+use embassy_time::{Duration, Instant, Timer};
 use esp_hal::{
     Async,
     gpio::{AnyPin, Input, InputConfig, Output, OutputConfig},
@@ -205,7 +206,7 @@ pub async fn esp32_lora_task(
     let modulation_params = lora
         .create_modulation_params(
             SpreadingFactor::_11,
-            Bandwidth::_250KHz,
+            Bandwidth::_125KHz,
             CodingRate::_4_5,
             LORA_FREQUENCY_HZ,
         )
@@ -267,7 +268,7 @@ pub async fn esp32_lora_task(
         .await
         {
             Either::First(msg) => {
-                // Handle TX
+                // Handle TX with CAD (Channel Activity Detection) before transmitting
                 tx_count += 1;
                 info!("[LoRa] TX #{}: Preparing to send {:?}", tx_count, msg);
 
@@ -275,7 +276,66 @@ pub async fn esp32_lora_task(
                 match msg.serialize(&mut buf) {
                     Ok(len) => {
                         info!(
-                            "[LoRa] TX #{}: Serialized {} bytes, transmitting at {} dBm...",
+                            "[LoRa] TX #{}: Serialized {} bytes, checking channel (CAD)...",
+                            tx_count, len
+                        );
+
+                        // CAD loop: check channel is free before transmitting.
+                        // If busy, backoff with jitter and retry up to CAD_MAX_RETRIES.
+                        // If still busy after max retries, force-transmit anyway.
+                        let mut cad_retries: u8 = 0;
+                        'cad: loop {
+                            if cad_retries >= CAD_MAX_RETRIES {
+                                warn!(
+                                    "[LoRa] TX #{}: CAD max retries ({}) reached, force transmitting",
+                                    tx_count, CAD_MAX_RETRIES
+                                );
+                                break 'cad;
+                            }
+
+                            match lora.prepare_for_cad(&modulation_params).await {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    error!(
+                                        "[LoRa] TX #{}: CAD prepare failed: {:?}, forcing TX",
+                                        tx_count, e
+                                    );
+                                    break 'cad;
+                                }
+                            }
+
+                            match lora.cad(&modulation_params).await {
+                                Ok(false) => {
+                                    // Channel free - proceed to transmit
+                                    info!("[LoRa] TX #{}: CAD: channel free", tx_count);
+                                    break 'cad;
+                                }
+                                Ok(true) => {
+                                    // Channel busy - backoff and retry
+                                    cad_retries += 1;
+                                    let jitter_ms =
+                                        Instant::now().as_ticks() as u64 % CAD_BACKOFF_JITTER_MS;
+                                    let delay_ms = CAD_BACKOFF_BASE_MS + jitter_ms;
+                                    warn!(
+                                        "[LoRa] TX #{}: CAD: channel busy (retry {}/{}), backoff {}ms",
+                                        tx_count, cad_retries, CAD_MAX_RETRIES, delay_ms
+                                    );
+                                    Timer::after(Duration::from_millis(delay_ms)).await;
+                                    // Loop continues for next CAD attempt
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "[LoRa] TX #{}: CAD scan error: {:?}, forcing TX",
+                                        tx_count, e
+                                    );
+                                    break 'cad;
+                                }
+                            }
+                        }
+
+                        // Transmit (either channel was free or max retries reached)
+                        info!(
+                            "[LoRa] TX #{}: Transmitting {} bytes at {} dBm...",
                             tx_count, len, LORA_TX_POWER_DBM
                         );
                         match lora
@@ -299,6 +359,7 @@ pub async fn esp32_lora_task(
                                 error!("[LoRa] TX #{}: prepare_for_tx FAILED: {:?}", tx_count, e);
                             }
                         }
+
                         // Return to RX duty-cycle mode
                         debug!("[LoRa] Returning to RX duty-cycle mode...");
                         if let Err(e) = lora

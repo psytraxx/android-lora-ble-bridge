@@ -8,19 +8,30 @@ use crate::{
     adapters::nvs_storage_adapter::NvsStorageAdapter,
     constants::{
         ACK_JITTER_MAX_MS, ACK_JITTER_MIN_MS, ADVERTISING_DURATION_SECS, BUFFER_DRAIN_DELAY_MS,
-        LED_HEARTBEAT_INTERVAL_MS,
+        LED_HEARTBEAT_INTERVAL_MS, LORA_RETRY_TIMEOUT_MS, LORA_TEXT_RETRIES,
     },
     ports::Sleep as SleepTrait,
     ports::Storage as StorageTrait,
     protocol::{AckMessage, Message},
     tasks::{LedCommand, LedPattern, RadioMetadata},
 };
-use embassy_futures::select::{Either3, select3};
+use embassy_futures::select::{Either3, Either4, select3, select4};
 use embassy_sync::channel::{Receiver, Sender};
 use embassy_sync::signal::Signal;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::TrySendError};
 use embassy_time::{Duration, Instant, Ticker, Timer};
 use log::{debug, error, info, warn};
+
+/// A text message pending ACK from the remote side, eligible for retransmission.
+struct PendingTx {
+    msg: Message,
+    seq: u8,
+    retries_left: u8,
+    deadline: Instant,
+}
+
+/// Capacity of the recent-seq ring buffer used for duplicate suppression.
+const SEEN_SEQS_CAP: usize = 8;
 
 /// Connection state for the short-range transport
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +64,15 @@ pub struct MessageRouter {
 
     // Internal state
     connection_state: ConnectionState,
+
+    // Retry tracking: text message sent BLE→LoRa awaiting ACK
+    pending_tx: Option<PendingTx>,
+
+    // Duplicate suppression for incoming LoRa messages.
+    // Stores recent seq numbers in a ring buffer to drop retransmitted duplicates.
+    seen_seqs: [u8; SEEN_SEQS_CAP],
+    seen_seqs_count: usize, // 0..=SEEN_SEQS_CAP valid entries
+    seen_seqs_head: usize,  // next write position
 }
 
 impl MessageRouter {
@@ -84,6 +104,10 @@ impl MessageRouter {
             storage,
             sleep,
             connection_state: ConnectionState::Disconnected,
+            pending_tx: None,
+            seen_seqs: [0u8; SEEN_SEQS_CAP],
+            seen_seqs_count: 0,
+            seen_seqs_head: 0,
         }
     }
 
@@ -200,6 +224,45 @@ impl MessageRouter {
         // Note: Deep sleep resets the CPU, so we never get here
     }
 
+    /// Record an incoming LoRa seq number and return true if it was already seen (duplicate).
+    fn check_and_record_seq(&mut self, seq: u8) -> bool {
+        // Check all valid entries
+        for i in 0..self.seen_seqs_count {
+            if self.seen_seqs[i] == seq {
+                return true; // duplicate
+            }
+        }
+        // Record: if buffer not full, append; otherwise overwrite oldest (ring)
+        self.seen_seqs[self.seen_seqs_head] = seq;
+        self.seen_seqs_head = (self.seen_seqs_head + 1) % SEEN_SEQS_CAP;
+        if self.seen_seqs_count < SEEN_SEQS_CAP {
+            self.seen_seqs_count += 1;
+        }
+        false
+    }
+
+    /// Retransmit the pending message or give up if retries are exhausted.
+    async fn handle_retry(&mut self) {
+        let Some(pending) = self.pending_tx.take() else {
+            return;
+        };
+        if pending.retries_left > 0 {
+            info!(
+                "[Router] Retrying seq={} ({} retries left)",
+                pending.seq, pending.retries_left
+            );
+            self.tx_to_lora.send(pending.msg.clone()).await;
+            self.pending_tx = Some(PendingTx {
+                msg: pending.msg,
+                seq: pending.seq,
+                retries_left: pending.retries_left - 1,
+                deadline: Instant::now() + Duration::from_millis(LORA_RETRY_TIMEOUT_MS),
+            });
+        } else {
+            warn!("[Router] seq={} exhausted all retries, giving up", pending.seq);
+        }
+    }
+
     /// Main routing loop while connected
     async fn routing_loop(&mut self) {
         self.signal_activity();
@@ -285,19 +348,28 @@ impl MessageRouter {
         info!("[Router] Entering main routing loop (BLE connected)...");
 
         loop {
-            match select3(
+            // Retry timer: fires at pending_tx.deadline, or never if no pending TX
+            let retry_fut = async {
+                match self.pending_tx {
+                    Some(ref p) => Timer::at(p.deadline).await,
+                    None => core::future::pending::<()>().await,
+                }
+            };
+
+            match select4(
                 self.rx_from_ble.receive(),
                 self.rx_from_lora.receive(),
                 heartbeat_ticker.next(),
+                retry_fut,
             )
             .await
             {
-                Either3::First(msg) => {
+                Either4::First(msg) => {
                     info!("[Router] BLE -> LoRa: {:?}", msg);
                     self.signal_activity();
                     self.handle_short_range_message(msg).await;
                 }
-                Either3::Second((msg, metadata)) => {
+                Either4::Second((msg, metadata)) => {
                     info!(
                         "[Router] LoRa -> BLE: {:?} (RSSI: {}, SNR: {})",
                         msg, metadata.rssi, metadata.snr
@@ -305,7 +377,7 @@ impl MessageRouter {
                     self.signal_activity();
                     self.handle_long_range_message(msg).await;
                 }
-                Either3::Third(_) => {
+                Either4::Third(_) => {
                     if self
                         .led_commands
                         .try_send(LedCommand::Blink(LedPattern::Heartbeat))
@@ -313,6 +385,10 @@ impl MessageRouter {
                     {
                         debug!("[Router] LED command queue full (heartbeat)");
                     }
+                }
+                Either4::Fourth(_) => {
+                    // Retry deadline fired
+                    self.handle_retry().await;
                 }
             }
 
@@ -332,8 +408,32 @@ impl MessageRouter {
     async fn handle_short_range_message(&mut self, msg: Message) {
         info!("[Router] Forwarding message from BLE to LoRa: {:?}", msg);
 
-        self.tx_to_lora.send(msg).await;
+        // Extract seq before moving msg
+        let seq = if let Message::Text(ref t) = msg {
+            Some(t.seq)
+        } else {
+            None
+        };
+
+        self.tx_to_lora.send(msg.clone()).await;
         debug!("[Router] Message queued for LoRa TX");
+
+        // Track retries for text messages (ACKs and future relay msgs use 0 retries)
+        if let Some(seq) = seq {
+            if self.pending_tx.is_some() {
+                warn!("[Router] Replacing pending retry (seq={}) with new message", seq);
+            }
+            self.pending_tx = Some(PendingTx {
+                msg,
+                seq,
+                retries_left: LORA_TEXT_RETRIES,
+                deadline: Instant::now() + Duration::from_millis(LORA_RETRY_TIMEOUT_MS),
+            });
+            info!(
+                "[Router] Tracking retry for seq={} ({} retries, timeout {}ms)",
+                seq, LORA_TEXT_RETRIES, LORA_RETRY_TIMEOUT_MS
+            );
+        }
 
         if self
             .led_commands
@@ -358,6 +458,24 @@ impl MessageRouter {
                 // Extract Copy values for logging and ACK before moving
                 let seq = text_msg.seq;
                 let has_gps = text_msg.has_gps;
+
+                // Duplicate suppression: drop messages with a seq we've seen recently
+                if self.check_and_record_seq(seq) {
+                    info!("[Router] Dropping duplicate TEXT message (seq={})", seq);
+                    return;
+                }
+
+                // Implicit ACK: if we're retrying a message and we hear the same seq
+                // coming back over LoRa (e.g. relayed by another node), cancel retries.
+                if let Some(ref pending) = self.pending_tx {
+                    if pending.seq == seq {
+                        info!(
+                            "[Router] Implicit ACK: heard seq={} on air, cancelling retries",
+                            seq
+                        );
+                        self.pending_tx = None;
+                    }
+                }
 
                 info!(
                     "[Router] Received TEXT message: seq={}, text='{}', has_gps={}",
@@ -432,6 +550,14 @@ impl MessageRouter {
             Message::Ack(ack_msg) => {
                 let seq = ack_msg.seq;
                 info!("[Router] Received ACK message: seq={}", seq);
+
+                // Cancel pending retry if this ACK matches our outgoing message
+                if let Some(ref pending) = self.pending_tx {
+                    if pending.seq == seq {
+                        info!("[Router] ACK confirmed delivery of seq={}, cancelling retries", seq);
+                        self.pending_tx = None;
+                    }
+                }
 
                 if self.connection_state == ConnectionState::Connected {
                     // Reconstruct and move - ACKs aren't buffered, so no need to recover on failure
