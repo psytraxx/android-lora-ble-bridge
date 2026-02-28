@@ -369,11 +369,6 @@ void PowerManager::enterDeepSleep()
 {
     LOG_I(TAG, "Entering deep sleep...");
 
-    // Flush serial output to ensure logs are sent
-    Serial.flush();
-
-    delay(100); // Short delay to allow flush
-
     // Disable external peripherals to save power
     disableExternalPeripherals();
 
@@ -394,6 +389,10 @@ void PowerManager::enterDeepSleep()
     // Secure LoRa DIO0 (Pull-down) to prevent floating interrupts
     pinMode(LORA_DIO0, INPUT_PULLDOWN);
     gpio_hold_en((gpio_num_t)LORA_DIO0);
+
+    // Flush serial output to ensure all logs are sent before sleep
+    Serial.flush();
+    delay(100);
 
     // Disable Serial to save power
     Serial.end();

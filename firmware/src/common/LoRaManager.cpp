@@ -260,6 +260,76 @@ void LoRaManager::setTransmitCallback(LoRaTransmitCallback callback)
     transmitCallback = callback;
 }
 
+bool LoRaManager::queueTransmit(const uint8_t *data, size_t len)
+{
+    if (len == 0 || len > sizeof(TxPacket::data))
+    {
+        LOG_E(TAG, "TX queue: invalid packet length %d", len);
+        return false;
+    }
+
+    if (txQueueCount >= TX_QUEUE_SIZE)
+    {
+        LOG_W(TAG, "TX queue full, dropping packet");
+        return false;
+    }
+
+    TxPacket &pkt = txQueue[txQueueTail];
+    memcpy(pkt.data, data, len);
+    pkt.len = len;
+    txQueueTail = (txQueueTail + 1) % TX_QUEUE_SIZE;
+    txQueueCount++;
+
+    LOG_I(TAG, "TX queued (%d bytes, queue depth: %d)", len, txQueueCount);
+    return true;
+}
+
+bool LoRaManager::processTxQueue()
+{
+    if (txQueueCount == 0 || state != STATE_IDLE)
+        return false;
+
+    int16_t result = radio->scanChannel();
+
+    if (result == RADIOLIB_CHANNEL_FREE)
+    {
+        LOG_I(TAG, "CAD: channel free, transmitting");
+        TxPacket &pkt = txQueue[txQueueHead];
+        bool ok = startTransmit(pkt.data, pkt.len);
+        txQueueHead = (txQueueHead + 1) % TX_QUEUE_SIZE;
+        txQueueCount--;
+        cadRetries = 0;
+        return ok;
+    }
+    else if (result == RADIOLIB_LORA_DETECTED)
+    {
+        cadRetries++;
+        LOG_I(TAG, "CAD: channel busy (retry %d/%d)", cadRetries, LoRaConstants::CAD_MAX_RETRIES);
+
+        if (cadRetries >= LoRaConstants::CAD_MAX_RETRIES)
+        {
+            LOG_W(TAG, "CAD: max retries reached, force transmitting");
+            TxPacket &pkt = txQueue[txQueueHead];
+            bool ok = startTransmit(pkt.data, pkt.len);
+            txQueueHead = (txQueueHead + 1) % TX_QUEUE_SIZE;
+            txQueueCount--;
+            cadRetries = 0;
+            return ok;
+        }
+
+        // Restart RX since scanChannel() left radio in standby
+        startReceive(true);
+        return false;
+    }
+    else
+    {
+        LOG_E(TAG, "CAD: scan failed with code %d", result);
+        // Restart RX since scanChannel() left radio in standby
+        startReceive(true);
+        return false;
+    }
+}
+
 void LoRaManager::process()
 {
     // Check for received packets
@@ -329,6 +399,12 @@ void LoRaManager::process()
         state = STATE_IDLE;
         LOG_I(TAG, "Now in RX mode");
         return;
+    }
+
+    // Drain TX queue when idle
+    if (state == STATE_IDLE && txQueueCount > 0)
+    {
+        processTxQueue();
     }
 }
 

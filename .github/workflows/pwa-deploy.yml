@@ -40,8 +40,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '25'
-          cache: 'npm'
+          node-version: "25"
+          cache: "npm"
           cache-dependency-path: pwa/package-lock.json
 
       - name: Install dependencies

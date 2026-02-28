@@ -413,24 +413,14 @@ void onLoRaReceived(const LoRaPacket &packet)
 
             if (ackLen > 0)
             {
-                // Wait for sender to switch to RX mode before sending ACK
-                int ackDelay = LoRaConstants::getAckDelay(
-                    LoRaConstants::SPREADING_FACTOR,
-                    LoRaConstants::BANDWIDTH,
-                    LoRaConstants::CODING_RATE,
-                    LoRaConstants::PREAMBLE_LENGTH,
-                    packet.len);
-                LOG_D(TAG, "ACK delay: %d ms (includes jitter, based on %d byte packet)", ackDelay, packet.len);
-                delay(ackDelay);
-
-                // Send ACK (will be queued after current RX processing completes)
-                if (loraManager->startTransmit(ackBuffer, (size_t)ackLen))
+                // Enqueue ACK — CAD handles collision avoidance (no delay needed)
+                if (loraManager->queueTransmit(ackBuffer, (size_t)ackLen))
                 {
-                    LOG_I(TAG, "ACK transmission started for seq %d", msg.textData.seq);
+                    LOG_I(TAG, "ACK queued for seq %d", msg.textData.seq);
                 }
                 else
                 {
-                    LOG_W(TAG, "Failed to start ACK transmission");
+                    LOG_W(TAG, "Failed to queue ACK transmission");
                 }
             }
             else
@@ -478,13 +468,13 @@ void handleBleMessage(const Message &msg)
 
     if (msgLen > 0)
     {
-        if (loraManager->startTransmit(msgBuffer, (size_t)msgLen))
+        if (loraManager->queueTransmit(msgBuffer, (size_t)msgLen))
         {
             resetInactivityTimer();
         }
         else
         {
-            LOG_I(TAG, "Failed to start LoRa transmission");
+            LOG_I(TAG, "Failed to queue LoRa transmission");
         }
     }
     else

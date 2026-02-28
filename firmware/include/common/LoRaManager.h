@@ -48,6 +48,13 @@ struct LoRaPacket
 };
 #endif
 
+/// TX packet for internal queue (holds serialized bytes ready to transmit)
+struct TxPacket
+{
+    uint8_t data[64]; // MAX_PROTOCOL_MESSAGE
+    size_t len;
+};
+
 /// Callback type for received packets
 using LoRaReceiveCallback = std::function<void(const LoRaPacket &packet)>;
 
@@ -121,6 +128,18 @@ public:
      * @return true if transmission started successfully, false otherwise
      */
     bool startTransmit(const uint8_t *data, size_t len);
+
+    /**
+     * @brief Enqueue a packet for CAD-based transmission
+     *
+     * Adds the packet to an internal TX queue. The packet will be transmitted
+     * when the channel is detected as free via CAD (Channel Activity Detection).
+     *
+     * @param data Pointer to data buffer
+     * @param len Length of data to transmit
+     * @return true if enqueued successfully, false if queue is full
+     */
+    bool queueTransmit(const uint8_t *data, size_t len);
 
     /**
      * @brief Check if transmission is in progress
@@ -269,6 +288,17 @@ private:
 
     // Helper to initialize SPI bus
     void initSPI();
+
+    // Internal TX queue (CAD-based transmission)
+    static constexpr int TX_QUEUE_SIZE = 5;
+    TxPacket txQueue[TX_QUEUE_SIZE];
+    int txQueueHead = 0;
+    int txQueueTail = 0;
+    int txQueueCount = 0;
+    int cadRetries = 0;
+
+    /// Process TX queue: CAD check then transmit if channel free
+    bool processTxQueue();
 };
 
 #endif // LORA_MANAGER_H
