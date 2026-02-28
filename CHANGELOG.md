@@ -1,5 +1,20 @@
 ## Changelog
 
+### Firmware v3.6 (February 2026)
+- **CAD-based transmission queue** added to `LoRaManager`
+  - `queueTransmit()` is now the public API for all outgoing packets (ACKs and BLE-originated messages)
+  - Internal 5-entry circular TX queue; `processTxQueue()` runs in the main loop when radio is idle
+  - Channel Activity Detection via `radio->scanChannel()`: transmits if free, backs off if busy
+  - Up to 5 CAD retries with jitter before force-transmitting (`CAD_MAX_RETRIES`, `CAD_BACKOFF_BASE_MS`, `CAD_BACKOFF_JITTER_MS`)
+  - Radio restarted into RX after each failed CAD scan (scanChannel leaves it in standby)
+- **Removed `getAckDelay()`** - CAD collision avoidance replaces manual ACK delay + jitter
+- **PowerManager fix**: serial flush and drain delay now occur after GPIO pin configuration, immediately before `Serial.end()` — ensures all logs are sent before deep sleep
+- **PlatformIO**: platform version downgraded for Heltec WiFi LoRa v3 compatibility
+- **sdkconfig**: removed unused ESP TLS peripheral configuration
+
+### Android (February 2026)
+- Dependency bumps: AGP 9.0.1, Kotlin 2.3.10, Compose BOM 2026.02.01, Hilt 2.59.2, Activity Compose 1.12.4, Mockito 5.22.0
+
 ### Firmware v3.5 (January 2026)
 - **Removed WakeUp message type (0x03)** - Protocol simplified to Text (0x01) and Ack (0x02) messages only
 - **LoRa config updated**: BW250 kHz + CR4/5 (was BW125 + CR4/8) for better throughput

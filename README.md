@@ -268,7 +268,7 @@ cd android
 
 ### LoRa Module Configuration
 
-**Current Configuration (v3.4 - November 2025):**
+**Current Configuration (v3.6 - February 2026):**
 - **Frequency**: 433.92 MHz (worldwide ISM band)
 - **Bandwidth**: 250 kHz (faster data rate, moderate range)
 - **Spreading Factor**: 11 (excellent range and reliability)
@@ -430,8 +430,7 @@ sequenceDiagram
     Note right of ER: ~10-50ms
 
 
-  Note over ER: 4. Short delay before ACK → ensures sender switched to RX
-  ER-->>ER: delay(~150-450ms with jitter)
+  Note over ER: 4. CAD check → transmit ACK when channel free
 
   ER->>ES: 5. Send ACK (LoRa)
   Note left of ER: ACK airtime (SF11+BW250kHz)<br/>+ 50ms mode switch
@@ -460,7 +459,7 @@ gantt
 
     section Receiver
     Process & Forward     :a3, 1850, 1950
-  ACK Delay (~150-450ms) :a4, 1950, 2350
+  CAD Check + Backoff    :a4, 1950, 2350
 
 
     section LoRa RX
@@ -476,21 +475,16 @@ gantt
 
 ### Critical Timing Parameters
 
-**1. ACK Delay on Receiver (with collision avoidance)**
+**1. ACK Transmission via CAD (Channel Activity Detection)**
 ```cpp
 // firmware/include/common/FirmwareConfig.h
-// ACK delay: RX_SETTLE + margin + random jitter
-// Base: 50ms + 100ms = 150ms
-// Jitter: 0-300ms
-// Total: 150-450ms
+CAD_MAX_RETRIES       = 5;    // Force-transmit after this many busy detections
+CAD_BACKOFF_BASE_MS   = 50;   // Base backoff between retries
+CAD_BACKOFF_JITTER_MS = 100;  // Random jitter per retry
 ```
-- **Purpose**: Ensures ESP32 sender has switched from TX to RX mode
-- **Collision Avoidance**: Random jitter (0-300ms) prevents multiple receivers from transmitting ACK simultaneously
-- **Calculation**:
-  - RX settle time: 50ms
-  - Processing margin: 100ms
-  - Random jitter: 0-300ms (prevents simultaneous ACKs from multiple receivers)
-  - **Total**: ~150-450ms (varies per receiver to avoid collisions)
+- **Purpose**: Ensures channel is free before transmitting ACK — replaces manual `getAckDelay()`
+- **Collision Avoidance**: Multiple receivers each run `radio->scanChannel()` independently; natural CAD timing staggers simultaneous ACKs
+- **Flow**: free → transmit immediately; busy → backoff + retry up to 5×, then force-transmit
 
 **2. RX Mode Settle Time (50ms)**
 ```cpp
@@ -510,50 +504,37 @@ loraManager.startReceive(true);
 | **Preamble** | Included | 64-symbol preamble for duty-cycled receivers |
 | **Mode Switch (TX→RX)** | 10-50ms | Radio mode transition |
 | **RX Settle** | 50ms | Additional settle time in code |
-| **ACK Wait** | ~150-450ms | Short delay (RX settle + margin + random jitter) |
+| **CAD Check** | ~0-500ms | Channel Activity Detection before ACK TX (backoff if busy) |
 | **ACK Airtime** | ~686ms | ACK packet (2 bytes) at SF11, BW250kHz, 64-preamble |
 
 ### Why These Timings Matter
 
-**Problem Without Proper Timing:**
+**Problem Without CAD:**
 1. Android sends unified text+GPS message via BLE
 2. ESP32 transmits via LoRa
-3. ESP32 switches to RX mode but not fully ready
-4. Receiver immediately sends ACK
-5. **ACK arrives before ESP32 is listening → Lost ACK ❌**
+3. Multiple receivers all send ACK simultaneously
+4. **ACK collision → sender receives nothing ❌**
 
-**Solution With Proper Timing:**
+**Solution With CAD:**
 1. Android sends unified message, ESP32 transmits via LoRa
-2. ESP32 switches to RX mode + 50ms settle
-3. Receiver waits short ACK delay (~150-450ms with jitter)
-4. ESP32 is fully ready and receives ACK ✓
+2. Each receiver runs `radio->scanChannel()` independently
+3. Natural CAD timing staggers ACKs — busy detection causes backoff
+4. First clear-channel receiver transmits ACK ✓
 5. Android displays checkmark
 
-### Adjusting Timings
+### Adjusting CAD Behavior
 
-**Note:** ACK timing is now **automatically calculated** based on actual received packet size in `FirmwareConfig.h`:
+CAD constants are in `firmware/include/common/FirmwareConfig.h`:
 
 ```cpp
-// firmware/include/common/FirmwareConfig.h
-inline int getAckDelay(...) {
-    int baseDelay = RX_SETTLE_TIME_MS + 100;  // 50ms + 100ms = 150ms
-    int jitter = random(0, TIMING_MARGIN_MS); // 0-300ms
-    return baseDelay + jitter;  // 150-450ms total
-}
+constexpr int CAD_MAX_RETRIES       = 5;    // Max busy detections before force-TX
+constexpr int CAD_BACKOFF_BASE_MS   = 50;   // Base backoff between retries
+constexpr int CAD_BACKOFF_JITTER_MS = 100;  // Random jitter per retry
 ```
 
-**Current values (SF11 + BW250 + CR4/5 + 64-symbol preamble):**
-- RX settle time: 50ms
-- Processing margin: 100ms
-- Random jitter: 0-300ms (prevents simultaneous ACKs)
-- **Total ACK delay**: ~150-450ms (varies per receiver)
+`getAckDelay()` has been removed — collision avoidance is handled by CAD instead of a fixed delay. Increase `CAD_MAX_RETRIES` for denser deployments with more simultaneous receivers.
 
-**Benefits of simplified ACK timing:**
-- Fast ACK response (~150-450ms vs previous 2+ seconds)
-- Random jitter prevents collision when multiple receivers ACK the same broadcast
-- Extended 64-symbol preamble allows text messages to directly wake duty-cycled receivers
-
-If you change LoRa parameters (SF, BW, CR, preamble), timing adjusts automatically.
+If you change LoRa parameters (SF, BW, CR, preamble), reflash all devices — CAD detection thresholds are handled by RadioLib automatically.
 
 ### Debugging Timing Issues
 
@@ -578,9 +559,9 @@ If you change LoRa parameters (SF, BW, CR, preamble), timing adjusts automatical
 
 **If ACKs are missing:**
 1. Verify LoRa parameters match on all devices (SF, BW, CR must be identical)
-2. Check TIMING_MARGIN_MS in FirmwareConfig.h (default: 500ms, increase if needed)
-3. Increase RX_SETTLE_TIME_MS if hardware needs more time (default: 50ms)
-4. Check serial logs for mode transition timing
+2. Check serial logs for `CAD: channel free` / `CAD: channel busy` / `CAD: max retries reached`
+3. Increase `CAD_MAX_RETRIES` in FirmwareConfig.h if channel is consistently busy
+4. Verify `RX_SETTLE_TIME_MS` is sufficient for your hardware (default: 50ms)
 
 ## Troubleshooting
 

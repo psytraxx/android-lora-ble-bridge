@@ -218,36 +218,35 @@ void setup() {
 - Logs help debugging
 - Different handling for LoRa wake vs button wake
 
-### ✅ Good: ACK Timing with Jitter
+### ✅ Good: CAD-Based ACK Transmission
 
 ```cpp
-// firmware/src/common/LoRaManager.cpp
-void onLoRaReceive() {
-    uint8_t buffer[256];
-    int len = radio.receive(buffer, sizeof(buffer));
+// firmware/src/unified_main.cpp
+void onLoRaReceived(const LoRaPacket &packet) {
+    // ... parse packet, build ACK ...
 
-    if (buffer[0] == 0x01) {  // TextMessage
-        // Short ACK delay: TX→RX switch + margin + random jitter
-        int ackDelay = LoRaConstants::RX_SETTLE_TIME_MS + 100;
-        ackDelay += random(0, LoRaConstants::TIMING_MARGIN_MS);  // 0-300ms jitter
-
-        delay(ackDelay);  // Wait for sender to switch to RX
-        sendAck(buffer[1]);  // Send ACK for sequence number
+    if (ackLen > 0) {
+        // Enqueue ACK — CAD handles collision avoidance (no delay needed)
+        if (loraManager->queueTransmit(ackBuffer, (size_t)ackLen))
+            LOG_I(TAG, "ACK queued for seq %d", msg.textData.seq);
+        else
+            LOG_W(TAG, "Failed to queue ACK transmission");
     }
 }
 ```
 
 **Why this is good:**
-- Short delay (150-450ms) for fast ACK response
-- Random jitter prevents ACK collisions from multiple receivers
-- Comments explain the timing
+- No blocking `delay()` — CAD (`radio->scanChannel()`) checks channel before TX
+- Multiple receivers naturally stagger ACKs because each CAD scan takes time
+- `queueTransmit()` is the only public TX API; `startTransmit()` is internal
 
-### ❌ Bad: No Delay
+### ❌ Bad: Blocking Delay Before ACK
 
 ```cpp
 // DON'T DO THIS
 void onLoRaReceive() {
-    sendAck(seqNum);  // ❌ No delay - sender may not be ready!
+    delay(ackDelay);       // ❌ Blocks the loop
+    startTransmit(ack);    // ❌ Bypasses CAD queue
 }
 ```
 
@@ -282,7 +281,7 @@ fun testStatusMessageSerialization() { /* ... */ }
 
 ## Critical Timing Constants
 
-### Current Configuration (v3.4)
+### Current Configuration (v3.6)
 
 ```cpp
 // firmware/include/common/FirmwareConfig.h
@@ -294,25 +293,20 @@ LORA_TX_POWER:         20 dBm      // 100 mW (check regional limits!)
 LORA_PREAMBLE_LENGTH:  64 symbols  // Extended preamble for direct wake-up
 ```
 
-**ACK Timing:**
+**CAD (Channel Activity Detection) constants:**
 ```cpp
-// ACK delay is simple and fast:
-// - RX settle time (50ms) for sender's TX→RX switch
-// - Small processing margin (100ms)
-// - Random jitter (0-300ms for collision avoidance)
-
-inline int getAckDelay(...) {
-    int baseDelay = RX_SETTLE_TIME_MS + 100;  // 150ms base
-    int jitter = random(0, TIMING_MARGIN_MS); // 0-300ms jitter
-    return baseDelay + jitter;  // Total: 150-450ms
-}
+// firmware/include/common/FirmwareConfig.h
+CAD_MAX_RETRIES      = 5;    // Force-transmit after this many busy detections
+CAD_BACKOFF_BASE_MS  = 50;   // Base backoff between CAD retries
+CAD_BACKOFF_JITTER_MS = 100; // Random jitter added to backoff
 ```
+
+ACK collision avoidance is now handled by CAD — `getAckDelay()` has been removed. Each receiver runs `radio->scanChannel()` independently; natural CAD timing staggers simultaneous ACKs without explicit delays.
 
 **If you change LoRa parameters:**
 1. Edit `firmware/include/common/FirmwareConfig.h`
-2. Timing constants auto-adjust based on new parameters
-3. **Reflash ALL devices** (parameters must match!)
-4. Verify ACK timing in serial logs
+2. **Reflash ALL devices** (parameters must match!)
+3. Verify CAD behavior in serial logs (`CAD: channel free` / `CAD: channel busy`)
 
 ---
 
@@ -385,8 +379,8 @@ cd firmware
 # File: firmware/include/common/FirmwareConfig.h
 # Modify: LORA_SPREADING_FACTOR, LORA_BANDWIDTH, etc.
 
-# 2. Note: ACK timing auto-adjusts based on new parameters
-# Verify in FirmwareConfig.h::getAckDelay()
+# 2. Note: CAD handles collision avoidance — no manual ACK delay needed
+# Tune CAD_MAX_RETRIES / CAD_BACKOFF_BASE_MS in FirmwareConfig.h if needed
 
 # 3. Reflash ALL devices
 ~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3 --target upload
@@ -407,12 +401,13 @@ cd firmware
 # Expected: "LoRa TX successful" → "LoRa RX: received 2 bytes" (ACK)
 
 # 3. Check receiver logs
-# Expected: "LoRa RX: received X bytes" → "Sending ACK for seq: N" → "ACK sent successfully"
+# Expected: "LoRa RX: received X bytes" → "ACK queued for seq N"
+#           "CAD: channel free, transmitting" → ACK sent
 
 # 4. If ACKs missing:
 # - Verify LoRa params match (SF, BW, CR, frequency)
-# - Check ACK delay calculation in logs
-# - Increase TIMING_MARGIN_MS if needed (default: 500ms)
+# - Look for "CAD: channel busy" — increase CAD_MAX_RETRIES if always busy
+# - Look for "CAD: scan failed" — indicates radio or SPI issue
 # - Verify RX_SETTLE_TIME_MS is sufficient (default: 50ms)
 ```
 
