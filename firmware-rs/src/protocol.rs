@@ -154,6 +154,7 @@ pub struct TextMessage {
     pub has_gps: bool,    // Whether GPS coordinates are included
     pub lat: i32,         // latitude * 1_000_000 (only valid if has_gps=true)
     pub lon: i32,         // longitude * 1_000_000 (only valid if has_gps=true)
+    pub sender_time: u32, // Unix timestamp (seconds); 0 when no RTC available
 }
 
 /// Acknowledgment message
@@ -184,11 +185,9 @@ impl Message {
                 let packed_text = pack_text(&text_msg.text)?;
                 let packed_len = packed_text.len();
 
-                let total_size = if text_msg.has_gps {
-                    5 + packed_len + 8 // type + seq + charCount + packedLen + hasGps + packed + lat + lon
-                } else {
-                    5 + packed_len // type + seq + charCount + packedLen + hasGps + packed
-                };
+                // Layout: [type][seq][charCount][packedLen][packed...][hasGps][lat?][lon?][sender_time]
+                let gps_size = if text_msg.has_gps { 8 } else { 0 };
+                let total_size = 5 + packed_len + gps_size + 4; // +4 for sender_time
 
                 if buf.len() < total_size {
                     return Err("Buffer too small");
@@ -196,17 +195,18 @@ impl Message {
 
                 buf[0] = MessageType::Text as u8;
                 buf[1] = text_msg.seq;
-                buf[2] = text_msg.text.len() as u8; // Store original character count
-                buf[3] = packed_len as u8; // Store packed byte count
+                buf[2] = text_msg.text.len() as u8; // original character count
+                buf[3] = packed_len as u8; // packed byte count
                 buf[4..4 + packed_len].copy_from_slice(&packed_text);
                 buf[4 + packed_len] = if text_msg.has_gps { 1 } else { 0 };
 
+                let mut offset = 5 + packed_len;
                 if text_msg.has_gps {
-                    buf[5 + packed_len..9 + packed_len]
-                        .copy_from_slice(&text_msg.lat.to_le_bytes());
-                    buf[9 + packed_len..13 + packed_len]
-                        .copy_from_slice(&text_msg.lon.to_le_bytes());
+                    buf[offset..offset + 4].copy_from_slice(&text_msg.lat.to_le_bytes());
+                    buf[offset + 4..offset + 8].copy_from_slice(&text_msg.lon.to_le_bytes());
+                    offset += 8;
                 }
+                buf[offset..offset + 4].copy_from_slice(&text_msg.sender_time.to_le_bytes());
 
                 Ok(total_size)
             }
@@ -246,22 +246,35 @@ impl Message {
                 let text = unpack_text(packed_bytes, char_count)?;
                 let has_gps = buf[4 + packed_len] != 0;
 
+                let mut offset = 5 + packed_len;
                 let (lat, lon) = if has_gps {
-                    if buf.len() < 5 + packed_len + 8 {
+                    if buf.len() < offset + 8 {
                         return Err("Buffer too small for GPS data");
                     }
-                    let lat_bytes: [u8; 4] = buf[5 + packed_len..9 + packed_len]
-                        .try_into()
-                        .map_err(|_| "Invalid lat bytes")?;
-                    let lon_bytes: [u8; 4] = buf[9 + packed_len..13 + packed_len]
-                        .try_into()
-                        .map_err(|_| "Invalid lon bytes")?;
-                    let lat = i32::from_le_bytes(lat_bytes);
-                    let lon = i32::from_le_bytes(lon_bytes);
+                    let lat = i32::from_le_bytes(
+                        buf[offset..offset + 4]
+                            .try_into()
+                            .map_err(|_| "Invalid lat bytes")?,
+                    );
+                    let lon = i32::from_le_bytes(
+                        buf[offset + 4..offset + 8]
+                            .try_into()
+                            .map_err(|_| "Invalid lon bytes")?,
+                    );
+                    offset += 8;
                     (lat, lon)
                 } else {
                     (0, 0)
                 };
+
+                if buf.len() < offset + 4 {
+                    return Err("Buffer too small for sender_time");
+                }
+                let sender_time = u32::from_le_bytes(
+                    buf[offset..offset + 4]
+                        .try_into()
+                        .map_err(|_| "Invalid sender_time bytes")?,
+                );
 
                 Ok(Message::Text(TextMessage {
                     seq,
@@ -269,6 +282,7 @@ impl Message {
                     has_gps,
                     lat,
                     lon,
+                    sender_time,
                 }))
             }
             0x02 => {

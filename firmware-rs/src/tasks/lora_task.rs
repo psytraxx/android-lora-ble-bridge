@@ -314,7 +314,7 @@ pub async fn esp32_lora_task(
                                     // Channel busy - backoff and retry
                                     cad_retries += 1;
                                     let jitter_ms =
-                                        Instant::now().as_ticks() as u64 % CAD_BACKOFF_JITTER_MS;
+                                        Instant::now().as_ticks() % CAD_BACKOFF_JITTER_MS;
                                     let delay_ms = CAD_BACKOFF_BASE_MS + jitter_ms;
                                     warn!(
                                         "[LoRa] TX #{}: CAD: channel busy (retry {}/{}), backoff {}ms",

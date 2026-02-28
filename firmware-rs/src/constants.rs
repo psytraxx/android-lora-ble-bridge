@@ -146,16 +146,6 @@ pub const LED_HEARTBEAT_INTERVAL_MS: u64 = 2000;
 pub const LED_HEARTBEAT_ON_MS: u64 = 5;
 
 //==============================================================================
-// ACK Timing Configuration (matches Arduino collision avoidance)
-//==============================================================================
-
-/// Minimum ACK delay in milliseconds
-pub const ACK_JITTER_MIN_MS: u64 = 150;
-
-/// Maximum ACK delay in milliseconds
-pub const ACK_JITTER_MAX_MS: u64 = 450;
-
-//==============================================================================
 // CAD (Channel Activity Detection) Configuration
 //==============================================================================
 

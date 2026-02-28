@@ -7,8 +7,8 @@ use crate::{
     adapters::deep_sleep_adapter::DeepSleepAdapter,
     adapters::nvs_storage_adapter::NvsStorageAdapter,
     constants::{
-        ACK_JITTER_MAX_MS, ACK_JITTER_MIN_MS, ADVERTISING_DURATION_SECS, BUFFER_DRAIN_DELAY_MS,
-        LED_HEARTBEAT_INTERVAL_MS, LORA_RETRY_TIMEOUT_MS, LORA_TEXT_RETRIES,
+        ADVERTISING_DURATION_SECS, BUFFER_DRAIN_DELAY_MS, LED_HEARTBEAT_INTERVAL_MS,
+        LORA_RETRY_TIMEOUT_MS, LORA_TEXT_RETRIES,
     },
     ports::Sleep as SleepTrait,
     ports::Storage as StorageTrait,
@@ -259,7 +259,10 @@ impl MessageRouter {
                 deadline: Instant::now() + Duration::from_millis(LORA_RETRY_TIMEOUT_MS),
             });
         } else {
-            warn!("[Router] seq={} exhausted all retries, giving up", pending.seq);
+            warn!(
+                "[Router] seq={} exhausted all retries, giving up",
+                pending.seq
+            );
         }
     }
 
@@ -421,7 +424,10 @@ impl MessageRouter {
         // Track retries for text messages (ACKs and future relay msgs use 0 retries)
         if let Some(seq) = seq {
             if self.pending_tx.is_some() {
-                warn!("[Router] Replacing pending retry (seq={}) with new message", seq);
+                warn!(
+                    "[Router] Replacing pending retry (seq={}) with new message",
+                    seq
+                );
             }
             self.pending_tx = Some(PendingTx {
                 msg,
@@ -467,14 +473,14 @@ impl MessageRouter {
 
                 // Implicit ACK: if we're retrying a message and we hear the same seq
                 // coming back over LoRa (e.g. relayed by another node), cancel retries.
-                if let Some(ref pending) = self.pending_tx {
-                    if pending.seq == seq {
-                        info!(
-                            "[Router] Implicit ACK: heard seq={} on air, cancelling retries",
-                            seq
-                        );
-                        self.pending_tx = None;
-                    }
+                if let Some(ref pending) = self.pending_tx
+                    && pending.seq == seq
+                {
+                    info!(
+                        "[Router] Implicit ACK: heard seq={} on air, cancelling retries",
+                        seq
+                    );
+                    self.pending_tx = None;
                 }
 
                 info!(
@@ -484,15 +490,7 @@ impl MessageRouter {
                     has_gps
                 );
 
-                // Send ACK back via LoRa with jitter to avoid collisions
-                let jitter_ms = ACK_JITTER_MIN_MS
-                    + (Instant::now().as_ticks() % (ACK_JITTER_MAX_MS - ACK_JITTER_MIN_MS));
-                debug!(
-                    "[Router] Delaying ACK by {} ms (jitter range: {}-{} ms)",
-                    jitter_ms, ACK_JITTER_MIN_MS, ACK_JITTER_MAX_MS
-                );
-                Timer::after(Duration::from_millis(jitter_ms)).await;
-
+                // CAD handles collision avoidance in lora_task, so send ACK immediately
                 let ack = Message::Ack(AckMessage { seq });
                 info!("[Router] Sending ACK for seq={} via LoRa", seq);
                 self.tx_to_lora.send(ack).await;
@@ -552,11 +550,14 @@ impl MessageRouter {
                 info!("[Router] Received ACK message: seq={}", seq);
 
                 // Cancel pending retry if this ACK matches our outgoing message
-                if let Some(ref pending) = self.pending_tx {
-                    if pending.seq == seq {
-                        info!("[Router] ACK confirmed delivery of seq={}, cancelling retries", seq);
-                        self.pending_tx = None;
-                    }
+                if let Some(ref pending) = self.pending_tx
+                    && pending.seq == seq
+                {
+                    info!(
+                        "[Router] ACK confirmed delivery of seq={}, cancelling retries",
+                        seq
+                    );
+                    self.pending_tx = None;
                 }
 
                 if self.connection_state == ConnectionState::Connected {
