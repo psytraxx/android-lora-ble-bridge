@@ -158,18 +158,21 @@ async fn read_battery_voltage(
     // Allow voltage divider circuit to settle (10ms like Arduino)
     Timer::after(Duration::from_millis(10)).await;
 
-    // Take multiple samples and average (like Arduino: 15 samples)
+    // Take multiple samples and average (like Arduino: 15 samples).
+    // read_oneshot returns WouldBlock while conversion is in progress;
+    // nb::block! spins until a value is ready (no samples dropped).
     let mut raw_sum: u32 = 0;
     let mut valid_samples: u32 = 0;
 
-    for i in 0..BATTERY_SENSE_SAMPLES {
-        match adc.read_oneshot(pin) {
+    for _i in 0..BATTERY_SENSE_SAMPLES {
+        match nb::block!(adc.read_oneshot(pin)) {
             Ok(raw) => {
                 raw_sum += raw as u32;
                 valid_samples += 1;
             }
-            Err(e) => {
-                warn!("[Battery] ADC read error on sample {}: {:?}", i, e);
+            Err(_) => {
+                // nb::block! only surfaces non-WouldBlock errors; error type is ()
+                warn!("[Battery] ADC read error (hardware fault)");
             }
         }
     }

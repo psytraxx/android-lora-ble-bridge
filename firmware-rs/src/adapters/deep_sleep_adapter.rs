@@ -12,8 +12,8 @@
 
 use crate::constants::heltec_wifi_lora_v3::VEXT_PIN;
 use crate::ports::Sleep;
-use embassy_time::{Duration, Timer};
 use esp_hal::{
+    delay::Delay,
     gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull},
     peripherals::{GPIO0, GPIO14, GPIO36, LPWR},
     rtc_cntl::{
@@ -60,10 +60,11 @@ impl<'a> Sleep for DeepSleepAdapter<'a> {
         info!("[Sleep] Note: CPU will RESET on wake, all state lost");
         info!("[Sleep] ========================================");
 
-        // Flush logs: block briefly to let UART finish transmitting
-        // Arduino does Serial.flush() + delay(100ms)
+        // Flush logs: block briefly to let UART/USB-CDC finish transmitting.
+        // Cannot use embassy_time::Timer here (sync context, waker vtable mismatch).
+        // Delay::new() uses CPU cycle counting — safe to call from any context.
         info!("[Sleep] Flushing logs...");
-        embassy_futures::block_on(Timer::after(Duration::from_millis(100)));
+        Delay::new().delay_millis(100u32);
 
         // SAFETY: We're about to enter deep sleep which resets the device.
         // The GPIO pins are owned by other adapters (LoRa uses GPIO14, etc),
