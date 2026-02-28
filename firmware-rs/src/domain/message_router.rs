@@ -153,82 +153,85 @@ impl MessageRouter {
             }
         }
 
-        // Advertising phase
-        info!(
-            "[Router] Entering BLE advertising phase ({} seconds timeout)...",
-            ADVERTISING_DURATION_SECS
-        );
-
-        let start_time = Instant::now();
-        let mut connected = false;
-        let mut last_heartbeat = Instant::now();
-
-        while start_time.elapsed().as_secs() < ADVERTISING_DURATION_SECS {
-            // Heartbeat LED
-            if last_heartbeat.elapsed().as_millis() >= LED_HEARTBEAT_INTERVAL_MS {
-                if self
-                    .led_commands
-                    .try_send(LedCommand::Blink(LedPattern::Heartbeat))
-                    .is_err()
-                {
-                    debug!("[Router] LED command queue full (heartbeat)");
-                }
-                last_heartbeat = Instant::now();
-            }
-
-            // Wait for connection signal, LoRa message, or small timeout
-            match select3(
-                self.connection_state_rx.receive(),
-                self.rx_from_lora.receive(),
-                Timer::after(Duration::from_millis(100)),
-            )
-            .await
-            {
-                Either3::First(is_connected) => {
-                    if is_connected {
-                        info!("[Router] BLE connection established!");
-                        self.connection_state = ConnectionState::Connected;
-                        connected = true;
-                        break;
-                    } else {
-                        debug!("[Router] Received disconnected state during advertising");
-                    }
-                }
-                Either3::Second((msg, metadata)) => {
-                    info!(
-                        "[Router] LoRa message received during advertising: {:?} (RSSI: {})",
-                        msg, metadata.rssi
-                    );
-                    self.signal_activity();
-                    self.radio_stats
-                        .signal((metadata.rssi.as_i16(), metadata.snr.as_i8()));
-                    self.handle_long_range_message(msg).await;
-                }
-                Either3::Third(_) => {
-                    // Timeout - continue checking
-                }
-            }
-        }
-
-        if connected {
-            info!("[Router] Starting connected routing loop...");
-            self.routing_loop().await;
-            self.connection_state = ConnectionState::Disconnected;
-            warn!("[Router] BLE disconnected, preparing for sleep...");
-        } else {
+        loop {
+            // Advertising phase — runs until connection or timeout
             info!(
-                "[Router] Advertising timeout after {} seconds, no connection",
+                "[Router] Entering BLE advertising phase ({} seconds timeout)...",
                 ADVERTISING_DURATION_SECS
             );
-        }
 
-        info!("[Router] Entering deep sleep (wake sources: LoRa DIO, button)...");
-        info!(
-            "[Router] Buffered messages remaining: {}",
-            self.storage.count()
-        );
-        self.sleep.enter_sleep();
-        // Note: Deep sleep resets the CPU, so we never get here
+            let start_time = Instant::now();
+            let mut connected = false;
+            let mut last_heartbeat = Instant::now();
+
+            while start_time.elapsed().as_secs() < ADVERTISING_DURATION_SECS {
+                // Heartbeat LED
+                if last_heartbeat.elapsed().as_millis() >= LED_HEARTBEAT_INTERVAL_MS {
+                    if self
+                        .led_commands
+                        .try_send(LedCommand::Blink(LedPattern::Heartbeat))
+                        .is_err()
+                    {
+                        debug!("[Router] LED command queue full (heartbeat)");
+                    }
+                    last_heartbeat = Instant::now();
+                }
+
+                // Wait for connection signal, LoRa message, or small timeout
+                match select3(
+                    self.connection_state_rx.receive(),
+                    self.rx_from_lora.receive(),
+                    Timer::after(Duration::from_millis(100)),
+                )
+                .await
+                {
+                    Either3::First(is_connected) => {
+                        if is_connected {
+                            info!("[Router] BLE connection established!");
+                            self.connection_state = ConnectionState::Connected;
+                            connected = true;
+                            break;
+                        } else {
+                            debug!("[Router] Received disconnected state during advertising");
+                        }
+                    }
+                    Either3::Second((msg, metadata)) => {
+                        info!(
+                            "[Router] LoRa message received during advertising: {:?} (RSSI: {})",
+                            msg, metadata.rssi
+                        );
+                        self.signal_activity();
+                        self.radio_stats
+                            .signal((metadata.rssi.as_i16(), metadata.snr.as_i8()));
+                        self.handle_long_range_message(msg).await;
+                    }
+                    Either3::Third(_) => {
+                        // Timeout - continue checking
+                    }
+                }
+            }
+
+            if connected {
+                info!("[Router] Starting connected routing loop...");
+                self.routing_loop().await;
+                self.connection_state = ConnectionState::Disconnected;
+                warn!("[Router] BLE disconnected, re-entering advertising phase...");
+                // Loop back to advertising — no sleep on disconnect
+            } else {
+                // No connection during the advertising window — sleep to save power
+                info!(
+                    "[Router] Advertising timeout after {} seconds with no connection",
+                    ADVERTISING_DURATION_SECS
+                );
+                info!("[Router] Entering deep sleep (wake sources: LoRa DIO, button)...");
+                info!(
+                    "[Router] Buffered messages remaining: {}",
+                    self.storage.count()
+                );
+                self.sleep.enter_sleep();
+                // Note: Deep sleep resets the CPU, so we never get here
+            }
+        }
     }
 
     /// Record an incoming LoRa seq number and return true if it was already seen (duplicate).
