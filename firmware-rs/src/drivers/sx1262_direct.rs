@@ -20,6 +20,7 @@ const OPCODE_GET_STATUS: u8 = 0xC0;
 const OPCODE_GET_RX_BUFFER_STATUS: u8 = 0x13;
 const OPCODE_READ_BUFFER: u8 = 0x1E;
 const OPCODE_GET_PACKET_STATUS: u8 = 0x14;
+const OPCODE_GET_IRQ_STATUS: u8 = 0x12;
 
 /// Error type for direct SX1262 operations
 #[derive(Debug)]
@@ -83,15 +84,48 @@ where
         chip_status, chip_mode, cmd_status
     );
 
-    // If chip is still in RX mode (5), wait briefly for packet reception to complete
-    // After RxDone, chip transitions to STDBY (mode 2 or 3)
+    // If chip is still in RX mode (5), wait for packet reception to complete.
+    // After RxDone, chip transitions to STDBY (mode 2 or 3).
+    // SF11/BW125: preamble=64sym × 16.384ms = 1048ms + body ≈ 2.5–3.5s total.
+    // Wait up to 4000ms (400 × 10ms) for reception to finish.
     if chip_mode == 5 {
         info!("[SX1262-Direct] Chip still in RX mode, waiting for reception to complete...");
-        // Wait up to 500ms for packet reception (covers worst-case ToA for our config)
-        for _ in 0..50 {
+        let mut rx_done = false;
+        for i in 0..400 {
             Timer::after_millis(10).await;
 
-            // Re-check chip status
+            // Poll GetIrqStatus — fastest way to detect RxDone without mode change.
+            // Response: [stale_status, status, IRQ_MSB, IRQ_LSB]
+            //   IRQ_LSB bit 1 = RxDone, IRQ_MSB bit 1 = Timeout (bit 9 of 16-bit word)
+            let mut irq_buf = [OPCODE_GET_IRQ_STATUS, 0x00, 0x00, 0x00];
+            busy.wait_for_low().await.map_err(|_| Sx1262Error::Busy)?;
+            {
+                let mut spi = spi_bus.lock().await;
+                cs.set_low().map_err(|_| Sx1262Error::Spi)?;
+                spi.transfer_in_place(&mut irq_buf)
+                    .await
+                    .map_err(|_| Sx1262Error::Spi)?;
+                cs.set_high().map_err(|_| Sx1262Error::Spi)?;
+            }
+            let irq_lsb = irq_buf[3];
+            let irq_msb = irq_buf[2];
+
+            if irq_lsb & 0x02 != 0 {
+                // RxDone — packet is fully in the buffer
+                info!(
+                    "[SX1262-Direct] RxDone IRQ detected after {}ms",
+                    (i + 1) * 10
+                );
+                rx_done = true;
+                break;
+            }
+            if irq_msb & 0x02 != 0 {
+                // Timeout — radio gave up, no packet
+                warn!("[SX1262-Direct] RX Timeout IRQ after {}ms", (i + 1) * 10);
+                return Ok(None);
+            }
+
+            // Fallback: also check chip mode via GetStatus
             let mut status_buf = [OPCODE_GET_STATUS, 0x00];
             busy.wait_for_low().await.map_err(|_| Sx1262Error::Busy)?;
             {
@@ -102,12 +136,19 @@ where
                     .map_err(|_| Sx1262Error::Spi)?;
                 cs.set_high().map_err(|_| Sx1262Error::Spi)?;
             }
-
             let new_mode = (status_buf[1] >> 4) & 0x07;
             if new_mode != 5 {
-                info!("[SX1262-Direct] Chip transitioned to mode {}", new_mode);
+                info!(
+                    "[SX1262-Direct] Chip left RX mode (mode={}) after {}ms",
+                    new_mode,
+                    (i + 1) * 10
+                );
+                rx_done = true;
                 break;
             }
+        }
+        if !rx_done {
+            warn!("[SX1262-Direct] Timed out after 4000ms — proceeding to buffer read anyway");
         }
     }
 
