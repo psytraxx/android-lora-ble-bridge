@@ -15,8 +15,8 @@ pub const LORA_BANDWIDTH_HZ: u32 = 125_000;
 /// LoRa spreading factor (7-12) - SF11 matches Arduino firmware for interoperability
 pub const LORA_SPREADING_FACTOR: u8 = 11;
 
-/// LoRa coding rate (5 = 4/5, 6 = 4/6, 7 = 4/7, 8 = 4/8)
-pub const LORA_CODING_RATE: u8 = 5;
+/// LoRa coding rate (5 = 4/5, 6 = 4/6, 7 = 4/7, 8 = 4/8) - matches C++ CODING_RATE = 7
+pub const LORA_CODING_RATE: u8 = 7;
 
 /// LoRa sync word (0x12 = private network, 0x34 = public LoRaWAN)
 pub const LORA_SYNC_WORD: u8 = 0x12;
@@ -80,6 +80,10 @@ pub const BLE_BATTERY_SERVICE_UUID: &str = "0000180f-0000-1000-8000-00805f9b34fb
 
 /// Standard BLE Battery Level Characteristic UUID
 pub const BLE_BATTERY_LEVEL_UUID: &str = "00002a19-0000-1000-8000-00805f9b34fb";
+
+/// Device Info characteristic UUID (read + notify, 16 bytes)
+/// Format: [Battery:1][RSSI:2LE][SNR×100:2LE][TxPower:1][Freq:4LE][BW:4LE][SF:1][CR:1]
+pub const BLE_INFO_CHARACTERISTIC_UUID: &str = "0000567a-0000-1000-8000-00805f9b34fb";
 
 //==============================================================================
 // Power Management Configuration

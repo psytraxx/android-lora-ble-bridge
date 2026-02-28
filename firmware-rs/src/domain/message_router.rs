@@ -55,6 +55,7 @@ pub struct MessageRouter {
     // Control channels
     led_commands: Sender<'static, CriticalSectionRawMutex, LedCommand, 5>,
     activity_signal: &'static Signal<CriticalSectionRawMutex, Instant>,
+    radio_stats: &'static Signal<CriticalSectionRawMutex, (i16, i8)>,
 
     // Storage (concrete adapter reference)
     storage: &'static mut NvsStorageAdapter<'static>,
@@ -86,6 +87,7 @@ impl MessageRouter {
         rx_from_lora: Receiver<'static, CriticalSectionRawMutex, (Message, RadioMetadata), 3>,
         led_commands: Sender<'static, CriticalSectionRawMutex, LedCommand, 5>,
         activity_signal: &'static Signal<CriticalSectionRawMutex, Instant>,
+        radio_stats: &'static Signal<CriticalSectionRawMutex, (i16, i8)>,
         storage: &'static mut NvsStorageAdapter<'static>,
         sleep: &'static mut DeepSleepAdapter<'static>,
     ) -> Self {
@@ -101,6 +103,7 @@ impl MessageRouter {
             rx_from_lora,
             led_commands,
             activity_signal,
+            radio_stats,
             storage,
             sleep,
             connection_state: ConnectionState::Disconnected,
@@ -138,6 +141,8 @@ impl MessageRouter {
                         msg, metadata.rssi, metadata.snr
                     );
                     self.signal_activity();
+                    self.radio_stats
+                        .signal((metadata.rssi.as_i16(), metadata.snr.as_i8()));
                     self.handle_long_range_message(msg).await;
                 }
                 Err(_) => {
@@ -195,6 +200,8 @@ impl MessageRouter {
                         msg, metadata.rssi
                     );
                     self.signal_activity();
+                    self.radio_stats
+                        .signal((metadata.rssi.as_i16(), metadata.snr.as_i8()));
                     self.handle_long_range_message(msg).await;
                 }
                 Either3::Third(_) => {
@@ -378,6 +385,8 @@ impl MessageRouter {
                         msg, metadata.rssi, metadata.snr
                     );
                     self.signal_activity();
+                    self.radio_stats
+                        .signal((metadata.rssi.as_i16(), metadata.snr.as_i8()));
                     self.handle_long_range_message(msg).await;
                 }
                 Either4::Third(_) => {

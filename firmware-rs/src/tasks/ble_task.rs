@@ -5,12 +5,16 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use crate::constants::{BLE_ADV_INTERVAL_MAX_MS, BLE_ADV_INTERVAL_MIN_MS, BLE_DEVICE_NAME_BASE};
+use crate::constants::{
+    BLE_ADV_INTERVAL_MAX_MS, BLE_ADV_INTERVAL_MIN_MS, BLE_DEVICE_NAME_BASE, LORA_BANDWIDTH_HZ,
+    LORA_CODING_RATE, LORA_FREQUENCY_HZ, LORA_SPREADING_FACTOR, LORA_TX_POWER_DBM,
+};
 use crate::protocol::Message;
 use bt_hci::controller::ExternalController;
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Receiver, Sender};
+use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
 use esp_hal::efuse::Efuse;
 use esp_radio::Controller;
@@ -42,6 +46,9 @@ struct LoraService {
     /// RX characteristic (UUID 0x5679): Receive incoming messages from centrals
     #[characteristic(uuid = "00005679-0000-1000-8000-00805f9b34fb", write, write_without_response, notify, value = [0u8; 64])]
     rx: [u8; 64],
+    /// Device Info characteristic (UUID 0x567a): [Battery:1][RSSI:2LE][SNR×100:2LE][TxPower:1][Freq:4LE][BW:4LE][SF:1][CR:1]
+    #[characteristic(uuid = "0000567a-0000-1000-8000-00805f9b34fb", read, notify, value = [0u8; 16])]
+    info: [u8; 16],
 }
 
 /// Standard Battery Service
@@ -66,6 +73,7 @@ pub async fn esp32_ble_task(
     battery_level: Receiver<'static, CriticalSectionRawMutex, u8, 1>,
     connection_state: Sender<'static, CriticalSectionRawMutex, bool, 1>,
     disconnect_cmd: Receiver<'static, CriticalSectionRawMutex, (), 1>,
+    radio_stats: &'static Signal<CriticalSectionRawMutex, (i16, i8)>,
 ) {
     info!("[BLE] Starting BLE task...");
     info!(
@@ -198,6 +206,7 @@ pub async fn esp32_ble_task(
             battery_level,
             connection_state,
             disconnect_cmd,
+            radio_stats,
         ),
     )
     .await;
@@ -218,6 +227,7 @@ async fn advertising_loop(
     battery_level: Receiver<'static, CriticalSectionRawMutex, u8, 1>,
     connection_state: Sender<'static, CriticalSectionRawMutex, bool, 1>,
     disconnect_cmd: Receiver<'static, CriticalSectionRawMutex, (), 1>,
+    radio_stats: &'static Signal<CriticalSectionRawMutex, (i16, i8)>,
 ) {
     let mut connection_count: u32 = 0;
 
@@ -284,6 +294,7 @@ async fn advertising_loop(
             rx_from_ble,
             battery_level,
             disconnect_cmd,
+            radio_stats,
             connection_count,
         )
         .await;
@@ -299,6 +310,22 @@ async fn advertising_loop(
     }
 }
 
+/// Build the 16-byte Device Info characteristic payload.
+/// Format: [Battery:1][RSSI:2LE][SNR×100:2LE][TxPower:1][Freq:4LE][BW:4LE][SF:1][CR:1]
+fn build_info_payload(battery: u8, rssi: i16, snr: i8) -> [u8; 16] {
+    let mut buf = [0u8; 16];
+    buf[0] = battery;
+    buf[1..3].copy_from_slice(&rssi.to_le_bytes());
+    let snr_x100 = (snr as i16).wrapping_mul(100);
+    buf[3..5].copy_from_slice(&snr_x100.to_le_bytes());
+    buf[5] = LORA_TX_POWER_DBM as u8;
+    buf[6..10].copy_from_slice(&LORA_FREQUENCY_HZ.to_le_bytes());
+    buf[10..14].copy_from_slice(&LORA_BANDWIDTH_HZ.to_le_bytes());
+    buf[14] = LORA_SPREADING_FACTOR;
+    buf[15] = LORA_CODING_RATE;
+    buf
+}
+
 async fn gatt_events_loop(
     server: &Server<'_>,
     conn: &GattConnection<'_, '_, DefaultPacketPool>,
@@ -306,6 +333,7 @@ async fn gatt_events_loop(
     rx_from_ble: Sender<'static, CriticalSectionRawMutex, Message, 5>,
     battery_level: Receiver<'static, CriticalSectionRawMutex, u8, 1>,
     disconnect_cmd: Receiver<'static, CriticalSectionRawMutex, (), 1>,
+    radio_stats: &'static Signal<CriticalSectionRawMutex, (i16, i8)>,
     conn_num: u32,
 ) {
     debug!(
@@ -313,19 +341,34 @@ async fn gatt_events_loop(
         conn_num
     );
 
-    loop {
-        let gatt_event = conn.next();
-        let outgoing_msg = tx_to_ble.receive();
-        let battery_update = battery_level.receive();
-        let disconnect = disconnect_cmd.receive();
+    let mut last_battery: u8 = 0;
+    let mut last_rssi: i16 = 0;
+    let mut last_snr: i8 = 0;
 
+    loop {
         match select(
-            select(gatt_event, outgoing_msg),
-            select(battery_update, disconnect),
+            radio_stats.wait(),
+            select4(
+                conn.next(),
+                tx_to_ble.receive(),
+                battery_level.receive(),
+                disconnect_cmd.receive(),
+            ),
         )
         .await
         {
-            Either::First(Either::First(event)) => match event {
+            Either::First((rssi, snr)) => {
+                last_rssi = rssi;
+                last_snr = snr;
+                let info = build_info_payload(last_battery, last_rssi, last_snr);
+                if let Err(e) = server.lora_service.info.notify(conn, &info).await {
+                    debug!(
+                        "[BLE] Info notify skipped (client may not be subscribed): {:?}",
+                        e
+                    );
+                }
+            }
+            Either::Second(Either4::First(event)) => match event {
                 GattConnectionEvent::Disconnected { reason } => {
                     info!("[BLE] Disconnected event received: {:?}", reason);
                     break;
@@ -388,7 +431,7 @@ async fn gatt_events_loop(
                     debug!("[BLE] Unhandled GATT connection event");
                 }
             },
-            Either::First(Either::Second(msg)) => {
+            Either::Second(Either4::Second(msg)) => {
                 info!("[BLE] Sending message to client: {:?}", msg);
                 let mut buf = [0u8; 64];
                 match msg.serialize(&mut buf) {
@@ -410,7 +453,8 @@ async fn gatt_events_loop(
                     }
                 }
             }
-            Either::Second(Either::First(level)) => {
+            Either::Second(Either4::Third(level)) => {
+                last_battery = level;
                 debug!("[BLE] Sending battery level update: {}%", level);
                 match server.battery_service.level.notify(conn, &[level]).await {
                     Ok(_) => {
@@ -420,8 +464,15 @@ async fn gatt_events_loop(
                         warn!("[BLE] Failed to notify battery level: {:?}", e);
                     }
                 }
+                let info = build_info_payload(last_battery, last_rssi, last_snr);
+                if let Err(e) = server.lora_service.info.notify(conn, &info).await {
+                    debug!(
+                        "[BLE] Info notify skipped (client may not be subscribed): {:?}",
+                        e
+                    );
+                }
             }
-            Either::Second(Either::Second(_)) => {
+            Either::Second(Either4::Fourth(_)) => {
                 warn!("[BLE] Disconnect command received from watchdog");
                 info!("[BLE] Closing connection due to inactivity timeout");
                 break;

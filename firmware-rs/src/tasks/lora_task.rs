@@ -207,7 +207,7 @@ pub async fn esp32_lora_task(
         .create_modulation_params(
             SpreadingFactor::_11,
             Bandwidth::_125KHz,
-            CodingRate::_4_5,
+            CodingRate::_4_7,
             LORA_FREQUENCY_HZ,
         )
         .unwrap();

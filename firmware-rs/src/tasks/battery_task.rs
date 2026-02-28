@@ -242,11 +242,25 @@ fn disable_adc(ctrl_pin: &mut Option<Flex<'static>>) {
     }
 }
 
-/// Convert millivolts to battery percentage using OCV table
+/// Convert millivolts to battery percentage using linear interpolation between OCV points.
+/// Matches C++ PowerManager linear interpolation (not discrete 10% steps).
 fn voltage_to_level(mvolts: u16) -> u8 {
-    for (i, &voltage) in OCV.iter().enumerate() {
-        if mvolts >= voltage {
-            return (100 - (i * 10)) as u8;
+    if mvolts >= OCV[0] {
+        return 100;
+    }
+    if mvolts <= OCV[10] {
+        return 0;
+    }
+    for i in 0..10 {
+        if mvolts >= OCV[i + 1] {
+            // mvolts is between OCV[i] (higher SOC) and OCV[i+1] (lower SOC)
+            let v_high = OCV[i] as u32;
+            let v_low = OCV[i + 1] as u32;
+            let v = mvolts as u32;
+            let pct_high = (100 - i * 10) as u32;
+            let pct_low = (100 - (i + 1) * 10) as u32;
+            // Linear interpolation
+            return (pct_low + (v - v_low) * (pct_high - pct_low) / (v_high - v_low)) as u8;
         }
     }
     0

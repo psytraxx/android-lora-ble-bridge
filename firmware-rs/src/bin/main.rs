@@ -114,6 +114,7 @@ async fn main(spawner: Spawner) -> ! {
         ch.bat_level.receiver(),
         ch.conn_state.sender(),
         ch.disconn_cmd.receiver(),
+        &ch.radio_stats,
     )) {
         Ok(_) => info!("[Boot] Task spawned: BLE"),
         Err(e) => {
@@ -213,6 +214,7 @@ async fn main(spawner: Spawner) -> ! {
         ch.lora_rx.receiver(),
         ch.led_cmd.sender(),
         &ch.activity,
+        &ch.radio_stats,
         storage,
         sleep,
     );

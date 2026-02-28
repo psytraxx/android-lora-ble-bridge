@@ -65,6 +65,9 @@ pub struct Channels {
 
     /// Router → Watchdog: Activity signal (not a channel, instant delivery)
     pub activity: Signal<CriticalSectionRawMutex, Instant>,
+
+    /// LoRa → BLE: Last received signal quality for Device Info characteristic (RSSI dBm, SNR dB)
+    pub radio_stats: Signal<CriticalSectionRawMutex, (i16, i8)>,
 }
 
 impl Channels {
@@ -80,6 +83,7 @@ impl Channels {
             conn_state: Channel::new(),
             disconn_cmd: Channel::new(),
             activity: Signal::new(),
+            radio_stats: Signal::new(),
         }
     }
 }
