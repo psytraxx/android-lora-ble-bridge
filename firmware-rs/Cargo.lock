@@ -376,12 +376,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "embassy-net-driver"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "524eb3c489760508f71360112bca70f6e53173e6fe48fc5f0efd0f5ab217751d"
-
-[[package]]
 name = "embassy-sync"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -756,12 +750,10 @@ dependencies = [
  "bt-hci",
  "cfg-if",
  "document-features",
- "embassy-net-driver",
  "embedded-io 0.6.1",
  "embedded-io 0.7.1",
  "embedded-io-async 0.6.1",
  "embedded-io-async 0.7.0",
- "enumset",
  "esp-alloc",
  "esp-config",
  "esp-hal",

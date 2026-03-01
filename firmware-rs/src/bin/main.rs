@@ -54,7 +54,7 @@ async fn main(spawner: Spawner) -> ! {
     let reset = reset_reason(Cpu::ProCpu);
     info!("[Boot] Reset reason: {:?}", reset);
     info!("[Boot] Wake source: {:?}", wake_reason);
-    info!("[Boot] CPU clock: {:?} MHz", CpuClock::_80MHz);
+    info!("[Boot] CPU clock: {:?} MHz", config.cpu_clock());
     let is_lora_wakeup = matches!(wake_reason, esp_hal::system::SleepSource::Ext0);
 
     // ========================================

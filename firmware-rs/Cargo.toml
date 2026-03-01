@@ -41,7 +41,6 @@ esp-radio = { version = "0.17.0", default-features = false, features = [
   "log-04",
   "unstable",
   "esp32s3",
-  "wifi",
 ] }
 trouble-host = { version = "0.5.1", features = [
   "peripheral",
