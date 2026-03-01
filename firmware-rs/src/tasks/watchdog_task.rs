@@ -7,7 +7,7 @@ use crate::constants::INACTIVITY_TIMEOUT_MS;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Sender;
 use embassy_sync::signal::Signal;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Duration, Instant, WithTimeout};
 use esp_hal::peripherals::TIMG1;
 use esp_hal::timer::timg::Wdt;
 use log::{debug, error, info, warn};
@@ -35,6 +35,7 @@ pub async fn watchdog_task(
     );
 
     let timeout_duration = Duration::from_millis(INACTIVITY_TIMEOUT_MS);
+    let feed_interval = Duration::from_millis(WATCHDOG_FEED_INTERVAL_MS);
     let mut last_activity = Instant::now();
 
     loop {
@@ -42,14 +43,19 @@ pub async fn watchdog_task(
         wdt.feed();
         debug!("[Watchdog] Hardware WDT fed");
 
-        // Check if activity signal was updated
-        if let Some(activity_time) = activity_signal.try_take() {
-            let time_since = Instant::now().duration_since(activity_time);
-            debug!(
-                "[Watchdog] Activity signal received ({} ms ago)",
-                time_since.as_millis()
-            );
-            last_activity = activity_time;
+        // Wait for activity signal or feed interval timeout — event-driven, no polling
+        match activity_signal.wait().with_timeout(feed_interval).await {
+            Ok(activity_time) => {
+                let time_since = Instant::now().duration_since(activity_time);
+                debug!(
+                    "[Watchdog] Activity signal received ({} ms ago)",
+                    time_since.as_millis()
+                );
+                last_activity = activity_time;
+            }
+            Err(_timeout) => {
+                // No activity within feed interval — check inactivity timeout
+            }
         }
 
         // Check for inactivity timeout
@@ -76,8 +82,5 @@ pub async fn watchdog_task(
             last_activity = Instant::now();
             info!("[Watchdog] Activity timer reset");
         }
-
-        // Wait before next check
-        Timer::after(Duration::from_millis(WATCHDOG_FEED_INTERVAL_MS)).await;
     }
 }

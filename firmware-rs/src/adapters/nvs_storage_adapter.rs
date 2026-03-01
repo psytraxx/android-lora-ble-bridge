@@ -533,8 +533,9 @@ impl<'a> StorageTrait for NvsStorageAdapter<'a> {
             popped_slot, self.count, MAX_BUFFERED_MESSAGES
         );
 
-        // Persist to flash
-        self.persist_all();
+        // Skip persist on pop — if the device resets before the next add(),
+        // the worst case is re-delivering an already-sent message (acceptable).
+        // This halves flash writes per message cycle.
 
         Ok(())
     }

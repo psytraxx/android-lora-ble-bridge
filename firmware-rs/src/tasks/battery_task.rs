@@ -10,22 +10,8 @@ use esp_hal::Blocking;
 use esp_hal::analog::adc::{Adc, AdcPin};
 use esp_hal::gpio::{AnyPin, Flex, InputConfig, Pull};
 use esp_hal::peripherals::{ADC1, GPIO1};
+use crate::constants::OCV_TABLE;
 use log::{debug, error, info, warn};
-
-/// OCV Table (from FirmwareConfig.h) - maps voltage to battery percentage
-const OCV: [u16; 11] = [
-    4200, // 100%
-    4050, // 90%
-    3900, // 80%
-    3800, // 70%
-    3730, // 60%
-    3680, // 50%
-    3630, // 40%
-    3570, // 30%
-    3500, // 20%
-    3400, // 10%
-    3100, // 0%
-];
 
 /// Number of ADC samples to average (matches Arduino: 15)
 const BATTERY_SENSE_SAMPLES: u32 = 15;
@@ -161,6 +147,7 @@ async fn read_battery_voltage(
     // Take multiple samples and average (like Arduino: 15 samples).
     // read_oneshot returns WouldBlock while conversion is in progress;
     // nb::block! spins until a value is ready (no samples dropped).
+    // Yield between samples to let other tasks run.
     let mut raw_sum: u32 = 0;
     let mut valid_samples: u32 = 0;
 
@@ -175,6 +162,8 @@ async fn read_battery_voltage(
                 warn!("[Battery] ADC read error (hardware fault)");
             }
         }
+        // Yield to executor between samples so higher-priority work isn't starved
+        embassy_futures::yield_now().await;
     }
 
     // Disable battery ADC circuit to save power (INPUT_PULLDOWN like Arduino)
@@ -248,17 +237,17 @@ fn disable_adc(ctrl_pin: &mut Option<Flex<'static>>) {
 /// Convert millivolts to battery percentage using linear interpolation between OCV points.
 /// Matches C++ PowerManager linear interpolation (not discrete 10% steps).
 fn voltage_to_level(mvolts: u16) -> u8 {
-    if mvolts >= OCV[0] {
+    if mvolts >= OCV_TABLE[0] {
         return 100;
     }
-    if mvolts <= OCV[10] {
+    if mvolts <= OCV_TABLE[10] {
         return 0;
     }
     for i in 0..10 {
-        if mvolts >= OCV[i + 1] {
-            // mvolts is between OCV[i] (higher SOC) and OCV[i+1] (lower SOC)
-            let v_high = OCV[i] as u32;
-            let v_low = OCV[i + 1] as u32;
+        if mvolts >= OCV_TABLE[i + 1] {
+            // mvolts is between OCV_TABLE[i] (higher SOC) and OCV_TABLE[i+1] (lower SOC)
+            let v_high = OCV_TABLE[i] as u32;
+            let v_low = OCV_TABLE[i + 1] as u32;
             let v = mvolts as u32;
             let pct_high = (100 - i * 10) as u32;
             let pct_low = (100 - (i + 1) * 10) as u32;
