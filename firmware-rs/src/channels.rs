@@ -68,6 +68,11 @@ pub struct Channels {
 
     /// LoRa → BLE: Last received signal quality for Device Info characteristic (RSSI dBm, SNR dB)
     pub radio_stats: Signal<CriticalSectionRawMutex, (i16, i8)>,
+
+    /// BLE → Router: sent when the client enables TX notifications (CCCD write 0x0001).
+    /// Capacity 1 so try_receive() consumes it and stale values from a previous
+    /// connection are cleared at the start of each routing_loop.
+    pub cccd_ready: Channel<CriticalSectionRawMutex, (), 1>,
 }
 
 impl Channels {
@@ -84,6 +89,7 @@ impl Channels {
             disconn_cmd: Channel::new(),
             activity: Signal::new(),
             radio_stats: Signal::new(),
+            cccd_ready: Channel::new(),
         }
     }
 }

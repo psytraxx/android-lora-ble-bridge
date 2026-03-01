@@ -182,10 +182,12 @@ pub const LORA_RETRY_TIMEOUT_MS: u64 = 8_000;
 /// Maximum messages to buffer when BLE disconnected
 pub const MAX_BUFFERED_MESSAGES: usize = 10;
 
-/// Delay after BLE connection before draining buffered messages (milliseconds)
-/// This gives the client time to enable notifications (write to CCCD).
-/// Arduino firmware achieves this by polling in main loop; we use explicit delay.
-pub const BUFFER_DRAIN_DELAY_MS: u64 = 500;
+/// Maximum wait for the client to enable TX notifications (write CCCD) before
+/// draining buffered messages.  The router wakes immediately when the BLE task
+/// detects the CCCD write, so in the happy path the drain starts in <1 s.
+/// This timeout is the fallback for clients that never write CCCD explicitly
+/// (e.g. if trouble-host absorbs CCCD writes internally and we miss the event).
+pub const CCCD_READY_TIMEOUT_MS: u64 = 2000;
 
 /// Maximum LoRa payload size
 pub const MAX_LORA_PAYLOAD: usize = 256;

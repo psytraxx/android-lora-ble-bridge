@@ -74,6 +74,7 @@ pub async fn esp32_ble_task(
     connection_state: Sender<'static, CriticalSectionRawMutex, bool, 1>,
     disconnect_cmd: Receiver<'static, CriticalSectionRawMutex, (), 1>,
     radio_stats: &'static Signal<CriticalSectionRawMutex, (i16, i8)>,
+    cccd_ready: Sender<'static, CriticalSectionRawMutex, (), 1>,
 ) {
     info!("[BLE] Starting BLE task...");
     info!(
@@ -207,6 +208,7 @@ pub async fn esp32_ble_task(
             connection_state,
             disconnect_cmd,
             radio_stats,
+            cccd_ready,
         ),
     )
     .await;
@@ -228,6 +230,7 @@ async fn advertising_loop(
     connection_state: Sender<'static, CriticalSectionRawMutex, bool, 1>,
     disconnect_cmd: Receiver<'static, CriticalSectionRawMutex, (), 1>,
     radio_stats: &'static Signal<CriticalSectionRawMutex, (i16, i8)>,
+    cccd_ready: Sender<'static, CriticalSectionRawMutex, (), 1>,
 ) {
     let mut connection_count: u32 = 0;
 
@@ -295,6 +298,7 @@ async fn advertising_loop(
             battery_level,
             disconnect_cmd,
             radio_stats,
+            cccd_ready,
             connection_count,
         )
         .await;
@@ -334,6 +338,7 @@ async fn gatt_events_loop(
     battery_level: Receiver<'static, CriticalSectionRawMutex, u8, 1>,
     disconnect_cmd: Receiver<'static, CriticalSectionRawMutex, (), 1>,
     radio_stats: &'static Signal<CriticalSectionRawMutex, (i16, i8)>,
+    cccd_ready: Sender<'static, CriticalSectionRawMutex, (), 1>,
     conn_num: u32,
 ) {
     debug!(
@@ -383,7 +388,11 @@ async fn gatt_events_loop(
                             data.len()
                         );
 
-                        if handle == server.lora_service.rx.handle {
+                        // Capture flags before accept() consumes write_event
+                        let is_rx = handle == server.lora_service.rx.handle;
+                        let is_cccd_enable = !is_rx && data == [0x01, 0x00];
+
+                        if is_rx {
                             match Message::deserialize(data) {
                                 Ok(msg) => {
                                     info!("[BLE] Received message from client: {:?}", msg);
@@ -407,11 +416,24 @@ async fn gatt_events_loop(
                                 }
                             }
                         } else {
-                            debug!("[BLE] Write to unknown handle {}", handle);
+                            debug!(
+                                "[BLE] Write to handle {} ({} bytes): {:02X?}",
+                                handle,
+                                data.len(),
+                                data
+                            );
                         }
 
+                        // Accept FIRST — this registers the CCCD write with the BLE stack.
+                        // Only signal the router after accept() so the subscription is active
+                        // before any notification is sent.
                         if let Err(e) = write_event.accept().map(|r| r.send()) {
                             warn!("[BLE] Failed to accept write event: {:?}", e);
+                        }
+
+                        if is_cccd_enable {
+                            info!("[BLE] CCCD notification enabled (handle={})", handle);
+                            let _ = cccd_ready.try_send(());
                         }
                     }
                     GattEvent::Read(read_event) => {

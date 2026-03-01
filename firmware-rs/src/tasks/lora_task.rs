@@ -26,54 +26,11 @@ use lora_phy::{
 };
 use static_cell::StaticCell;
 
-/// Received Signal Strength Indicator in dBm
-/// Valid range: approximately -140 dBm (weak) to -20 dBm (strong)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RssiDbm(i16);
-
-impl RssiDbm {
-    pub const fn new(value: i16) -> Self {
-        Self(value)
-    }
-
-    pub const fn as_i16(self) -> i16 {
-        self.0
-    }
-}
-
-impl core::fmt::Display for RssiDbm {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{} dBm", self.0)
-    }
-}
-
-/// Signal-to-Noise Ratio in dB
-/// Positive values indicate good signal, negative values indicate noise dominance
-/// Typical range: -20 dB (poor) to +10 dB (excellent)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SnrDb(i8);
-
-impl SnrDb {
-    pub const fn new(value: i8) -> Self {
-        Self(value)
-    }
-
-    pub const fn as_i8(self) -> i8 {
-        self.0
-    }
-}
-
-impl core::fmt::Display for SnrDb {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{} dB", self.0)
-    }
-}
-
-/// Metadata for received LoRa packets
+/// Metadata for received LoRa packets (RSSI in dBm, SNR in dB)
 #[derive(Debug, Clone, Copy)]
 pub struct RadioMetadata {
-    pub rssi: RssiDbm,
-    pub snr: SnrDb,
+    pub rssi: i16,
+    pub snr: i8,
 }
 
 /// LoRa GPIO pins configuration for SX126x
@@ -159,10 +116,7 @@ pub async fn esp32_lora_task(
                 match Message::deserialize(&wake_buffer[..len as usize]) {
                     Ok(msg) => {
                         info!("[LoRa] Wake packet decoded: {:?}", msg);
-                        let metadata = RadioMetadata {
-                            rssi: RssiDbm::new(rssi),
-                            snr: SnrDb::new(snr),
-                        };
+                        let metadata = RadioMetadata { rssi, snr };
                         match rx_from_lora.try_send((msg, metadata)) {
                             Ok(_) => info!("[LoRa] Wake packet sent to router"),
                             Err(_) => warn!("[LoRa] Wake packet: router channel full, dropped!"),
@@ -389,8 +343,8 @@ pub async fn esp32_lora_task(
                     Ok(msg) => {
                         info!("[LoRa] RX #{}: Decoded message: {:?}", rx_count, msg);
                         let metadata = RadioMetadata {
-                            rssi: RssiDbm::new(status.rssi),
-                            snr: SnrDb::new(status.snr as i8),
+                            rssi: status.rssi,
+                            snr: status.snr as i8,
                         };
                         match rx_from_lora.try_send((msg, metadata)) {
                             Ok(_) => {

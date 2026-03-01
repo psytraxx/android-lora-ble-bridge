@@ -14,4 +14,4 @@ pub use led_task::{LedCommand, LedPattern, led_task};
 pub use watchdog_task::watchdog_task;
 
 #[cfg(target_arch = "xtensa")]
-pub use lora_task::{RadioMetadata, RssiDbm, SnrDb};
+pub use lora_task::RadioMetadata;

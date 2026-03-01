@@ -7,15 +7,15 @@ use crate::{
     adapters::deep_sleep_adapter::DeepSleepAdapter,
     adapters::nvs_storage_adapter::NvsStorageAdapter,
     constants::{
-        ADVERTISING_DURATION_SECS, BUFFER_DRAIN_DELAY_MS, LED_HEARTBEAT_INTERVAL_MS,
+        ADVERTISING_DURATION_SECS, CCCD_READY_TIMEOUT_MS, LED_HEARTBEAT_INTERVAL_MS,
         LORA_RETRY_TIMEOUT_MS, LORA_TEXT_RETRIES,
     },
-    ports::Sleep as SleepTrait,
-    ports::Storage as StorageTrait,
+    ports::Sleep as _,
+    ports::Storage as _,
     protocol::{AckMessage, Message},
     tasks::{LedCommand, LedPattern, RadioMetadata},
 };
-use embassy_futures::select::{Either3, Either4, select3, select4};
+use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_sync::channel::{Receiver, Sender};
 use embassy_sync::signal::Signal;
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::TrySendError};
@@ -32,13 +32,6 @@ struct PendingTx {
 
 /// Capacity of the recent-seq ring buffer used for duplicate suppression.
 const SEEN_SEQS_CAP: usize = 8;
-
-/// Connection state for the short-range transport
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConnectionState {
-    Disconnected,
-    Connected,
-}
 
 /// Message router service that bridges short-range and long-range transports.
 /// This version has ZERO generic parameters and uses channels for all I/O.
@@ -63,8 +56,9 @@ pub struct MessageRouter {
     // Sleep (concrete adapter reference)
     sleep: &'static mut DeepSleepAdapter<'static>,
 
-    // Internal state
-    connection_state: ConnectionState,
+    // CCCD-ready channel: BLE task sends () when client enables TX notifications.
+    // Capacity-1 channel lets try_receive() consume stale values from a previous connection.
+    cccd_ready: Receiver<'static, CriticalSectionRawMutex, (), 1>,
 
     // Retry tracking: text message sent BLE→LoRa awaiting ACK
     pending_tx: Option<PendingTx>,
@@ -88,6 +82,7 @@ impl MessageRouter {
         led_commands: Sender<'static, CriticalSectionRawMutex, LedCommand, 5>,
         activity_signal: &'static Signal<CriticalSectionRawMutex, Instant>,
         radio_stats: &'static Signal<CriticalSectionRawMutex, (i16, i8)>,
+        cccd_ready: Receiver<'static, CriticalSectionRawMutex, (), 1>,
         storage: &'static mut NvsStorageAdapter<'static>,
         sleep: &'static mut DeepSleepAdapter<'static>,
     ) -> Self {
@@ -104,9 +99,9 @@ impl MessageRouter {
             led_commands,
             activity_signal,
             radio_stats,
+            cccd_ready,
             storage,
             sleep,
-            connection_state: ConnectionState::Disconnected,
             pending_tx: None,
             seen_seqs: [0u8; SEEN_SEQS_CAP],
             seen_seqs_count: 0,
@@ -141,9 +136,8 @@ impl MessageRouter {
                         msg, metadata.rssi, metadata.snr
                     );
                     self.signal_activity();
-                    self.radio_stats
-                        .signal((metadata.rssi.as_i16(), metadata.snr.as_i8()));
-                    self.handle_long_range_message(msg).await;
+                    self.radio_stats.signal((metadata.rssi, metadata.snr));
+                    self.handle_long_range_message(msg, false).await;
                 }
                 Err(_) => {
                     warn!(
@@ -154,71 +148,60 @@ impl MessageRouter {
         }
 
         loop {
-            // Advertising phase — runs until connection or timeout
+            // Advertising phase — runs until connection or timeout.
+            // Uses a loop-with-value to make the outcome explicit without a flag variable.
             info!(
                 "[Router] Entering BLE advertising phase ({} seconds timeout)...",
                 ADVERTISING_DURATION_SECS
             );
 
-            let start_time = Instant::now();
-            let mut connected = false;
-            let mut last_heartbeat = Instant::now();
+            let deadline = Instant::now() + Duration::from_secs(ADVERTISING_DURATION_SECS);
+            let mut adv_heartbeat = Ticker::every(Duration::from_millis(LED_HEARTBEAT_INTERVAL_MS));
 
-            while start_time.elapsed().as_secs() < ADVERTISING_DURATION_SECS {
-                // Heartbeat LED
-                if last_heartbeat.elapsed().as_millis() >= LED_HEARTBEAT_INTERVAL_MS {
-                    if self
-                        .led_commands
-                        .try_send(LedCommand::Blink(LedPattern::Heartbeat))
-                        .is_err()
-                    {
-                        debug!("[Router] LED command queue full (heartbeat)");
-                    }
-                    last_heartbeat = Instant::now();
-                }
-
-                // Wait for connection signal, LoRa message, or small timeout
-                match select3(
+            let connected = loop {
+                match select4(
                     self.connection_state_rx.receive(),
                     self.rx_from_lora.receive(),
-                    Timer::after(Duration::from_millis(100)),
+                    adv_heartbeat.next(),
+                    Timer::at(deadline),
                 )
                 .await
                 {
-                    Either3::First(is_connected) => {
-                        if is_connected {
-                            info!("[Router] BLE connection established!");
-                            self.connection_state = ConnectionState::Connected;
-                            connected = true;
-                            break;
-                        } else {
-                            debug!("[Router] Received disconnected state during advertising");
-                        }
+                    Either4::First(true) => {
+                        info!("[Router] BLE connection established!");
+                        break true;
                     }
-                    Either3::Second((msg, metadata)) => {
+                    Either4::First(false) => {
+                        debug!("[Router] Received disconnected state during advertising");
+                    }
+                    Either4::Second((msg, metadata)) => {
                         info!(
                             "[Router] LoRa message received during advertising: {:?} (RSSI: {})",
                             msg, metadata.rssi
                         );
                         self.signal_activity();
-                        self.radio_stats
-                            .signal((metadata.rssi.as_i16(), metadata.snr.as_i8()));
-                        self.handle_long_range_message(msg).await;
+                        self.radio_stats.signal((metadata.rssi, metadata.snr));
+                        self.handle_long_range_message(msg, false).await;
                     }
-                    Either3::Third(_) => {
-                        // Timeout - continue checking
+                    Either4::Third(_) => {
+                        if self
+                            .led_commands
+                            .try_send(LedCommand::Blink(LedPattern::Heartbeat))
+                            .is_err()
+                        {
+                            debug!("[Router] LED command queue full (heartbeat)");
+                        }
                     }
+                    Either4::Fourth(_) => break false, // advertising timeout
                 }
-            }
+            };
 
             if connected {
                 info!("[Router] Starting connected routing loop...");
                 self.routing_loop().await;
-                self.connection_state = ConnectionState::Disconnected;
                 warn!("[Router] BLE disconnected, re-entering advertising phase...");
                 // Loop back to advertising — no sleep on disconnect
             } else {
-                // No connection during the advertising window — sleep to save power
                 info!(
                     "[Router] Advertising timeout after {} seconds with no connection",
                     ADVERTISING_DURATION_SECS
@@ -276,89 +259,23 @@ impl MessageRouter {
         }
     }
 
-    /// Main routing loop while connected
+    /// Main routing loop while connected.
+    ///
+    /// Mirrors the Arduino main loop: poll `areNotificationsEnabled()` every iteration
+    /// and send one buffered message when the flag is set.  No pre-loop drain phase,
+    /// no fixed delays — just continuous polling like the C++ firmware.
     async fn routing_loop(&mut self) {
         self.signal_activity();
         let mut heartbeat_ticker = Ticker::every(Duration::from_millis(LED_HEARTBEAT_INTERVAL_MS));
 
-        // Wait for client to enable notifications before draining buffer.
-        // The client needs time to discover services and write to CCCD.
-        //
-        // Arduino achieves this by polling `areNotificationsEnabled()` every 20ms
-        // and only sending when it returns true (tracking CCCD write state).
-        //
-        // Proper fix: Add a signal from BLE task when TX CCCD is written,
-        // then wait for that signal here instead of a fixed delay.
-        // For now, use a conservative delay as a working workaround.
-        info!(
-            "[Router] Waiting {}ms for client to enable notifications...",
-            BUFFER_DRAIN_DELAY_MS
-        );
-        Timer::after(Duration::from_millis(BUFFER_DRAIN_DELAY_MS)).await;
-        self.signal_activity();
+        // Clear any stale CCCD value left over from a previous connection.
+        let _ = self.cccd_ready.try_receive();
+        let mut notifications_enabled = false;
+        // Fallback: if CCCD write is never surfaced (trouble-host absorbs it internally),
+        // enable drain after this deadline — matching the old 500 ms conservative wait.
+        let cccd_deadline = Instant::now() + Duration::from_millis(CCCD_READY_TIMEOUT_MS);
 
-        // Drain buffered messages on connect
-        let buffered_count = self.storage.count();
-        if buffered_count > 0 {
-            info!(
-                "[Router] Draining {} buffered messages to BLE...",
-                buffered_count
-            );
-
-            let mut sent = 0;
-            let mut failed = 0;
-
-            while let Ok(Some(msg)) = self.storage.peek() {
-                // Log before sending since we'll move the message
-                info!(
-                    "[Router] Sending buffered message {}/{} to BLE: {:?}",
-                    sent + 1,
-                    buffered_count,
-                    msg
-                );
-
-                // peek() returns owned Message, so no clone needed
-                match self.tx_to_ble.try_send(msg) {
-                    Ok(_) => {
-                        match self.storage.pop() {
-                            Ok(_) => {
-                                sent += 1;
-                            }
-                            Err(e) => {
-                                error!(
-                                    "[Router] Failed to pop message from storage after sending: {:?}",
-                                    e
-                                );
-                                failed += 1;
-                                break;
-                            }
-                        }
-                        // Small delay between messages to avoid overwhelming BLE
-                        Timer::after(Duration::from_millis(50)).await;
-                    }
-                    Err(_) => {
-                        warn!(
-                            "[Router] BLE TX channel full, stopping buffer drain ({} sent, {} remaining)",
-                            sent,
-                            self.storage.count()
-                        );
-                        failed += 1;
-                        break;
-                    }
-                }
-            }
-
-            info!(
-                "[Router] Buffer drain complete: {} sent, {} failed, {} remaining",
-                sent,
-                failed,
-                self.storage.count()
-            );
-        } else {
-            debug!("[Router] No buffered messages to drain");
-        }
-
-        info!("[Router] Entering main routing loop (BLE connected)...");
+        info!("[Router] Entering connected routing loop...");
 
         loop {
             // Retry timer: fires at pending_tx.deadline, or never if no pending TX
@@ -369,30 +286,44 @@ impl MessageRouter {
                 }
             };
 
-            match select4(
-                self.rx_from_ble.receive(),
-                self.rx_from_lora.receive(),
-                heartbeat_ticker.next(),
-                retry_fut,
+            // Drain tick: when buffered messages are ready, wake every 50 ms so we
+            // don't stall waiting 2 s for the heartbeat.
+            let has_buffered = notifications_enabled && self.storage.count() > 0;
+            let drain_tick = async move {
+                if has_buffered {
+                    Timer::after_millis(50).await
+                } else {
+                    core::future::pending::<()>().await
+                }
+            };
+
+            match select(
+                drain_tick,
+                select4(
+                    self.rx_from_ble.receive(),
+                    self.rx_from_lora.receive(),
+                    heartbeat_ticker.next(),
+                    retry_fut,
+                ),
             )
             .await
             {
-                Either4::First(msg) => {
+                Either::First(_) => {} // drain tick — fall through to drain below
+                Either::Second(Either4::First(msg)) => {
                     info!("[Router] BLE -> LoRa: {:?}", msg);
                     self.signal_activity();
                     self.handle_short_range_message(msg).await;
                 }
-                Either4::Second((msg, metadata)) => {
+                Either::Second(Either4::Second((msg, metadata))) => {
                     info!(
                         "[Router] LoRa -> BLE: {:?} (RSSI: {}, SNR: {})",
                         msg, metadata.rssi, metadata.snr
                     );
                     self.signal_activity();
-                    self.radio_stats
-                        .signal((metadata.rssi.as_i16(), metadata.snr.as_i8()));
-                    self.handle_long_range_message(msg).await;
+                    self.radio_stats.signal((metadata.rssi, metadata.snr));
+                    self.handle_long_range_message(msg, true).await;
                 }
-                Either4::Third(_) => {
+                Either::Second(Either4::Third(_)) => {
                     if self
                         .led_commands
                         .try_send(LedCommand::Blink(LedPattern::Heartbeat))
@@ -401,18 +332,45 @@ impl MessageRouter {
                         debug!("[Router] LED command queue full (heartbeat)");
                     }
                 }
-                Either4::Fourth(_) => {
-                    // Retry deadline fired
+                Either::Second(Either4::Fourth(_)) => {
                     self.handle_retry().await;
                 }
             }
 
-            // Check for disconnection
-            if let Ok(is_connected) = self.connection_state_rx.try_receive()
-                && !is_connected
+            // Arduino equivalent of areNotificationsEnabled(): check channel (non-blocking).
+            if !notifications_enabled {
+                if self.cccd_ready.try_receive().is_ok() {
+                    notifications_enabled = true;
+                    info!("[Router] Client enabled TX notifications");
+                } else if Instant::now() >= cccd_deadline {
+                    notifications_enabled = true;
+                    warn!(
+                        "[Router] CCCD not seen after {}ms — draining anyway",
+                        CCCD_READY_TIMEOUT_MS
+                    );
+                }
+            }
+
+            // Arduino equivalent of "send buffered message if notifications enabled":
+            // drain one message per loop iteration.
+            if notifications_enabled
+                && let Ok(Some(msg)) = self.storage.peek()
+                && self.tx_to_ble.try_send(msg).is_ok()
             {
+                let _ = self.storage.pop();
+                let remaining = self.storage.count();
+                if remaining == 0 {
+                    info!("[Router] All buffered messages sent");
+                } else {
+                    debug!("[Router] Sent 1 buffered message ({} remaining)", remaining);
+                }
+                self.signal_activity();
+            }
+            // If try_send fails (channel full), we retry next iteration — same as Arduino
+
+            // Check for disconnection
+            if let Ok(false) = self.connection_state_rx.try_receive() {
                 info!("[Router] BLE disconnection signal received");
-                self.connection_state = ConnectionState::Disconnected;
                 break;
             }
         }
@@ -462,7 +420,7 @@ impl MessageRouter {
         }
     }
 
-    async fn handle_long_range_message(&mut self, msg: Message) {
+    async fn handle_long_range_message(&mut self, msg: Message, is_connected: bool) {
         if self
             .led_commands
             .try_send(LedCommand::Blink(LedPattern::SingleBlink))
@@ -512,7 +470,7 @@ impl MessageRouter {
                 let msg = Message::Text(text_msg);
 
                 // Forward to BLE or buffer
-                if self.connection_state == ConnectionState::Connected {
+                if is_connected {
                     // try_send returns TrySendError::Full(msg) on failure, so we get ownership back
                     match self.tx_to_ble.try_send(msg) {
                         Ok(_) => {
@@ -572,7 +530,7 @@ impl MessageRouter {
                     self.pending_tx = None;
                 }
 
-                if self.connection_state == ConnectionState::Connected {
+                if is_connected {
                     // Reconstruct and move - ACKs aren't buffered, so no need to recover on failure
                     match self.tx_to_ble.try_send(Message::Ack(ack_msg)) {
                         Ok(_) => {
