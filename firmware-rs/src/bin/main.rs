@@ -115,7 +115,6 @@ async fn main(spawner: Spawner) -> ! {
         ch.conn_state.sender(),
         ch.disconn_cmd.receiver(),
         &ch.radio_stats,
-        ch.cccd_ready.sender(),
     )) {
         Ok(_) => info!("[Boot] Task spawned: BLE"),
         Err(e) => {
@@ -216,7 +215,6 @@ async fn main(spawner: Spawner) -> ! {
         ch.led_cmd.sender(),
         &ch.activity,
         &ch.radio_stats,
-        ch.cccd_ready.receiver(),
         storage,
         sleep,
     );

@@ -74,7 +74,6 @@ pub async fn esp32_ble_task(
     connection_state: Sender<'static, CriticalSectionRawMutex, bool, 1>,
     disconnect_cmd: Receiver<'static, CriticalSectionRawMutex, (), 1>,
     radio_stats: &'static Signal<CriticalSectionRawMutex, (i16, i8)>,
-    cccd_ready: Sender<'static, CriticalSectionRawMutex, (), 1>,
 ) {
     info!("[BLE] Starting BLE task...");
     info!(
@@ -208,7 +207,6 @@ pub async fn esp32_ble_task(
             connection_state,
             disconnect_cmd,
             radio_stats,
-            cccd_ready,
         ),
     )
     .await;
@@ -230,7 +228,6 @@ async fn advertising_loop(
     connection_state: Sender<'static, CriticalSectionRawMutex, bool, 1>,
     disconnect_cmd: Receiver<'static, CriticalSectionRawMutex, (), 1>,
     radio_stats: &'static Signal<CriticalSectionRawMutex, (i16, i8)>,
-    cccd_ready: Sender<'static, CriticalSectionRawMutex, (), 1>,
 ) {
     let mut connection_count: u32 = 0;
 
@@ -298,7 +295,6 @@ async fn advertising_loop(
             battery_level,
             disconnect_cmd,
             radio_stats,
-            cccd_ready,
             connection_count,
         )
         .await;
@@ -338,7 +334,6 @@ async fn gatt_events_loop(
     battery_level: Receiver<'static, CriticalSectionRawMutex, u8, 1>,
     disconnect_cmd: Receiver<'static, CriticalSectionRawMutex, (), 1>,
     radio_stats: &'static Signal<CriticalSectionRawMutex, (i16, i8)>,
-    cccd_ready: Sender<'static, CriticalSectionRawMutex, (), 1>,
     conn_num: u32,
 ) {
     debug!(
@@ -349,13 +344,28 @@ async fn gatt_events_loop(
     let mut last_battery: u8 = 0;
     let mut last_rssi: i16 = 0;
     let mut last_snr: i8 = 0;
+    // Gate: only pull messages from the router channel once the client has
+    // enabled TX notifications (CCCD write 0x0001).  trouble-host's notify()
+    // silently returns Ok when CCCD is not set, so we must hold messages here
+    // rather than consuming them from ble_tx before the client is subscribed.
+    let mut notifications_enabled = false;
 
     loop {
+        // Build the tx future conditionally: pending() blocks forever when not
+        // yet subscribed, receive() wakes as soon as the router enqueues a msg.
+        let tx_fut = async {
+            if notifications_enabled {
+                tx_to_ble.receive().await
+            } else {
+                core::future::pending::<Message>().await
+            }
+        };
+
         match select(
             radio_stats.wait(),
             select4(
                 conn.next(),
-                tx_to_ble.receive(),
+                tx_fut,
                 battery_level.receive(),
                 disconnect_cmd.receive(),
             ),
@@ -433,7 +443,7 @@ async fn gatt_events_loop(
 
                         if is_cccd_enable {
                             info!("[BLE] CCCD notification enabled (handle={})", handle);
-                            let _ = cccd_ready.try_send(());
+                            notifications_enabled = true;
                         }
                     }
                     GattEvent::Read(read_event) => {

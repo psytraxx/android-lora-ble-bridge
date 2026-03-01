@@ -7,8 +7,8 @@ use crate::{
     adapters::deep_sleep_adapter::DeepSleepAdapter,
     adapters::nvs_storage_adapter::NvsStorageAdapter,
     constants::{
-        ADVERTISING_DURATION_SECS, CCCD_READY_TIMEOUT_MS, LED_HEARTBEAT_INTERVAL_MS,
-        LORA_RETRY_TIMEOUT_MS, LORA_TEXT_RETRIES,
+        ADVERTISING_DURATION_SECS, LED_HEARTBEAT_INTERVAL_MS, LORA_RETRY_TIMEOUT_MS,
+        LORA_TEXT_RETRIES,
     },
     ports::Sleep as _,
     ports::Storage as _,
@@ -56,10 +56,6 @@ pub struct MessageRouter {
     // Sleep (concrete adapter reference)
     sleep: &'static mut DeepSleepAdapter<'static>,
 
-    // CCCD-ready channel: BLE task sends () when client enables TX notifications.
-    // Capacity-1 channel lets try_receive() consume stale values from a previous connection.
-    cccd_ready: Receiver<'static, CriticalSectionRawMutex, (), 1>,
-
     // Retry tracking: text message sent BLE→LoRa awaiting ACK
     pending_tx: Option<PendingTx>,
 
@@ -82,7 +78,6 @@ impl MessageRouter {
         led_commands: Sender<'static, CriticalSectionRawMutex, LedCommand, 5>,
         activity_signal: &'static Signal<CriticalSectionRawMutex, Instant>,
         radio_stats: &'static Signal<CriticalSectionRawMutex, (i16, i8)>,
-        cccd_ready: Receiver<'static, CriticalSectionRawMutex, (), 1>,
         storage: &'static mut NvsStorageAdapter<'static>,
         sleep: &'static mut DeepSleepAdapter<'static>,
     ) -> Self {
@@ -99,7 +94,6 @@ impl MessageRouter {
             led_commands,
             activity_signal,
             radio_stats,
-            cccd_ready,
             storage,
             sleep,
             pending_tx: None,
@@ -268,13 +262,6 @@ impl MessageRouter {
         self.signal_activity();
         let mut heartbeat_ticker = Ticker::every(Duration::from_millis(LED_HEARTBEAT_INTERVAL_MS));
 
-        // Clear any stale CCCD value left over from a previous connection.
-        let _ = self.cccd_ready.try_receive();
-        let mut notifications_enabled = false;
-        // Fallback: if CCCD write is never surfaced (trouble-host absorbs it internally),
-        // enable drain after this deadline — matching the old 500 ms conservative wait.
-        let cccd_deadline = Instant::now() + Duration::from_millis(CCCD_READY_TIMEOUT_MS);
-
         info!("[Router] Entering connected routing loop...");
 
         loop {
@@ -288,7 +275,7 @@ impl MessageRouter {
 
             // Drain tick: when buffered messages are ready, wake every 50 ms so we
             // don't stall waiting 2 s for the heartbeat.
-            let has_buffered = notifications_enabled && self.storage.count() > 0;
+            let has_buffered = self.storage.count() > 0;
             let drain_tick = async move {
                 if has_buffered {
                     Timer::after_millis(50).await
@@ -337,24 +324,9 @@ impl MessageRouter {
                 }
             }
 
-            // Arduino equivalent of areNotificationsEnabled(): check channel (non-blocking).
-            if !notifications_enabled {
-                if self.cccd_ready.try_receive().is_ok() {
-                    notifications_enabled = true;
-                    info!("[Router] Client enabled TX notifications");
-                } else if Instant::now() >= cccd_deadline {
-                    notifications_enabled = true;
-                    warn!(
-                        "[Router] CCCD not seen after {}ms — draining anyway",
-                        CCCD_READY_TIMEOUT_MS
-                    );
-                }
-            }
-
-            // Arduino equivalent of "send buffered message if notifications enabled":
-            // drain one message per loop iteration.
-            if notifications_enabled
-                && let Ok(Some(msg)) = self.storage.peek()
+            // Drain one buffered message per iteration: router fills ble_tx freely,
+            // BLE task gates actual delivery on CCCD subscription state.
+            if let Ok(Some(msg)) = self.storage.peek()
                 && self.tx_to_ble.try_send(msg).is_ok()
             {
                 let _ = self.storage.pop();
