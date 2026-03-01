@@ -3,6 +3,7 @@
 //! Reads battery voltage via ADC and sends level updates to BLE via channel.
 //! Replaces BatteryMonitor and BatteryIndicator traits with direct hardware control.
 
+use crate::constants::OCV_TABLE;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Sender;
 use embassy_time::{Duration, Ticker, Timer};
@@ -10,7 +11,6 @@ use esp_hal::Blocking;
 use esp_hal::analog::adc::{Adc, AdcPin};
 use esp_hal::gpio::{AnyPin, Flex, InputConfig, Pull};
 use esp_hal::peripherals::{ADC1, GPIO1};
-use crate::constants::OCV_TABLE;
 use log::{debug, error, info, warn};
 
 /// Number of ADC samples to average (matches Arduino: 15)

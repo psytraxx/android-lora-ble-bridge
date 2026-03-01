@@ -28,7 +28,7 @@ use firmware_rs::domain::message_router::MessageRouter;
 use firmware_rs::tasks::ble_task::esp32_ble_task;
 use firmware_rs::tasks::lora_task::{LoraGpios, esp32_lora_task};
 use firmware_rs::tasks::{battery_task, led_task, watchdog_task};
-use log::{debug, error, info};
+use log::{debug, info};
 use static_cell::StaticCell;
 
 extern crate alloc;
@@ -54,7 +54,7 @@ async fn main(spawner: Spawner) -> ! {
     let reset = reset_reason(Cpu::ProCpu);
     info!("[Boot] Reset reason: {:?}", reset);
     info!("[Boot] Wake source: {:?}", wake_reason);
-    info!("[Boot] CPU clock: {:?} MHz", config.cpu_clock());
+    info!("[Boot] CPU clock: {:?} MHz", config.clock_config());
     let is_lora_wakeup = matches!(wake_reason, esp_hal::system::SleepSource::Ext0);
 
     // ========================================
@@ -65,7 +65,10 @@ async fn main(spawner: Spawner) -> ! {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let mut timg0_wdt = timg0.wdt;
     timg0_wdt.disable();
-    esp_rtos::start(timg0.timer0);
+    let sw_interrupt =
+        esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+    esp_rtos::start(timg0.timer0, sw_interrupt.software_interrupt0);
+
     debug!("[Boot] TIMG0: RTOS timer started, WDT disabled");
 
     let timg1 = TimerGroup::new(peripherals.TIMG1);
@@ -77,19 +80,9 @@ async fn main(spawner: Spawner) -> ! {
     // ========================================
     // RADIO INITIALIZATION
     // ========================================
-    info!("[Boot] Initializing radio subsystem...");
-
-    let radio_init = match esp_radio::init() {
-        Ok(r) => {
-            debug!("[Boot] Radio controller initialized");
-            r
-        }
-        Err(e) => {
-            error!("[Boot] FATAL: Failed to initialize radio: {:?}", e);
-            panic!("Radio init failed");
-        }
-    };
-    let radio = RADIO.init(radio_init);
+    // Note: esp_radio::init() is no longer public in esp-radio 0.18+.
+    // BleConnector::new() handles radio initialization internally.
+    info!("[Boot] Radio subsystem will be initialized by BLE connector");
 
     // ========================================
     // CHANNEL INITIALIZATION
@@ -106,22 +99,19 @@ async fn main(spawner: Spawner) -> ! {
     info!("[Boot] Spawning tasks...");
 
     // Spawn BLE task
-    match spawner.spawn(esp32_ble_task(
-        radio,
-        peripherals.BT,
-        ch.ble_tx.receiver(),
-        ch.ble_rx.sender(),
-        ch.bat_level.receiver(),
-        ch.conn_state.sender(),
-        ch.disconn_cmd.receiver(),
-        &ch.radio_stats,
-    )) {
-        Ok(_) => info!("[Boot] Task spawned: BLE"),
-        Err(e) => {
-            error!("[Boot] FATAL: Failed to spawn BLE task: {:?}", e);
-            panic!("BLE task spawn failed");
-        }
-    }
+    spawner.spawn(
+        esp32_ble_task(
+            peripherals.BT,
+            ch.ble_tx.receiver(),
+            ch.ble_rx.sender(),
+            ch.bat_level.receiver(),
+            ch.conn_state.sender(),
+            ch.disconn_cmd.receiver(),
+            &ch.radio_stats,
+        )
+        .expect("BLE task already spawned"),
+    );
+    info!("[Boot] Task spawned: BLE");
 
     // Spawn LoRa task
     let lora_gpios = LoraGpios {
@@ -135,31 +125,24 @@ async fn main(spawner: Spawner) -> ! {
     };
     debug!("[Boot] LoRa GPIOs: CS=8, RST=12, DIO1=14, BUSY=13, SCK=9, MISO=11, MOSI=10");
 
-    match spawner.spawn(esp32_lora_task(
-        peripherals.SPI2,
-        lora_gpios,
-        ch.lora_tx.receiver(),
-        ch.lora_rx.sender(),
-        is_lora_wakeup,
-    )) {
-        Ok(_) => info!("[Boot] Task spawned: LoRa"),
-        Err(e) => {
-            error!("[Boot] FATAL: Failed to spawn LoRa task: {:?}", e);
-            panic!("LoRa task spawn failed");
-        }
-    }
+    spawner.spawn(
+        esp32_lora_task(
+            peripherals.SPI2,
+            lora_gpios,
+            ch.lora_tx.receiver(),
+            ch.lora_rx.sender(),
+            is_lora_wakeup,
+        )
+        .expect("LoRa task already spawned"),
+    );
+    info!("[Boot] Task spawned: LoRa");
 
     // Spawn LED task
-    match spawner.spawn(led_task(
-        peripherals.GPIO35.degrade(),
-        ch.led_cmd.receiver(),
-    )) {
-        Ok(_) => info!("[Boot] Task spawned: LED (GPIO35)"),
-        Err(e) => {
-            error!("[Boot] FATAL: Failed to spawn LED task: {:?}", e);
-            panic!("LED task spawn failed");
-        }
-    }
+    spawner.spawn(
+        led_task(peripherals.GPIO35.degrade(), ch.led_cmd.receiver())
+            .expect("LED task already spawned"),
+    );
+    info!("[Boot] Task spawned: LED (GPIO35)");
 
     // Spawn Battery task
     let mut adc1_config = AdcConfig::new();
@@ -167,28 +150,24 @@ async fn main(spawner: Spawner) -> ! {
     let adc1 = Adc::new(peripherals.ADC1, adc1_config);
     debug!("[Boot] Battery ADC: GPIO1 with 11dB attenuation, control=GPIO37");
 
-    match spawner.spawn(battery_task(
-        adc1,
-        battery_pin,
-        5.1205,
-        Some(peripherals.GPIO37.degrade()),
-        ch.bat_level.sender(),
-    )) {
-        Ok(_) => info!("[Boot] Task spawned: Battery"),
-        Err(e) => {
-            error!("[Boot] FATAL: Failed to spawn Battery task: {:?}", e);
-            panic!("Battery task spawn failed");
-        }
-    }
+    spawner.spawn(
+        battery_task(
+            adc1,
+            battery_pin,
+            5.1205,
+            Some(peripherals.GPIO37.degrade()),
+            ch.bat_level.sender(),
+        )
+        .expect("Battery task already spawned"),
+    );
+    info!("[Boot] Task spawned: Battery");
 
     // Spawn Watchdog task
-    match spawner.spawn(watchdog_task(wdt, &ch.activity, ch.disconn_cmd.sender())) {
-        Ok(_) => info!("[Boot] Task spawned: Watchdog"),
-        Err(e) => {
-            error!("[Boot] FATAL: Failed to spawn Watchdog task: {:?}", e);
-            panic!("Watchdog task spawn failed");
-        }
-    }
+    spawner.spawn(
+        watchdog_task(wdt, &ch.activity, ch.disconn_cmd.sender())
+            .expect("Watchdog task already spawned"),
+    );
+    info!("[Boot] Task spawned: Watchdog");
 
     // ========================================
     // ADAPTER INITIALIZATION
@@ -229,7 +208,6 @@ async fn main(spawner: Spawner) -> ! {
 }
 
 // Static storage
-static RADIO: StaticCell<esp_radio::Controller<'static>> = StaticCell::new();
 static CHANNELS: StaticCell<Channels> = StaticCell::new();
 static STORAGE: StaticCell<NvsStorageAdapter<'static>> = StaticCell::new();
 static SLEEP: StaticCell<DeepSleepAdapter<'static>> = StaticCell::new();

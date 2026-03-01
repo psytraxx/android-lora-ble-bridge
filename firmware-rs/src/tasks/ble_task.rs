@@ -16,8 +16,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Receiver, Sender};
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer};
-use esp_hal::efuse::Efuse;
-use esp_radio::Controller;
+use esp_hal::efuse::{self, InterfaceMacAddress};
 use esp_radio::ble::controller::BleConnector;
 use log::{debug, error, info, warn};
 use trouble_host::prelude::*;
@@ -66,7 +65,6 @@ static mut DEVICE_NAME_LEN: usize = 0;
 /// ESP32 BLE task that runs the BLE stack and handles GATT events.
 #[embassy_executor::task]
 pub async fn esp32_ble_task(
-    radio: &'static Controller<'static>,
     bt_peripheral: esp_hal::peripherals::BT<'static>,
     tx_to_ble: Receiver<'static, CriticalSectionRawMutex, Message, 10>,
     rx_from_ble: Sender<'static, CriticalSectionRawMutex, Message, 5>,
@@ -82,11 +80,12 @@ pub async fn esp32_ble_task(
     );
 
     // MAC address for device identification
-    let mac = Efuse::read_base_mac_address();
-    let mac_suffix = [mac[4], mac[5]];
+    let mac = efuse::interface_mac_address(InterfaceMacAddress::Bluetooth);
+    let mac_bytes = mac.as_bytes();
+    let mac_suffix = [mac_bytes[4], mac_bytes[5]];
     info!(
         "[Boot] MAC address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
+        mac_bytes[0], mac_bytes[1], mac_bytes[2], mac_bytes[3], mac_bytes[4], mac_bytes[5]
     );
 
     // Build device name with MAC suffix
@@ -120,7 +119,7 @@ pub async fn esp32_ble_task(
 
     // Initialize BLE controller
     info!("[BLE] Initializing BLE controller...");
-    let transport = match BleConnector::new(radio, bt_peripheral, Default::default()) {
+    let transport = match BleConnector::new(bt_peripheral, Default::default()) {
         Ok(t) => {
             debug!("[BLE] BLE connector created");
             t
@@ -136,15 +135,17 @@ pub async fn esp32_ble_task(
     let address = Address::random([0xff, 0x8f, 0x1a, 0x05, 0xe4, 0xff]);
     debug!("[BLE] Using random address: {:?}", address);
 
-    let mut resources: HostResources<DefaultPacketPool, CONNECTIONS_MAX, L2CAP_CHANNELS_MAX> =
-        HostResources::new();
+    let mut resources: HostResources<
+        ExternalController<BleConnector<'static>, 20>,
+        DefaultPacketPool,
+        CONNECTIONS_MAX,
+        L2CAP_CHANNELS_MAX,
+    > = HostResources::new();
     let stack = trouble_host::new(controller, &mut resources).set_random_address(address);
-
-    let Host {
-        mut peripheral,
-        runner,
-        ..
-    } = stack.build();
+    let stack = stack.build();
+    let runner = stack.runner();
+    let mut peripheral = stack.peripheral();
+    let _ = &stack; // keep stack alive for runner/peripheral lifetimes
 
     // Get device name from static storage
     let (device_name_bytes, _) =
@@ -173,7 +174,7 @@ pub async fn esp32_ble_task(
     let adv_data_len = AdStructure::encode_slice(
         &[
             AdStructure::Flags(LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED),
-            AdStructure::ServiceUuids16(&[[0x34, 0x12]]),
+            AdStructure::CompleteServiceUuids16(&[[0x34, 0x12]]),
             AdStructure::CompleteLocalName(device_name_bytes),
         ],
         &mut adv_data[..],
@@ -376,7 +377,7 @@ async fn gatt_events_loop(
                 last_rssi = rssi;
                 last_snr = snr;
                 let info = build_info_payload(last_battery, last_rssi, last_snr);
-                if let Err(e) = server.lora_service.info.notify(conn, &info).await {
+                if let Err(e) = server.lora_service.info.notify(conn, &info, false).await {
                     debug!(
                         "[BLE] Info notify skipped (client may not be subscribed): {:?}",
                         e
@@ -391,19 +392,26 @@ async fn gatt_events_loop(
                 GattConnectionEvent::Gatt { event } => match event {
                     GattEvent::Write(write_event) => {
                         let handle = write_event.handle();
-                        let data = write_event.data();
+                        // Copy data out before accept() consumes the event
+                        let (data_len, is_rx, is_cccd_enable, msg_result) =
+                            write_event.with_data(|_, data| {
+                                let len = data.len();
+                                let is_rx = handle == server.lora_service.rx.handle;
+                                let is_cccd = !is_rx && data == [0x01, 0x00];
+                                let msg = if is_rx {
+                                    Some(Message::deserialize(data))
+                                } else {
+                                    None
+                                };
+                                (len, is_rx, is_cccd, msg)
+                            });
                         debug!(
                             "[BLE] GATT Write event: handle={}, {} bytes",
-                            handle,
-                            data.len()
+                            handle, data_len
                         );
 
-                        // Capture flags before accept() consumes write_event
-                        let is_rx = handle == server.lora_service.rx.handle;
-                        let is_cccd_enable = !is_rx && data == [0x01, 0x00];
-
                         if is_rx {
-                            match Message::deserialize(data) {
+                            match msg_result.unwrap() {
                                 Ok(msg) => {
                                     info!("[BLE] Received message from client: {:?}", msg);
                                     match rx_from_ble.try_send(msg) {
@@ -422,16 +430,10 @@ async fn gatt_events_loop(
                                         "[BLE] Failed to deserialize message from client: {}",
                                         e
                                     );
-                                    debug!("[BLE] Raw data ({} bytes): {:02X?}", data.len(), data);
                                 }
                             }
                         } else {
-                            debug!(
-                                "[BLE] Write to handle {} ({} bytes): {:02X?}",
-                                handle,
-                                data.len(),
-                                data
-                            );
+                            debug!("[BLE] Write to handle {} ({} bytes)", handle, data_len);
                         }
 
                         // Accept FIRST — this registers the CCCD write with the BLE stack.
@@ -458,6 +460,12 @@ async fn gatt_events_loop(
                             warn!("[BLE] Failed to accept other event: {:?}", e);
                         }
                     }
+                    GattEvent::NotAllowed(not_allowed) => {
+                        debug!(
+                            "[BLE] GATT NotAllowed event: handle={}",
+                            not_allowed.handle()
+                        );
+                    }
                 },
                 _ => {
                     debug!("[BLE] Unhandled GATT connection event");
@@ -471,7 +479,7 @@ async fn gatt_events_loop(
                         debug!("[BLE] Serialized {} bytes for notification", size);
                         // Note: trouble-host requires full [u8; 64] array type.
                         // Protocol handles trailing zeros correctly (reads based on length fields).
-                        match server.lora_service.tx.notify(conn, &buf).await {
+                        match server.lora_service.tx.notify(conn, &buf, false).await {
                             Ok(_) => {
                                 info!("[BLE] Notification sent successfully ({} bytes)", size);
                             }
@@ -488,7 +496,12 @@ async fn gatt_events_loop(
             Either::Second(Either4::Third(level)) => {
                 last_battery = level;
                 debug!("[BLE] Sending battery level update: {}%", level);
-                match server.battery_service.level.notify(conn, &[level]).await {
+                match server
+                    .battery_service
+                    .level
+                    .notify(conn, &[level], false)
+                    .await
+                {
                     Ok(_) => {
                         debug!("[BLE] Battery level notification sent");
                     }
@@ -497,7 +510,7 @@ async fn gatt_events_loop(
                     }
                 }
                 let info = build_info_payload(last_battery, last_rssi, last_snr);
-                if let Err(e) = server.lora_service.info.notify(conn, &info).await {
+                if let Err(e) = server.lora_service.info.notify(conn, &info, false).await {
                     debug!(
                         "[BLE] Info notify skipped (client may not be subscribed): {:?}",
                         e
