@@ -31,7 +31,8 @@ enum LoRaState : uint8_t
     STATE_IDLE,            // Initialized and ready (in RX mode)
     STATE_TRANSMITTING,    // Transmission in progress
     STATE_PACKET_RECEIVED, // Packet ready to read in process()
-    STATE_PACKET_SENT      // Transmission completed, ready to process in process()
+    STATE_PACKET_SENT,     // Transmission completed, ready to process in process()
+    STATE_TX_SETTLING      // Brief non-blocking settle period after TX before switching to RX
 };
 
 /// Configuration for LoRa radio parameters
@@ -296,6 +297,9 @@ private:
     int txQueueTail = 0;
     int txQueueCount = 0;
     int cadRetries = 0;
+
+    // TX→RX settle deadline (millis timestamp, used in STATE_TX_SETTLING)
+    uint32_t txSettleDeadline = 0;
 
     /// Process TX queue: CAD check then transmit if channel free
     bool processTxQueue();

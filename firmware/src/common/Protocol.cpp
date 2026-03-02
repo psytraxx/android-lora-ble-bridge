@@ -278,6 +278,14 @@ bool Message::deserialize(const uint8_t *buf, size_t len)
         uint8_t charCount = buf[2];
         uint8_t packedLen = buf[3];
 
+        // Reject malformed packets: packedLen beyond the maximum possible for any
+        // valid message (MAX_TEXT_LENGTH chars × 6 bits, rounded up to bytes).
+        constexpr uint8_t MAX_PACKED_LEN = (MAX_TEXT_LENGTH * 6 + 7) / 8;
+        if (packedLen > MAX_PACKED_LEN || charCount > MAX_TEXT_LENGTH)
+        {
+            return false;
+        }
+
         if (len < 5 + packedLen)
         {
             return false; // Buffer too small for packed text + hasGps flag
