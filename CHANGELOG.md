@@ -1,5 +1,13 @@
 ## Changelog
 
+### Firmware v3.7 (March 2026)
+- **Non-blocking TX→RX settle**: replaced `delay(RX_SETTLE_TIME_MS)` with a new `STATE_TX_SETTLING` state; `process()` polls `millis()` until the deadline passes, then calls `startReceive()` — main loop stays responsive during the 50ms settle window
+- **Non-blocking BLE GATT settle**: replaced `delay(500)` in `onBleConnected()` with a `bleGattReadyAt` deadline; buffered-message delivery in `loop()` is deferred until the deadline passes, avoiding a blocking pause on Android reconnect
+- **Protocol validation**: `Message::deserialize()` now early-rejects packets where `packedLen` or `charCount` exceed their maximum valid values before any buffer access
+- **MessageBuffer corruption recovery**: `peek()` now iterates (not recurses) over corrupted NVS entries, preventing potential stack overflow when multiple consecutive entries are bad
+- **`std::unique_ptr`** used for `bleManager`, `loraManager`, and `ledManager` in `unified_main.cpp` — clarifies ownership with zero runtime cost
+- **Build hardening**: `-Wextra` added globally; `-Wshadow` scoped to project sources only (via `build_src_flags`) to avoid noise from third-party libraries like RadioLib
+
 ### Firmware v3.6 (February 2026)
 - **CAD-based transmission queue** added to `LoRaManager`
   - `queueTransmit()` is now the public API for all outgoing packets (ACKs and BLE-originated messages)
