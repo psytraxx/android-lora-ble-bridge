@@ -10,6 +10,7 @@
 //! - Clean separation of platform-specific vs common code
 
 #include <Arduino.h>
+#include <memory>
 #include "common/Logging.h"
 #include "common/Protocol.h"
 #include "common/LoRaManager.h"
@@ -45,8 +46,8 @@ using Platform = NRF52PlatformTraits;
 // Global Managers (using platform-specific types)
 // ============================================================================
 
-// Use pointers to allow conditional initialization, but allocate statically
-static typename Platform::BLEManager *bleManager = nullptr;
+// Use unique_ptr for heap-allocated managers (clarifies ownership, zero runtime cost)
+static std::unique_ptr<typename Platform::BLEManager> bleManager;
 static typename Platform::StorageManager *storageManager = nullptr;
 
 // Static storage for manager instances (avoids heap allocation)
@@ -57,14 +58,18 @@ static MessageQueue bleToLoraQueue;
 static MessageQueue loraToBleQueue;
 
 // LoRa manager instance
-static LoRaManager *loraManager = nullptr;
+static std::unique_ptr<LoRaManager> loraManager;
 
 #ifdef LED_PIN
-static LEDManager *ledManager = new LEDManager(LED_PIN, LEDConstants::HEARTBEAT_INTERVAL_MS, LEDConstants::HEARTBEAT_DURATION_MS);
+static std::unique_ptr<LEDManager> ledManager(new LEDManager(LED_PIN, LEDConstants::HEARTBEAT_INTERVAL_MS, LEDConstants::HEARTBEAT_DURATION_MS));
 #endif
 
 // Deep sleep inactivity timer
 static TimerHandle_t deepSleepTimerHandle = nullptr;
+
+// Deadline after which the BLE GATT stack is considered ready for use.
+// Avoids blocking the main loop after connection (replaces delay(500) in callback).
+static uint32_t bleGattReadyAt = 0;
 
 // Last received LoRa signal quality (updated on every LoRa receive)
 static int lastRssi = 0;
@@ -189,7 +194,7 @@ void setup()
 
     // Initialize BLE manager (heap allocation required due to different constructors)
     // Both platforms now use queue-based message handling
-    bleManager = new typename Platform::BLEManager(&bleToLoraQueue);
+    bleManager = std::unique_ptr<typename Platform::BLEManager>(new typename Platform::BLEManager(&bleToLoraQueue));
 
     if (!bleManager->setup(deviceName))
     {
@@ -202,14 +207,14 @@ void setup()
     bleManager->startAdvertising();
 
     // Initialize LoRa manager (heap allocation required due to runtime pin configuration)
-    loraManager = new LoRaManager(
+    loraManager = std::unique_ptr<LoRaManager>(new LoRaManager(
         LORA_SCK,
         LORA_MISO,
         LORA_MOSI,
         LORA_SS,
         LORA_RST,
         LORA_DIO0,
-        LORA_BUSY);
+        LORA_BUSY));
 
     loraManager->setReceiveCallback(onLoRaReceived);
     loraManager->setTransmitCallback(onLoRaTransmitted);
@@ -338,8 +343,11 @@ void loop()
         }
     }
 
-    // Send buffered messages only when client is connected and has enabled notifications
-    if (bleManager->isConnected() && bleManager->areNotificationsEnabled() && !storageManager->isEmpty())
+    // Send buffered messages only when client is connected, GATT stack has settled,
+    // and notifications are enabled. The 500ms settle window after connection avoids
+    // sending before Android completes MTU negotiation.
+    if (bleManager->isConnected() && (uint32_t)millis() >= bleGattReadyAt &&
+        bleManager->areNotificationsEnabled() && !storageManager->isEmpty())
     {
         Message bufferedMsg;
         if (storageManager->peek(bufferedMsg))
@@ -369,8 +377,11 @@ void onBleConnected()
     LOG_I(TAG, "BLE connected");
     resetInactivityTimer();
 
-    // Wait for Android GATT stack to complete setup (500ms is sufficient)
-    delay(500);
+    // Record when the Android GATT stack will be ready for use.
+    // Some Android BLE stacks need ~500ms after connection to complete MTU
+    // negotiation. Rather than blocking here with delay(500), the main loop
+    // defers buffered-message delivery until this deadline passes.
+    bleGattReadyAt = millis() + 500;
 }
 
 void onBleDisconnected()

@@ -165,59 +165,37 @@ bool MessageBuffer::peek(Message &msg)
         return false;
     }
 
-    if (isEmpty())
+    // Iterate (not recurse) over corrupted entries to avoid stack overflow
+    // on constrained devices with many consecutive bad NVS entries.
+    while (!isEmpty())
     {
-        return false;
-    }
+        char key[16];
+        getMessageKey(m_head, key, sizeof(key));
 
-    // Generate key for message at head (oldest)
-    char key[16];
-    getMessageKey(m_head, key, sizeof(key));
+        uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
+        size_t len = sizeof(buffer);
 
-    // Read serialized message from NVS
-    uint8_t buffer[BufferConstants::MAX_PROTOCOL_MESSAGE];
-    size_t len = sizeof(buffer);
-
-    esp_err_t err = nvs_get_blob(m_nvsHandle, key, buffer, &len);
-    if (err != ESP_OK)
-    {
-        LOG_W(TAG, "Failed to read message from NVS: %s (corrupted entry, skipping)", esp_err_to_name(err));
-
-        // Message data is missing or corrupted, but state says it exists
-        // Skip this entry by removing it from the buffer
-        popFront();
-
-        // Try to peek the next message (recursive call)
-        if (!isEmpty())
+        esp_err_t err = nvs_get_blob(m_nvsHandle, key, buffer, &len);
+        if (err != ESP_OK)
         {
-            LOG_I(TAG, "Skipped corrupted message, trying next (count=%d)", m_count);
-            return peek(msg); // Recursive: try next message
+            LOG_W(TAG, "Failed to read message from NVS: %s (corrupted entry, skipping)", esp_err_to_name(err));
+            popFront();
+            LOG_I(TAG, "Skipped corrupted message (count=%d)", m_count);
+            continue;
         }
 
-        // No more messages after skipping corrupted entry
-        return false;
-    }
-
-    // Deserialize message
-    if (!msg.deserialize(buffer, len))
-    {
-        LOG_W(TAG, "Failed to deserialize message from NVS (corrupted data, skipping)");
-
-        // Deserialization failed, skip this corrupted entry
-        popFront();
-
-        // Try to peek the next message (recursive call)
-        if (!isEmpty())
+        if (!msg.deserialize(buffer, len))
         {
-            LOG_I(TAG, "Skipped corrupted message, trying next (count=%d)", m_count);
-            return peek(msg); // Recursive: try next message
+            LOG_W(TAG, "Failed to deserialize message from NVS (corrupted data, skipping)");
+            popFront();
+            LOG_I(TAG, "Skipped corrupted message (count=%d)", m_count);
+            continue;
         }
 
-        // No more messages after skipping corrupted entry
-        return false;
+        return true;
     }
 
-    return true;
+    return false;
 }
 
 bool MessageBuffer::popFront()

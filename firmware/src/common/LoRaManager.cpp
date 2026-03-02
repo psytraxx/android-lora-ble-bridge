@@ -66,9 +66,9 @@ bool LoRaManager::begin()
         LOG_I(TAG, "Setup attempt %d/%d", attempt, LoRaConstants::INIT_RETRY_COUNT);
 
         // Initialize radio based on chip type
-        int state;
+        int initResult;
         // SX12XX: Basic initialization
-        state = radio->begin(
+        initResult = radio->begin(
             LoRaConstants::FREQUENCY,
             LoRaConstants::BANDWIDTH,
             LoRaConstants::SPREADING_FACTOR,
@@ -86,7 +86,7 @@ bool LoRaManager::begin()
         LOG_I(TAG, "  TX Power: %d dBm", LORA_TX_POWER);
         LOG_I(TAG, "  Preamble Length: %d symbols", LoRaConstants::PREAMBLE_LENGTH);
 
-        if (state == RADIOLIB_ERR_NONE)
+        if (initResult == RADIOLIB_ERR_NONE)
         {
             int res = radio->setCRC(true);
             if (res != RADIOLIB_ERR_NONE)
@@ -100,8 +100,9 @@ bool LoRaManager::begin()
             }
 
 #if defined(RADIO_SX1262) || defined(RADIO_SX1268)
-            // Explicitly set TCXO control via DIO3 (redundant if begin() does it, but safe)
-            // This sends the SetDio3AsTcxoCtrl command
+            // OPTIONAL: Explicitly set TCXO control via DIO3.
+            // Non-fatal: hardware may not have an external TCXO; begin() may already
+            // configure this. Failure is logged but does not abort initialization.
             res = radio->setTCXO(LoRaConstants::TCXO_VOLTAGE);
             if (res != RADIOLIB_ERR_NONE)
             {
@@ -112,6 +113,8 @@ bool LoRaManager::begin()
                 LOG_I(TAG, "TCXO configured at %.1fV via DIO3", LoRaConstants::TCXO_VOLTAGE);
             }
 
+            // OPTIONAL: Enable DC-DC switching regulator for lower idle current.
+            // Non-fatal: falls back to LDO mode if unsupported or unavailable.
             res = radio->setRegulatorDCDC();
             if (res != RADIOLIB_ERR_NONE)
             {
@@ -122,6 +125,8 @@ bool LoRaManager::begin()
                 LOG_I(TAG, "DC-DC regulator enabled");
             }
 
+            // OPTIONAL: Enable boosted RX gain mode (+2–3 dBm sensitivity).
+            // Non-fatal: standard gain mode is used if unsupported.
             res = radio->setRxBoostedGainMode(true);
             if (res != RADIOLIB_ERR_NONE)
             {
@@ -136,7 +141,8 @@ bool LoRaManager::begin()
             LOG_I(TAG, "DIO2 configured as RF switch");
 
 #if defined(LORA_MAX_CURRENT)
-            // Set current limit for PA (important for SX126x family)
+            // REQUIRED: PA current limit protects the SX126x PA from over-current.
+            // Fatal: without this limit the PA may operate outside safe ratings.
             res = radio->setCurrentLimit(LORA_MAX_CURRENT);
             if (res != RADIOLIB_ERR_NONE)
             {
@@ -154,7 +160,7 @@ bool LoRaManager::begin()
             return true;
         }
 
-        LOG_E(TAG, "Setup failed, code %d", state);
+        LOG_E(TAG, "Setup failed, code %d", initResult);
 
         if (attempt < LoRaConstants::INIT_RETRY_COUNT)
         {
@@ -335,7 +341,7 @@ void LoRaManager::process()
     // Check for received packets
     if (state == STATE_PACKET_RECEIVED)
     {
-        LOG_I(TAG, "RX packet detected, processing");
+        LOG_D(TAG, "RX packet detected, processing");
 
         // Read packet data
         LoRaPacket packet;
@@ -347,7 +353,7 @@ void LoRaManager::process()
             packet.rssi = radio->getRSSI();
             packet.snr = radio->getSNR();
 
-            LOG_I(TAG, "Packet received (%d bytes, RSSI: %d dBm, SNR: %.1f dB)",
+            LOG_D(TAG, "Packet received (%d bytes, RSSI: %d dBm, SNR: %.1f dB)",
                   packet.len, packet.rssi, packet.snr);
 
             if (receiveCallback)
@@ -370,7 +376,7 @@ void LoRaManager::process()
             // Use duty cycle mode by default for power savings (SX126x)
             startReceive(true);
             state = STATE_IDLE;
-            LOG_I(TAG, "RX packet processing complete, receive mode restarted");
+            LOG_D(TAG, "RX packet processing complete, receive mode restarted");
         }
         else if (state == STATE_TRANSMITTING)
         {
@@ -390,14 +396,23 @@ void LoRaManager::process()
             transmitCallback(true);
         }
 
-        // Allow radio hardware to settle before switching to RX mode
-        // This prevents timing issues with rapid TX->RX transitions
-        delay(LoRaConstants::RX_SETTLE_TIME_MS);
+        // Begin non-blocking settle period before switching to RX mode.
+        // Avoids delay() in the main-loop process() call while still providing
+        // the hardware settle time required for reliable TX->RX transitions.
+        state = STATE_TX_SETTLING;
+        txSettleDeadline = millis() + LoRaConstants::RX_SETTLE_TIME_MS;
+        return;
+    }
 
-        // Restart RX mode for all platforms (preferring duty cycle where supported)
-        startReceive(true);
-        state = STATE_IDLE;
-        LOG_I(TAG, "Now in RX mode");
+    // Wait out the post-TX hardware settle period (non-blocking)
+    if (state == STATE_TX_SETTLING)
+    {
+        if ((uint32_t)millis() >= txSettleDeadline)
+        {
+            startReceive(true);
+            state = STATE_IDLE;
+            LOG_I(TAG, "Now in RX mode");
+        }
         return;
     }
 
