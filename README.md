@@ -3,6 +3,17 @@
 
 A long-range communication system for sending text messages (up to 50 characters) and GPS coordinates via 433 MHz LoRa using ESP32/ESP32-S3 and Android devices.
 
+## Why Not Meshtastic or MeshCore?
+
+If you need a battle-tested, feature-rich mesh network for off-grid communication, you almost certainly want one of these instead:
+
+- **[Meshtastic](https://meshtastic.org/)** — Open-source, encrypted mesh networking over LoRa. Supports phones, GPS tracking, channels, long-range relaying, and a large hardware ecosystem. Actively maintained with thousands of users worldwide.
+- **[MeshCore](https://meshcore.co.uk/)** — Lightweight LoRa mesh protocol focused on minimal overhead and maximum range. Designed for extreme efficiency in low-bandwidth, long-range scenarios.
+
+Both projects are **vastly superior** for general-purpose off-grid communication. They handle routing, encryption, firmware updates, community support, and proven real-world deployments.
+
+**This project exists for one reason only:** to squeeze every last bit of performance out of a raw LoRa link for **direct point-to-point communication** — no mesh overhead, no routing tables, no protocol abstractions. Just the absolute maximum RF power, the tightest possible protocol encoding (6-bit character packing, fixed-size GPS frames), and full control over every timing parameter from preamble length to CAD backoff. Both the ESP32 and nRF52 spend the vast majority of their time in deep sleep — the SX1262 radio manages its own autonomous duty cycle, waking the MCU only on packet reception. If you need to push the physical limits of a single LoRa hop between two nodes with minimum possible power draw, this is the tool. For everything else, use Meshtastic.
+
 ## Features
 
 - 📱 **Android App**: Modern Kotlin app with Jetpack Compose, GPS integration, and BLE communication
