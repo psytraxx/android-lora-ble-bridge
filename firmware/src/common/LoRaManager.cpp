@@ -502,6 +502,74 @@ bool LoRaManager::handleSleepWakeup()
     return false;
 }
 
+// ============================================================================
+// Runtime parameter setters
+// ============================================================================
+
+bool LoRaManager::setSpreadingFactor(uint8_t sf)
+{
+    int res = radio->setSpreadingFactor(sf);
+    if (res != RADIOLIB_ERR_NONE)
+    {
+        LOG_E(TAG, "setSpreadingFactor(%u) failed: %d", sf, res);
+        return false;
+    }
+    LOG_I(TAG, "SF changed to %u", sf);
+    startReceive(true);
+    return true;
+}
+
+bool LoRaManager::setBandwidth(float khz)
+{
+    int res = radio->setBandwidth(khz);
+    if (res != RADIOLIB_ERR_NONE)
+    {
+        LOG_E(TAG, "setBandwidth(%.1f) failed: %d", khz, res);
+        return false;
+    }
+    LOG_I(TAG, "BW changed to %.1f kHz", khz);
+    startReceive(true);
+    return true;
+}
+
+bool LoRaManager::setCodingRate(uint8_t cr)
+{
+    int res = radio->setCodingRate(cr);
+    if (res != RADIOLIB_ERR_NONE)
+    {
+        LOG_E(TAG, "setCodingRate(%u) failed: %d", cr, res);
+        return false;
+    }
+    LOG_I(TAG, "CR changed to 4/%u", cr);
+    startReceive(true);
+    return true;
+}
+
+bool LoRaManager::setTxPower(int8_t dbm)
+{
+    int res = radio->setOutputPower(dbm);
+    if (res != RADIOLIB_ERR_NONE)
+    {
+        LOG_E(TAG, "setTxPower(%d) failed: %d", dbm, res);
+        return false;
+    }
+    LOG_I(TAG, "TX power changed to %d dBm", dbm);
+    return true;
+}
+
+bool LoRaManager::setFrequency(float mhz)
+{
+    int res = radio->setFrequency(mhz);
+    if (res != RADIOLIB_ERR_NONE)
+    {
+        LOG_E(TAG, "setFrequency(%.3f) failed: %d", mhz, res);
+        return false;
+    }
+    LOG_I(TAG, "Frequency changed to %.3f MHz", mhz);
+    startReceive(true);
+    return true;
+}
+
 // ISR handlers
 void LORA_ISR_ATTR LoRaManager::onReceiveISR()
 {

@@ -1,7 +1,14 @@
 #include "common/PeerNodeDB.h"
+#include "common/NodeDB.h"
 #include "common/Logging.h"
 #include <cstring>
 #include <Arduino.h>
+
+static inline uint32_t currentTimestamp()
+{
+    uint32_t t = NodeDB::getCurrentTime();
+    return (t > 0) ? t : (millis() / 1000);
+}
 
 // Platform-specific includes
 #if defined(ARDUINO_ARCH_ESP32)
@@ -117,7 +124,7 @@ namespace PeerNodeDB
             PeerNode *node = &peers[peerCount];
             memset(node, 0, sizeof(PeerNode));
             node->nodeNum = nodeNum;
-            node->lastHeard = millis() / 1000;
+            node->lastHeard = currentTimestamp();
             peerCount++;
             LOG_D(TAG, "Created new peer entry: 0x%08lx (%u/%u)",
                   (unsigned long)nodeNum, peerCount, MAX_PEER_NODES);
@@ -137,14 +144,15 @@ namespace PeerNodeDB
                 }
             }
 
+            uint32_t now = currentTimestamp();
             LOG_W(TAG, "Peer DB full, evicting oldest: 0x%08lx (last heard %lus ago)",
                   (unsigned long)peers[oldestIdx].nodeNum,
-                  (unsigned long)(millis() / 1000 - oldestTime));
+                  (unsigned long)(now - oldestTime));
 
             PeerNode *node = &peers[oldestIdx];
             memset(node, 0, sizeof(PeerNode));
             node->nodeNum = nodeNum;
-            node->lastHeard = millis() / 1000;
+            node->lastHeard = now;
             return node;
         }
     }
@@ -196,7 +204,7 @@ namespace PeerNodeDB
 
         node->hwModel = user.hw_model;
         node->hasUser = true;
-        node->lastHeard = millis() / 1000;
+        node->lastHeard = currentTimestamp();
 
         LOG_D(TAG, "Updated peer from User: 0x%08lx '%s' (%s)",
               (unsigned long)nodeNum, node->longName, node->shortName);
@@ -223,7 +231,7 @@ namespace PeerNodeDB
             }
         }
 
-        node->lastHeard = millis() / 1000;
+        node->lastHeard = currentTimestamp();
         save();
     }
 
@@ -238,7 +246,7 @@ namespace PeerNodeDB
         node->rssi = rssi;
         node->snr = (int16_t)(snr * 10.0f); // Fixed-point: SNR × 10
         node->hopsAway = hops;
-        node->lastHeard = millis() / 1000;
+        node->lastHeard = currentTimestamp();
 
         LOG_D(TAG, "Updated peer signal: 0x%08lx RSSI=%d SNR=%.1f hops=%u",
               (unsigned long)nodeNum, rssi, snr, hops);
@@ -268,13 +276,22 @@ namespace PeerNodeDB
         }
         node->positionTime = position.time;
         node->hasPosition = true;
-        node->lastHeard = millis() / 1000;
+        node->lastHeard = currentTimestamp();
 
         LOG_D(TAG, "Updated peer position: 0x%08lx lat=%ld lon=%ld alt=%ld",
               (unsigned long)nodeNum, (long)node->latitudeI,
               (long)node->longitudeI, (long)node->altitude);
 
         save();
+    }
+
+    void clearAllNodes()
+    {
+        memset(peers, 0, sizeof(peers));
+        peerCount = 0;
+        dirty = false;
+        saveToStorage(); // Persist empty state
+        LOG_I(TAG, "All peer nodes cleared");
     }
 
     uint16_t getCount()

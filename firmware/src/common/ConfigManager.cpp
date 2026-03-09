@@ -4,7 +4,88 @@
 #include "common/MeshCrypto.h"
 #include "common/Logging.h"
 #include "common/FirmwareConfig.h"
+#include "common/LoRaManager.h"
 #include <cstring>
+
+// Platform-specific storage includes
+#if defined(ARDUINO_ARCH_ESP32)
+#include <nvs_flash.h>
+#include <nvs.h>
+#elif defined(ARDUINO_ARCH_NRF52)
+#include <Adafruit_LittleFS.h>
+#include <InternalFileSystem.h>
+using namespace Adafruit_LittleFS_Namespace;
+#endif
+
+// ============================================================================
+// In-memory config state (loaded from storage on init, overwritten by set_config)
+// ============================================================================
+static meshtastic_Config_DeviceConfig      s_deviceCfg;
+static meshtastic_Config_LoRaConfig        s_loraCfg;
+static meshtastic_Config_BluetoothConfig   s_btCfg;
+static meshtastic_Config_PowerConfig       s_powerCfg;
+static meshtastic_ModuleConfig_TelemetryConfig s_telemCfg;
+
+// Bitmask of which variants have been loaded from storage (1 << which_payload_variant)
+static uint32_t s_persistedConfigMask  = 0;
+static uint32_t s_persistedModuleMask  = 0;
+
+#if defined(ARDUINO_ARCH_ESP32)
+static const char *CFG_NVS_NAMESPACE = "config_db";
+static nvs_handle_t s_cfgNvsHandle = 0;
+#elif defined(ARDUINO_ARCH_NRF52)
+static const char *CFG_DIR = "/config";
+#endif
+
+static void saveConfigBlob(const char *key, const void *ptr, size_t size)
+{
+#if defined(ARDUINO_ARCH_ESP32)
+    if (s_cfgNvsHandle == 0) return;
+    esp_err_t err = nvs_set_blob(s_cfgNvsHandle, key, ptr, size);
+    if (err == ESP_OK)
+    {
+        nvs_commit(s_cfgNvsHandle);
+    }
+#elif defined(ARDUINO_ARCH_NRF52)
+    // Build path: /config/<key>.bin
+    char path[48];
+    snprintf(path, sizeof(path), "%s/%s.bin", CFG_DIR, key);
+    File file = InternalFS.open(path, FILE_O_WRITE);
+    if (file)
+    {
+        file.write((const uint8_t *)ptr, size);
+        file.close();
+    }
+#else
+    (void)key; (void)ptr; (void)size;
+#endif
+}
+
+static void loadConfigBlobIfMatch(const char *key, void *ptr, size_t expectedSize, uint32_t *mask, uint32_t bit)
+{
+#if defined(ARDUINO_ARCH_ESP32)
+    if (s_cfgNvsHandle == 0) return;
+    size_t sz = expectedSize;
+    esp_err_t err = nvs_get_blob(s_cfgNvsHandle, key, ptr, &sz);
+    if (err == ESP_OK && sz == expectedSize)
+    {
+        *mask |= bit;
+    }
+#elif defined(ARDUINO_ARCH_NRF52)
+    char path[48];
+    snprintf(path, sizeof(path), "%s/%s.bin", CFG_DIR, key);
+    if (!InternalFS.exists(path)) return;
+    File file = InternalFS.open(path, FILE_O_READ);
+    if (!file) return;
+    if ((size_t)file.read((uint8_t *)ptr, expectedSize) == expectedSize)
+    {
+        *mask |= bit;
+    }
+    file.close();
+#else
+    (void)key; (void)ptr; (void)expectedSize; (void)mask; (void)bit;
+#endif
+}
 
 static const char *TAG = "ConfigMgr";
 
@@ -14,8 +95,44 @@ namespace ConfigManager
 
     void init()
     {
+        // Initialize defaults for in-memory config structs
+        memset(&s_deviceCfg, 0, sizeof(s_deviceCfg));
+        memset(&s_loraCfg,   0, sizeof(s_loraCfg));
+        memset(&s_btCfg,     0, sizeof(s_btCfg));
+        memset(&s_powerCfg,  0, sizeof(s_powerCfg));
+        memset(&s_telemCfg,  0, sizeof(s_telemCfg));
+
+        // Open storage
+#if defined(ARDUINO_ARCH_ESP32)
+        // NVS should already be initialized by NodeDB
+        esp_err_t err = nvs_open(CFG_NVS_NAMESPACE, NVS_READWRITE, &s_cfgNvsHandle);
+        if (err != ESP_OK)
+        {
+            LOG_W(TAG, "Failed to open config NVS namespace: %s", esp_err_to_name(err));
+        }
+#elif defined(ARDUINO_ARCH_NRF52)
+        // InternalFS already initialized by NodeDB
+        if (!InternalFS.exists(CFG_DIR))
+        {
+            InternalFS.mkdir(CFG_DIR);
+        }
+#endif
+
+        // Load persisted variants
+        loadConfigBlobIfMatch("cfg_device", &s_deviceCfg, sizeof(s_deviceCfg),
+                              &s_persistedConfigMask, (1u << meshtastic_Config_device_tag));
+        loadConfigBlobIfMatch("cfg_lora", &s_loraCfg, sizeof(s_loraCfg),
+                              &s_persistedConfigMask, (1u << meshtastic_Config_lora_tag));
+        loadConfigBlobIfMatch("cfg_bt", &s_btCfg, sizeof(s_btCfg),
+                              &s_persistedConfigMask, (1u << meshtastic_Config_bluetooth_tag));
+        loadConfigBlobIfMatch("cfg_power", &s_powerCfg, sizeof(s_powerCfg),
+                              &s_persistedConfigMask, (1u << meshtastic_Config_power_tag));
+        loadConfigBlobIfMatch("mod_telem", &s_telemCfg, sizeof(s_telemCfg),
+                              &s_persistedModuleMask, (1u << meshtastic_ModuleConfig_telemetry_tag));
+
+        LOG_I(TAG, "ConfigManager initialized (configMask=0x%02lx, moduleMask=0x%02lx)",
+              (unsigned long)s_persistedConfigMask, (unsigned long)s_persistedModuleMask);
         initialized = true;
-        LOG_I(TAG, "ConfigManager initialized");
     }
 
     bool getMyNodeInfo(meshtastic_MyNodeInfo *info)
@@ -76,32 +193,49 @@ namespace ConfigManager
         {
         case meshtastic_Config_device_tag:
         {
-            auto &dev = config->payload_variant.device;
-            dev.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
-            dev.serial_enabled = true;
-            dev.node_info_broadcast_secs = 3600;
-            dev.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
-            LOG_D(TAG, "Config.Device: role=CLIENT");
+            if (s_persistedConfigMask & (1u << meshtastic_Config_device_tag))
+            {
+                config->payload_variant.device = s_deviceCfg;
+                LOG_D(TAG, "Config.Device: from NVS (role=%d)", s_deviceCfg.role);
+            }
+            else
+            {
+                auto &dev = config->payload_variant.device;
+                dev.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
+                dev.serial_enabled = true;
+                dev.node_info_broadcast_secs = 3600;
+                dev.rebroadcast_mode = meshtastic_Config_DeviceConfig_RebroadcastMode_ALL;
+                LOG_D(TAG, "Config.Device: role=CLIENT (default)");
+            }
             return true;
         }
 
         case meshtastic_Config_lora_tag:
         {
-            auto &lora = config->payload_variant.lora;
-            lora.use_preset = false;
-            lora.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
-            lora.region = meshtastic_Config_LoRaConfig_RegionCode_US;
-            lora.hop_limit = 3;
-            lora.tx_enabled = true;
-            lora.tx_power = static_cast<int8_t>(LoRaConstants::TX_POWER);
-            lora.bandwidth = static_cast<uint16_t>(LoRaConstants::BANDWIDTH);
-            lora.spread_factor = LoRaConstants::SPREADING_FACTOR;
-            lora.coding_rate = LoRaConstants::CODING_RATE;
-            lora.frequency_offset = 0.0f;
-            lora.sx126x_rx_boosted_gain = false;
-            lora.override_duty_cycle = false;
-            LOG_D(TAG, "Config.LoRa: region=US, bw=%u, sf=%u, cr=%u",
-                  lora.bandwidth, lora.spread_factor, lora.coding_rate);
+            if (s_persistedConfigMask & (1u << meshtastic_Config_lora_tag))
+            {
+                config->payload_variant.lora = s_loraCfg;
+                LOG_D(TAG, "Config.LoRa: from NVS (sf=%u, bw=%u, cr=%u)",
+                      s_loraCfg.spread_factor, s_loraCfg.bandwidth, s_loraCfg.coding_rate);
+            }
+            else
+            {
+                auto &lora = config->payload_variant.lora;
+                lora.use_preset = false;
+                lora.modem_preset = meshtastic_Config_LoRaConfig_ModemPreset_LONG_FAST;
+                lora.region = meshtastic_Config_LoRaConfig_RegionCode_US;
+                lora.hop_limit = 3;
+                lora.tx_enabled = true;
+                lora.tx_power = static_cast<int8_t>(LoRaConstants::TX_POWER);
+                lora.bandwidth = static_cast<uint16_t>(LoRaConstants::BANDWIDTH);
+                lora.spread_factor = LoRaConstants::SPREADING_FACTOR;
+                lora.coding_rate = LoRaConstants::CODING_RATE;
+                lora.frequency_offset = 0.0f;
+                lora.sx126x_rx_boosted_gain = false;
+                lora.override_duty_cycle = false;
+                LOG_D(TAG, "Config.LoRa: region=US, bw=%u, sf=%u, cr=%u (default)",
+                      lora.bandwidth, lora.spread_factor, lora.coding_rate);
+            }
             return true;
         }
 
@@ -135,11 +269,19 @@ namespace ConfigManager
 
         case meshtastic_Config_bluetooth_tag:
         {
-            auto &bt = config->payload_variant.bluetooth;
-            bt.enabled = true;
-            bt.mode = meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN;
-            bt.fixed_pin = 123456;
-            LOG_D(TAG, "Config.Bluetooth: enabled");
+            if (s_persistedConfigMask & (1u << meshtastic_Config_bluetooth_tag))
+            {
+                config->payload_variant.bluetooth = s_btCfg;
+                LOG_D(TAG, "Config.Bluetooth: from NVS");
+            }
+            else
+            {
+                auto &bt = config->payload_variant.bluetooth;
+                bt.enabled = true;
+                bt.mode = meshtastic_Config_BluetoothConfig_PairingMode_RANDOM_PIN;
+                bt.fixed_pin = 123456;
+                LOG_D(TAG, "Config.Bluetooth: enabled (default)");
+            }
             return true;
         }
 
@@ -174,8 +316,17 @@ namespace ConfigManager
             LOG_D(TAG, "ModuleConfig.RangeTest: disabled");
             return true;
         case meshtastic_ModuleConfig_telemetry_tag:
-            config->payload_variant.telemetry.device_update_interval = 3600;
-            LOG_D(TAG, "ModuleConfig.Telemetry: interval=3600s");
+            if (s_persistedModuleMask & (1u << meshtastic_ModuleConfig_telemetry_tag))
+            {
+                config->payload_variant.telemetry = s_telemCfg;
+                LOG_D(TAG, "ModuleConfig.Telemetry: from NVS (interval=%lus)",
+                      (unsigned long)s_telemCfg.device_update_interval);
+            }
+            else
+            {
+                config->payload_variant.telemetry.device_update_interval = 3600;
+                LOG_D(TAG, "ModuleConfig.Telemetry: interval=3600s (default)");
+            }
             return true;
         case meshtastic_ModuleConfig_canned_message_tag:
             LOG_D(TAG, "ModuleConfig.CannedMsg: disabled");
@@ -272,5 +423,105 @@ namespace ConfigManager
 
         LOG_D(TAG, "OwnNodeInfo: num=%08X, name=%s", nodeInfo->num, user.long_name);
         return true;
+    }
+
+    void persistConfig(const meshtastic_Config *config, pb_size_t which)
+    {
+        if (!config) return;
+        switch (which)
+        {
+        case meshtastic_Config_device_tag:
+            s_deviceCfg = config->payload_variant.device;
+            s_persistedConfigMask |= (1u << meshtastic_Config_device_tag);
+            saveConfigBlob("cfg_device", &s_deviceCfg, sizeof(s_deviceCfg));
+            LOG_I(TAG, "Persisted Config.Device");
+            break;
+        case meshtastic_Config_lora_tag:
+            s_loraCfg = config->payload_variant.lora;
+            s_persistedConfigMask |= (1u << meshtastic_Config_lora_tag);
+            saveConfigBlob("cfg_lora", &s_loraCfg, sizeof(s_loraCfg));
+            LOG_I(TAG, "Persisted Config.LoRa (sf=%u, bw=%u, cr=%u)",
+                  s_loraCfg.spread_factor, s_loraCfg.bandwidth, s_loraCfg.coding_rate);
+            break;
+        case meshtastic_Config_bluetooth_tag:
+            s_btCfg = config->payload_variant.bluetooth;
+            s_persistedConfigMask |= (1u << meshtastic_Config_bluetooth_tag);
+            saveConfigBlob("cfg_bt", &s_btCfg, sizeof(s_btCfg));
+            LOG_I(TAG, "Persisted Config.Bluetooth");
+            break;
+        case meshtastic_Config_power_tag:
+            s_powerCfg = config->payload_variant.power;
+            s_persistedConfigMask |= (1u << meshtastic_Config_power_tag);
+            saveConfigBlob("cfg_power", &s_powerCfg, sizeof(s_powerCfg));
+            LOG_I(TAG, "Persisted Config.Power");
+            break;
+        default:
+            LOG_D(TAG, "persistConfig: variant %d not stored", which);
+            break;
+        }
+    }
+
+    void persistModuleConfig(const meshtastic_ModuleConfig *config, pb_size_t which)
+    {
+        if (!config) return;
+        switch (which)
+        {
+        case meshtastic_ModuleConfig_telemetry_tag:
+            s_telemCfg = config->payload_variant.telemetry;
+            s_persistedModuleMask |= (1u << meshtastic_ModuleConfig_telemetry_tag);
+            saveConfigBlob("mod_telem", &s_telemCfg, sizeof(s_telemCfg));
+            LOG_I(TAG, "Persisted ModuleConfig.Telemetry (interval=%lus)",
+                  (unsigned long)s_telemCfg.device_update_interval);
+            break;
+        default:
+            LOG_D(TAG, "persistModuleConfig: variant %d not stored", which);
+            break;
+        }
+    }
+
+    const meshtastic_Config_LoRaConfig &getLoRaConfig()
+    {
+        if (s_persistedConfigMask & (1u << meshtastic_Config_lora_tag))
+        {
+            return s_loraCfg;
+        }
+        // Return defaults via static initialised-on-demand struct
+        static meshtastic_Config_LoRaConfig defaults;
+        static bool defaultsInit = false;
+        if (!defaultsInit)
+        {
+            memset(&defaults, 0, sizeof(defaults));
+            defaults.use_preset = false;
+            defaults.region = meshtastic_Config_LoRaConfig_RegionCode_US;
+            defaults.hop_limit = 3;
+            defaults.tx_enabled = true;
+            defaults.tx_power = static_cast<int8_t>(LoRaConstants::TX_POWER);
+            defaults.bandwidth = static_cast<uint16_t>(LoRaConstants::BANDWIDTH);
+            defaults.spread_factor = LoRaConstants::SPREADING_FACTOR;
+            defaults.coding_rate = LoRaConstants::CODING_RATE;
+            defaultsInit = true;
+        }
+        return defaults;
+    }
+
+    void applyLoRaConfig(LoRaManager *lora)
+    {
+        if (!lora) return;
+        if (!(s_persistedConfigMask & (1u << meshtastic_Config_lora_tag))) return;
+
+        const auto &c = s_loraCfg;
+        LOG_I(TAG, "Applying persisted LoRa config: sf=%u, bw=%u, cr=%u, pwr=%d",
+              c.spread_factor, c.bandwidth, c.coding_rate, c.tx_power);
+
+        if (c.spread_factor != 0)
+            lora->setSpreadingFactor(c.spread_factor);
+        if (c.bandwidth != 0)
+            lora->setBandwidth((float)c.bandwidth);
+        if (c.coding_rate != 0)
+            lora->setCodingRate(c.coding_rate);
+        if (c.tx_power != 0)
+            lora->setTxPower(c.tx_power);
+        if (c.override_frequency > 0.0f)
+            lora->setFrequency(c.override_frequency);
     }
 }

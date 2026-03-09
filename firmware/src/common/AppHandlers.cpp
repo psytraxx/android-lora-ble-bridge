@@ -9,11 +9,17 @@
 #include <pb_decode.h>
 #include <Arduino.h>
 
-// Platform-specific includes for PowerManager
+// Platform-specific includes
 #if defined(ARDUINO_ARCH_ESP32)
 #include "esp32/PowerManager.h"
+#include <nvs_flash.h>
+#include <nvs.h>
 #elif defined(ARDUINO_ARCH_NRF52)
 #include "nrf52/PowerManager.h"
+#include <Adafruit_LittleFS.h>
+#include <InternalFileSystem.h>
+#include <bluefruit.h>
+using namespace Adafruit_LittleFS_Namespace;
 #endif
 
 static const char *TAG = "AppHandlers";
@@ -38,10 +44,16 @@ void AppHandlers::handlePositionApp(const meshtastic_Data &data, uint32_t fromNo
         return;
     }
 
-    LOG_I(TAG, "Position from %08lx: lat=%ld lon=%ld alt=%ld",
+    LOG_I(TAG, "Position from %08lx: lat=%ld lon=%ld alt=%ld time=%lu",
           (unsigned long)fromNode,
           (long)position.latitude_i, (long)position.longitude_i,
-          (long)position.altitude);
+          (long)position.altitude, (unsigned long)position.time);
+
+    // Use GPS timestamp to sync RTC (if not already set or this is newer)
+    if (position.time > 0 && position.time > NodeDB::getCurrentTime())
+    {
+        NodeDB::setCurrentTime(position.time);
+    }
 
     PeerNodeDB::updateFromPosition(fromNode, position);
 }
@@ -168,7 +180,8 @@ void AppHandlers::broadcastNodeInfo()
     meshPacket.to = 0xFFFFFFFF; // BROADCAST_ADDR
     meshPacket.id = NodeDB::generatePacketId();
     meshPacket.channel = 0;
-    meshPacket.hop_limit = 3;
+    uint8_t hopLimit = ConfigManager::getLoRaConfig().hop_limit;
+    meshPacket.hop_limit = (hopLimit > 0) ? hopLimit : 3;
     meshPacket.want_ack = false;
     meshPacket.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     meshPacket.decoded = data;
@@ -239,7 +252,10 @@ void AppHandlers::broadcastTelemetry()
     meshPacket.to = 0xFFFFFFFF; // BROADCAST_ADDR
     meshPacket.id = NodeDB::generatePacketId();
     meshPacket.channel = 0;
-    meshPacket.hop_limit = 3;
+    meshPacket.hop_limit = [] {
+        uint8_t h = ConfigManager::getLoRaConfig().hop_limit;
+        return (h > 0) ? h : (uint8_t)3;
+    }();
     meshPacket.want_ack = false;
     meshPacket.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     meshPacket.decoded = data;
@@ -298,7 +314,10 @@ void AppHandlers::sendAck(uint32_t toNode, uint32_t ackId,
     meshPacket.to = toNode;
     meshPacket.id = NodeDB::generatePacketId();
     meshPacket.channel = 0;
-    meshPacket.hop_limit = 3;
+    meshPacket.hop_limit = [] {
+        uint8_t h = ConfigManager::getLoRaConfig().hop_limit;
+        return (h > 0) ? h : (uint8_t)3;
+    }();
     meshPacket.want_ack = false; // Don't ACK an ACK!
     meshPacket.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     meshPacket.decoded = data;
@@ -383,7 +402,10 @@ static void sendAdminResponse(const meshtastic_AdminMessage &adminMsg,
         meshPacket.to = toNode;
         meshPacket.id = NodeDB::generatePacketId();
         meshPacket.channel = 0;
-        meshPacket.hop_limit = 3;
+        meshPacket.hop_limit = [] {
+        uint8_t h = ConfigManager::getLoRaConfig().hop_limit;
+        return (h > 0) ? h : (uint8_t)3;
+    }();
         meshPacket.want_ack = false;
         meshPacket.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
         meshPacket.decoded = data;
@@ -416,6 +438,41 @@ static void performReboot()
     ESP.restart();
 #elif defined(ARDUINO_ARCH_NRF52)
     NVIC_SystemReset();
+#endif
+}
+
+/**
+ * @brief Erase all persistent config namespaces (preserves BLE bonds on ESP32)
+ */
+static void eraseConfigStorage()
+{
+#if defined(ARDUINO_ARCH_ESP32)
+    // Erase each app namespace individually to preserve NimBLE bond storage
+    static const char *namespaces[] = {
+        "node_db", "peer_db", "config_db", "msg_buffer"
+    };
+    for (auto ns : namespaces)
+    {
+        nvs_handle_t h;
+        if (nvs_open(ns, NVS_READWRITE, &h) == ESP_OK)
+        {
+            nvs_erase_all(h);
+            nvs_commit(h);
+            nvs_close(h);
+            LOG_I(TAG, "Erased NVS namespace: %s", ns);
+        }
+    }
+#elif defined(ARDUINO_ARCH_NRF52)
+    // Delete all known data directories from LittleFS
+    static const char *dirs[] = { "/nodedb", "/peerdb", "/config" };
+    for (auto dir : dirs)
+    {
+        if (InternalFS.exists(dir))
+        {
+            InternalFS.rmdir_r(dir);
+            LOG_I(TAG, "Removed LittleFS dir: %s", dir);
+        }
+    }
 #endif
 }
 
@@ -532,6 +589,61 @@ void AppHandlers::handleAdminApp(const meshtastic_Data &data, uint32_t fromNode,
         {
             LOG_W(TAG, "set_channel index %u out of range", channel.index);
         }
+        break;
+    }
+
+    case meshtastic_AdminMessage_set_config_tag:
+    {
+        const meshtastic_Config &cfg = adminMsg.set_config;
+        LOG_I(TAG, "Admin set_config (which=%lu)", (unsigned long)cfg.which_payload_variant);
+        ConfigManager::persistConfig(&cfg, cfg.which_payload_variant);
+        // App typically follows with reboot_seconds to apply; no response needed
+        break;
+    }
+
+    case meshtastic_AdminMessage_set_module_config_tag:
+    {
+        const meshtastic_ModuleConfig &mcfg = adminMsg.set_module_config;
+        LOG_I(TAG, "Admin set_module_config (which=%lu)", (unsigned long)mcfg.which_payload_variant);
+        ConfigManager::persistModuleConfig(&mcfg, mcfg.which_payload_variant);
+        break;
+    }
+
+    case meshtastic_AdminMessage_set_time_only_tag:
+    {
+        uint32_t unixTime = adminMsg.set_time_only;
+        LOG_I(TAG, "Admin set_time_only: %lu (Unix)", (unsigned long)unixTime);
+        NodeDB::setCurrentTime(unixTime);
+        break;
+    }
+
+    case meshtastic_AdminMessage_factory_reset_device_tag:
+    {
+        LOG_I(TAG, "Admin factory_reset_device — erasing all storage and rebooting");
+        eraseConfigStorage();
+#if defined(ARDUINO_ARCH_ESP32)
+        // Additionally wipe NimBLE bond storage by erasing the full NVS partition
+        nvs_flash_erase();
+#elif defined(ARDUINO_ARCH_NRF52)
+        Bluefruit.Periph.clearBonds();
+#endif
+        performReboot();
+        break;
+    }
+
+    case meshtastic_AdminMessage_factory_reset_config_tag:
+    {
+        LOG_I(TAG, "Admin factory_reset_config — erasing config storage and rebooting");
+        eraseConfigStorage();
+        performReboot();
+        break;
+    }
+
+    case meshtastic_AdminMessage_nodedb_reset_tag:
+    {
+        LOG_I(TAG, "Admin nodedb_reset — clearing peer database");
+        PeerNodeDB::clearAllNodes();
+        performReboot();
         break;
     }
 

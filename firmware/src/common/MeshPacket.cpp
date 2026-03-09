@@ -190,22 +190,34 @@ namespace MeshPacket
         return true;
     }
 
+    // CRC8 with polynomial 0x39 — matches official Meshtastic channel hash algorithm
+    static uint8_t crc8byte(uint8_t v)
+    {
+        uint8_t crc = 0;
+        for (int i = 0; i < 8; i++)
+        {
+            if ((v ^ crc) & 0x80)
+                crc = (crc << 1) ^ 0x39;
+            else
+                crc <<= 1;
+            v <<= 1;
+        }
+        return crc;
+    }
+
     uint8_t calculateChannelHash(const char *channelName, const uint8_t *psk, size_t pskLen)
     {
-        // Simple XOR hash (Meshtastic uses CRC8, but XOR is sufficient for now)
+        // XOR of CRC8 of each byte — matches official Meshtastic hash algorithm
         uint8_t hash = 0;
 
-        // Hash channel name
-        for (size_t i = 0; channelName[i] != '\0'; i++)
+        if (channelName)
         {
-            hash ^= (uint8_t)channelName[i];
+            for (size_t i = 0; channelName[i] != '\0'; i++)
+                hash ^= crc8byte((uint8_t)channelName[i]);
         }
 
-        // Hash PSK
         for (size_t i = 0; i < pskLen; i++)
-        {
-            hash ^= psk[i];
-        }
+            hash ^= crc8byte(psk[i]);
 
         return hash;
     }

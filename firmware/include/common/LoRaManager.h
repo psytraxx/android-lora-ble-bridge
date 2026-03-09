@@ -130,6 +130,13 @@ public:
     float getSNR() const;
     bool isInitialized() const { return state != STATE_UNINITIALIZED; }
 
+    // Runtime parameter setters (apply after begin(); return to RX on success)
+    bool setSpreadingFactor(uint8_t sf);   // 7–12
+    bool setBandwidth(float khz);          // 125.0, 250.0, 500.0
+    bool setCodingRate(uint8_t cr);        // denominator: 5–8 (4/N)
+    bool setTxPower(int8_t dbm);
+    bool setFrequency(float mhz);
+
     static void LORA_ISR_ATTR onReceiveISR();
     static void LORA_ISR_ATTR onTransmitISR();
 

@@ -131,6 +131,11 @@ namespace PeerNodeDB
     void updateSignalInfo(uint32_t nodeNum, int rssi, float snr, uint8_t hops);
 
     /**
+     * @brief Clear all peer nodes and persist empty state (for factory reset)
+     */
+    void clearAllNodes();
+
+    /**
      * @brief Get number of stored peers
      * @return Count of peer nodes
      */

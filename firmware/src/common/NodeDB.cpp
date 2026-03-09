@@ -25,11 +25,16 @@ static const char *NVS_KEY_SHORT = "short_name";
 static const char *NVS_KEY_LONG = "long_name";
 static const char *NVS_KEY_REBOOT = "reboot_cnt";
 static const char *NVS_KEY_PKT_ID = "pkt_id";
+static const char *NVS_KEY_BOOT_EPOCH = "boot_epoch";
 static nvs_handle_t nvsHandle = 0;
 #elif defined(ARDUINO_ARCH_NRF52)
 static const char *DB_DIR = "/nodedb";
 static const char *DB_FILE = "/nodedb/names.bin";
+static const char *TIME_FILE = "/nodedb/time.bin";
 #endif
+
+// Unix time at boot (0 = unknown). Set by setCurrentTime().
+static uint32_t s_bootEpoch = 0;
 
 namespace NodeDB
 {
@@ -224,6 +229,35 @@ namespace NodeDB
         return 1 + PeerNodeDB::getCount();
     }
 
+    void setCurrentTime(uint32_t unixTime)
+    {
+        s_bootEpoch = unixTime - (millis() / 1000);
+        LOG_I(TAG, "Time set: Unix=%lu, bootEpoch=%lu",
+              (unsigned long)unixTime, (unsigned long)s_bootEpoch);
+
+        // Persist so approximate time survives reboots
+#if defined(ARDUINO_ARCH_ESP32)
+        if (nvsHandle != 0)
+        {
+            nvs_set_u32(nvsHandle, NVS_KEY_BOOT_EPOCH, s_bootEpoch);
+            nvs_commit(nvsHandle);
+        }
+#elif defined(ARDUINO_ARCH_NRF52)
+        File tf = InternalFS.open(TIME_FILE, FILE_O_WRITE);
+        if (tf)
+        {
+            tf.write((uint8_t *)&s_bootEpoch, sizeof(s_bootEpoch));
+            tf.close();
+        }
+#endif
+    }
+
+    uint32_t getCurrentTime()
+    {
+        if (s_bootEpoch == 0) return 0;
+        return s_bootEpoch + (millis() / 1000);
+    }
+
     // ========================================================================
     // Platform-specific persistence helpers
     // ========================================================================
@@ -259,6 +293,13 @@ namespace NodeDB
         if (err == ESP_OK)
         {
             LOG_D(TAG, "Loaded packet ID: %lu", (unsigned long)nextPacketId);
+        }
+
+        // Load boot epoch (approximate RTC)
+        err = nvs_get_u32(nvsHandle, NVS_KEY_BOOT_EPOCH, &s_bootEpoch);
+        if (err == ESP_OK)
+        {
+            LOG_D(TAG, "Loaded boot epoch: %lu", (unsigned long)s_bootEpoch);
         }
 
 #elif defined(ARDUINO_ARCH_NRF52)
@@ -301,6 +342,18 @@ namespace NodeDB
         }
 
         file.close();
+
+        // Load boot epoch from separate file
+        if (InternalFS.exists(TIME_FILE))
+        {
+            File tf = InternalFS.open(TIME_FILE, FILE_O_READ);
+            if (tf)
+            {
+                tf.read((uint8_t *)&s_bootEpoch, sizeof(s_bootEpoch));
+                tf.close();
+                LOG_D(TAG, "Loaded boot epoch: %lu", (unsigned long)s_bootEpoch);
+            }
+        }
 #endif
     }
 

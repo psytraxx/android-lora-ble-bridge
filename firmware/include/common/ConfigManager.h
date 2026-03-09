@@ -7,6 +7,9 @@
 #include "meshtastic/channel.pb.h"
 #include "meshtastic/module_config.pb.h"
 
+// Forward declaration at global scope so ConfigManager::applyLoRaConfig can reference it
+class LoRaManager;
+
 /**
  * @file ConfigManager.h
  * @brief Centralized device configuration for Meshtastic BLE config download
@@ -66,6 +69,26 @@ namespace ConfigManager
      * @return true on success
      */
     bool getOwnNodeInfo(meshtastic_NodeInfo *nodeInfo);
+
+    /**
+     * @brief Persist a Config variant to NVS/LittleFS (call after set_config)
+     */
+    void persistConfig(const meshtastic_Config *config, pb_size_t which);
+
+    /**
+     * @brief Persist a ModuleConfig variant to NVS/LittleFS (call after set_module_config)
+     */
+    void persistModuleConfig(const meshtastic_ModuleConfig *config, pb_size_t which);
+
+    /**
+     * @brief Get the active LoRa config (persisted values or compile-time defaults)
+     */
+    const meshtastic_Config_LoRaConfig &getLoRaConfig();
+
+    /**
+     * @brief Apply persisted LoRa params to a live LoRaManager (call after begin())
+     */
+    void applyLoRaConfig(LoRaManager *lora);
 }
 
 #endif // CONFIG_MANAGER_H

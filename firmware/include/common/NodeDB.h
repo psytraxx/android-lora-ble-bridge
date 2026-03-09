@@ -120,6 +120,18 @@ namespace NodeDB
      * @return Count of nodes (including self)
      */
     uint16_t getNodeDBCount();
+
+    /**
+     * @brief Set current Unix time (from set_time_only admin or GPS position packet)
+     * @param unixTime Current Unix timestamp (seconds since epoch)
+     */
+    void setCurrentTime(uint32_t unixTime);
+
+    /**
+     * @brief Get current Unix timestamp
+     * @return Current Unix time, or 0 if never set
+     */
+    uint32_t getCurrentTime();
 }
 
 #endif // NODE_DB_H

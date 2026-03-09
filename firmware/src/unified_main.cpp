@@ -22,6 +22,7 @@
 #include "common/PeerNodeDB.h"
 #include "common/MeshCrypto.h"
 #include "common/AppHandlers.h"
+#include "common/ConfigManager.h"
 #include "meshtastic/mesh.pb.h"
 #include <pb_encode.h>
 #include <pb_decode.h>
@@ -293,12 +294,14 @@ struct AckTimerData
 {
     uint32_t toNode;
     uint32_t ackId;
+    meshtastic_Routing_Error error;
 };
 
-void scheduleAckResponse(uint32_t toNode, uint32_t ackId)
+void scheduleAckResponse(uint32_t toNode, uint32_t ackId,
+                         meshtastic_Routing_Error error = meshtastic_Routing_Error_NONE)
 {
     // Allocate timer data (freed in callback)
-    AckTimerData *data = new AckTimerData{toNode, ackId};
+    AckTimerData *data = new AckTimerData{toNode, ackId, error};
 
     // Random delay 50-150ms (let sender switch to RX)
     #if defined(ARDUINO_ARCH_ESP32)
@@ -315,8 +318,7 @@ void scheduleAckResponse(uint32_t toNode, uint32_t ackId)
         [](TimerHandle_t timer)
         {
             AckTimerData *data = (AckTimerData *)pvTimerGetTimerID(timer);
-            AppHandlers::sendAck(data->toNode, data->ackId,
-                                 meshtastic_Routing_Error_NONE);
+            AppHandlers::sendAck(data->toNode, data->ackId, data->error);
             delete data;
             xTimerDelete(timer, 0);
         });
@@ -509,6 +511,9 @@ void setup()
             LOG_I(TAG, "Failed to start LoRa receive mode!");
         }
     }
+
+    // Apply any persisted LoRa config (overrides compile-time LoRaConstants)
+    ConfigManager::applyLoRaConfig(loraManager);
 
     // Deep sleep inactivity timer
     deepSleepTimerHandle = xTimerCreate(
@@ -833,7 +838,8 @@ void onLoRaReceived(const LoRaPacket &packet)
     meshPacket.channel = header.getChannelIndex();
     meshPacket.hop_limit = header.getHopLimit();
     meshPacket.want_ack = header.getWantAck();
-    meshPacket.rx_time = millis() / 1000; // Seconds since boot (no RTC)
+    uint32_t nowUnix = NodeDB::getCurrentTime();
+    meshPacket.rx_time = (nowUnix > 0) ? nowUnix : (millis() / 1000);
     meshPacket.rx_snr = packet.snr;
     meshPacket.rx_rssi = packet.rssi;
     meshPacket.hop_start = header.getHopLimit();
@@ -842,10 +848,21 @@ void onLoRaReceived(const LoRaPacket &packet)
     meshPacket.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     meshPacket.decoded = data;
 
-    // Check want_ack flag
-    if (header.getWantAck() && header.to != 0xFFFFFFFF) // Not broadcast
+    // ACK/NACK handling: only respond to unicast packets addressed to us
+    if (header.getWantAck() && header.to == NodeDB::getOwnNodeNum())
     {
-        scheduleAckResponse(header.from, header.id);
+        if (bleManager->isConnected())
+        {
+            // Packet delivered to app — send ACK
+            scheduleAckResponse(header.from, header.id);
+        }
+        else
+        {
+            // BLE not connected — we received it but can't deliver; send NACK
+            LOG_D(TAG, "want_ack but BLE disconnected — sending NACK");
+            scheduleAckResponse(header.from, header.id,
+                                meshtastic_Routing_Error_NO_RESPONSE);
+        }
     }
 
     if (loraToBleQueue.push(fromRadio))
