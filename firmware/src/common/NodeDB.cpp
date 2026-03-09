@@ -26,15 +26,22 @@ static const char *NVS_KEY_LONG = "long_name";
 static const char *NVS_KEY_REBOOT = "reboot_cnt";
 static const char *NVS_KEY_PKT_ID = "pkt_id";
 static const char *NVS_KEY_BOOT_EPOCH = "boot_epoch";
+static const char *NVS_KEY_FIXPOS_SET = "fix_pos_set";
+static const char *NVS_KEY_FIXPOS = "fix_pos";
 static nvs_handle_t nvsHandle = 0;
 #elif defined(ARDUINO_ARCH_NRF52)
 static const char *DB_DIR = "/nodedb";
 static const char *DB_FILE = "/nodedb/names.bin";
 static const char *TIME_FILE = "/nodedb/time.bin";
+static const char *FIXPOS_FILE = "/nodedb/fixpos.bin";
 #endif
 
 // Unix time at boot (0 = unknown). Set by setCurrentTime().
 static uint32_t s_bootEpoch = 0;
+
+// Fixed position (from set_fixed_position admin command)
+static bool s_hasFixedPosition = false;
+static meshtastic_Position s_fixedPosition;
 
 namespace NodeDB
 {
@@ -302,6 +309,21 @@ namespace NodeDB
             LOG_D(TAG, "Loaded boot epoch: %lu", (unsigned long)s_bootEpoch);
         }
 
+        // Load fixed position
+        {
+            uint8_t fixSet = 0;
+            if (nvs_get_u8(nvsHandle, NVS_KEY_FIXPOS_SET, &fixSet) == ESP_OK && fixSet)
+            {
+                size_t sz = sizeof(s_fixedPosition);
+                if (nvs_get_blob(nvsHandle, NVS_KEY_FIXPOS, &s_fixedPosition, &sz) == ESP_OK
+                    && sz == sizeof(s_fixedPosition))
+                {
+                    s_hasFixedPosition = true;
+                    LOG_D(TAG, "Loaded fixed position");
+                }
+            }
+        }
+
 #elif defined(ARDUINO_ARCH_NRF52)
         // Load from binary file
         if (!InternalFS.exists(DB_FILE))
@@ -352,6 +374,22 @@ namespace NodeDB
                 tf.read((uint8_t *)&s_bootEpoch, sizeof(s_bootEpoch));
                 tf.close();
                 LOG_D(TAG, "Loaded boot epoch: %lu", (unsigned long)s_bootEpoch);
+            }
+        }
+
+        // Load fixed position from separate file
+        if (InternalFS.exists(FIXPOS_FILE))
+        {
+            File pf = InternalFS.open(FIXPOS_FILE, FILE_O_READ);
+            if (pf)
+            {
+                if ((size_t)pf.read((uint8_t *)&s_fixedPosition, sizeof(s_fixedPosition))
+                    == sizeof(s_fixedPosition))
+                {
+                    s_hasFixedPosition = true;
+                    LOG_D(TAG, "Loaded fixed position");
+                }
+                pf.close();
             }
         }
 #endif
@@ -467,5 +505,60 @@ namespace NodeDB
             LOG_D(TAG, "Persisted packet ID");
         }
 #endif
+    }
+
+    void setFixedPosition(const meshtastic_Position &position)
+    {
+        s_fixedPosition = position;
+        s_hasFixedPosition = true;
+        LOG_I(TAG, "Fixed position set: lat=%ld lon=%ld alt=%ld",
+              (long)position.latitude_i, (long)position.longitude_i, (long)position.altitude);
+
+#if defined(ARDUINO_ARCH_ESP32)
+        if (nvsHandle != 0)
+        {
+            nvs_set_u8(nvsHandle, NVS_KEY_FIXPOS_SET, 1);
+            nvs_set_blob(nvsHandle, NVS_KEY_FIXPOS, &s_fixedPosition, sizeof(s_fixedPosition));
+            nvs_commit(nvsHandle);
+        }
+#elif defined(ARDUINO_ARCH_NRF52)
+        File pf = InternalFS.open(FIXPOS_FILE, FILE_O_WRITE);
+        if (pf)
+        {
+            pf.write((uint8_t *)&s_fixedPosition, sizeof(s_fixedPosition));
+            pf.close();
+        }
+#endif
+    }
+
+    void clearFixedPosition()
+    {
+        memset(&s_fixedPosition, 0, sizeof(s_fixedPosition));
+        s_hasFixedPosition = false;
+        LOG_I(TAG, "Fixed position cleared");
+
+#if defined(ARDUINO_ARCH_ESP32)
+        if (nvsHandle != 0)
+        {
+            nvs_set_u8(nvsHandle, NVS_KEY_FIXPOS_SET, 0);
+            nvs_erase_key(nvsHandle, NVS_KEY_FIXPOS);
+            nvs_commit(nvsHandle);
+        }
+#elif defined(ARDUINO_ARCH_NRF52)
+        if (InternalFS.exists(FIXPOS_FILE))
+        {
+            InternalFS.remove(FIXPOS_FILE);
+        }
+#endif
+    }
+
+    bool hasFixedPosition()
+    {
+        return s_hasFixedPosition;
+    }
+
+    const meshtastic_Position &getFixedPosition()
+    {
+        return s_fixedPosition;
     }
 }

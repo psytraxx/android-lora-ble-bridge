@@ -427,6 +427,16 @@ static void sendAdminResponse(const meshtastic_AdminMessage &adminMsg,
 }
 
 /**
+ * @brief Platform-specific shutdown (deep sleep with no wakeup timer)
+ */
+static void performShutdown()
+{
+    LOG_I(TAG, "Shutting down device...");
+    delay(100);
+    PowerManager::enterDeepSleep();
+}
+
+/**
  * @brief Platform-specific reboot
  */
 static void performReboot()
@@ -644,6 +654,124 @@ void AppHandlers::handleAdminApp(const meshtastic_Data &data, uint32_t fromNode,
         LOG_I(TAG, "Admin nodedb_reset — clearing peer database");
         PeerNodeDB::clearAllNodes();
         performReboot();
+        break;
+    }
+
+    case meshtastic_AdminMessage_get_device_metadata_request_tag:
+    {
+        LOG_I(TAG, "Admin get_device_metadata_request");
+        meshtastic_AdminMessage response;
+        memset(&response, 0, sizeof(response));
+        response.which_payload_variant = meshtastic_AdminMessage_get_device_metadata_response_tag;
+        ConfigManager::getDeviceMetadata(&response.get_device_metadata_response);
+        sendAdminResponse(response, fromNode, requestId, source);
+        break;
+    }
+
+    case meshtastic_AdminMessage_begin_edit_settings_tag:
+    {
+        // Settings batching: defer saves until commit
+        LOG_I(TAG, "Admin begin_edit_settings (acknowledged)");
+        break;
+    }
+
+    case meshtastic_AdminMessage_commit_edit_settings_tag:
+    {
+        // Commit batched edits — our handlers already persist immediately, so just ack
+        LOG_I(TAG, "Admin commit_edit_settings (acknowledged)");
+        PeerNodeDB::saveNow();
+        break;
+    }
+
+    case meshtastic_AdminMessage_set_fixed_position_tag:
+    {
+        LOG_I(TAG, "Admin set_fixed_position");
+        NodeDB::setFixedPosition(adminMsg.set_fixed_position);
+        break;
+    }
+
+    case meshtastic_AdminMessage_remove_fixed_position_tag:
+    {
+        LOG_I(TAG, "Admin remove_fixed_position");
+        NodeDB::clearFixedPosition();
+        break;
+    }
+
+    case meshtastic_AdminMessage_remove_by_nodenum_tag:
+    {
+        uint32_t nodeNum = adminMsg.remove_by_nodenum;
+        LOG_I(TAG, "Admin remove_by_nodenum: 0x%08lx", (unsigned long)nodeNum);
+        PeerNodeDB::removeNode(nodeNum);
+        break;
+    }
+
+    case meshtastic_AdminMessage_set_favorite_node_tag:
+    {
+        uint32_t nodeNum = adminMsg.set_favorite_node;
+        LOG_I(TAG, "Admin set_favorite_node: 0x%08lx", (unsigned long)nodeNum);
+        PeerNodeDB::setFavorite(nodeNum, true);
+        break;
+    }
+
+    case meshtastic_AdminMessage_remove_favorite_node_tag:
+    {
+        uint32_t nodeNum = adminMsg.remove_favorite_node;
+        LOG_I(TAG, "Admin remove_favorite_node: 0x%08lx", (unsigned long)nodeNum);
+        PeerNodeDB::setFavorite(nodeNum, false);
+        break;
+    }
+
+    case meshtastic_AdminMessage_set_ignored_node_tag:
+    {
+        uint32_t nodeNum = adminMsg.set_ignored_node;
+        LOG_I(TAG, "Admin set_ignored_node: 0x%08lx", (unsigned long)nodeNum);
+        PeerNodeDB::setIgnored(nodeNum, true);
+        break;
+    }
+
+    case meshtastic_AdminMessage_remove_ignored_node_tag:
+    {
+        uint32_t nodeNum = adminMsg.remove_ignored_node;
+        LOG_I(TAG, "Admin remove_ignored_node: 0x%08lx", (unsigned long)nodeNum);
+        PeerNodeDB::setIgnored(nodeNum, false);
+        break;
+    }
+
+    case meshtastic_AdminMessage_toggle_muted_node_tag:
+    {
+        uint32_t nodeNum = adminMsg.toggle_muted_node;
+        LOG_I(TAG, "Admin toggle_muted_node: 0x%08lx", (unsigned long)nodeNum);
+        PeerNodeDB::toggleMuted(nodeNum);
+        break;
+    }
+
+    case meshtastic_AdminMessage_shutdown_seconds_tag:
+    {
+        int32_t seconds = adminMsg.shutdown_seconds;
+        if (seconds < 0)
+        {
+            LOG_I(TAG, "Admin cancel shutdown (ignored)");
+            break;
+        }
+        LOG_I(TAG, "Admin shutdown in %ld seconds", (long)seconds);
+        if (seconds == 0) seconds = 1;
+
+        static TimerHandle_t shutdownTimer = nullptr;
+        if (shutdownTimer != nullptr)
+        {
+            xTimerDelete(shutdownTimer, 0);
+        }
+        shutdownTimer = xTimerCreate(
+            "ShutdownTimer",
+            pdMS_TO_TICKS((uint32_t)seconds * 1000),
+            pdFALSE,
+            nullptr,
+            [](TimerHandle_t) { performShutdown(); });
+        if (shutdownTimer != nullptr)
+        {
+            xTimerStart(shutdownTimer, 0);
+            LOG_I(TAG, "Shutdown timer started");
+        }
         break;
     }
 

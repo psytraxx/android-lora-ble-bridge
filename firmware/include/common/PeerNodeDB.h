@@ -37,6 +37,9 @@ namespace PeerNodeDB
         int32_t longitudeI;      // 4B - Longitude × 1e7
         int32_t altitude;        // 4B - Meters above MSL
         uint32_t positionTime;   // 4B - Timestamp of position fix
+        bool isFavorite;         // 1B - In favorites list
+        bool isIgnored;          // 1B - In ignored list
+        bool isMuted;            // 1B - Muted
     };
 
     constexpr size_t MAX_PEER_NODES = 50;
@@ -129,6 +132,21 @@ namespace PeerNodeDB
      * @param hops Hop count (0 = direct reception)
      */
     void updateSignalInfo(uint32_t nodeNum, int rssi, float snr, uint8_t hops);
+
+    /**
+     * @brief Set favorite status for a peer node
+     */
+    void setFavorite(uint32_t nodeNum, bool value);
+
+    /**
+     * @brief Set ignored status for a peer node
+     */
+    void setIgnored(uint32_t nodeNum, bool value);
+
+    /**
+     * @brief Toggle muted status for a peer node
+     */
+    void toggleMuted(uint32_t nodeNum);
 
     /**
      * @brief Clear all peer nodes and persist empty state (for factory reset)

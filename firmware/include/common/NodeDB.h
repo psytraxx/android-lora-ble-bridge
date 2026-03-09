@@ -132,6 +132,28 @@ namespace NodeDB
      * @return Current Unix time, or 0 if never set
      */
     uint32_t getCurrentTime();
+
+    /**
+     * @brief Set fixed position (from set_fixed_position admin)
+     * @param position The position to fix
+     */
+    void setFixedPosition(const meshtastic_Position &position);
+
+    /**
+     * @brief Clear fixed position (from remove_fixed_position admin)
+     */
+    void clearFixedPosition();
+
+    /**
+     * @brief Returns true if a fixed position has been set
+     */
+    bool hasFixedPosition();
+
+    /**
+     * @brief Get the current fixed position
+     * @return Reference to fixed position (only valid if hasFixedPosition() returns true)
+     */
+    const meshtastic_Position &getFixedPosition();
 }
 
 #endif // NODE_DB_H

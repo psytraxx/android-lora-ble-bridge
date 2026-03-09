@@ -847,6 +847,7 @@ void onLoRaReceived(const LoRaPacket &packet)
     // Set decoded payload
     meshPacket.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
     meshPacket.decoded = data;
+    meshPacket.transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
 
     // ACK/NACK handling: only respond to unicast packets addressed to us
     if (header.getWantAck() && header.to == NodeDB::getOwnNodeNum())

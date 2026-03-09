@@ -241,8 +241,22 @@ namespace ConfigManager
 
         case meshtastic_Config_position_tag:
         {
-            // Minimal position config
-            LOG_D(TAG, "Config.Position: defaults");
+            config->payload_variant.position.fixed_position = NodeDB::hasFixedPosition();
+            LOG_D(TAG, "Config.Position: fixed=%d", NodeDB::hasFixedPosition());
+            return true;
+        }
+
+        case meshtastic_Config_security_tag:
+        {
+            // No PKC — return empty security config
+            LOG_D(TAG, "Config.Security: defaults (no PKC)");
+            return true;
+        }
+
+        case meshtastic_Config_sessionkey_tag:
+        {
+            // No session key management — return empty
+            LOG_D(TAG, "Config.Sessionkey: defaults");
             return true;
         }
 
@@ -349,6 +363,9 @@ namespace ConfigManager
         case meshtastic_ModuleConfig_paxcounter_tag:
             LOG_D(TAG, "ModuleConfig.Paxcounter: disabled");
             return true;
+        case meshtastic_ModuleConfig_statusmessage_tag:
+            LOG_D(TAG, "ModuleConfig.StatusMessage: disabled");
+            return true;
         default:
             LOG_W(TAG, "Unknown module config variant: %d", which);
             return false;
@@ -417,9 +434,16 @@ namespace ConfigManager
         user.hw_model = NodeDB::getOwnHardwareModel();
         user.role = meshtastic_Config_DeviceConfig_Role_CLIENT;
 
-        nodeInfo->last_heard = 0; // Will be set by actual time if available
+        nodeInfo->last_heard = NodeDB::getCurrentTime();
         nodeInfo->snr = 0.0f;
         nodeInfo->channel = 0;
+
+        // Include fixed position if set
+        if (NodeDB::hasFixedPosition())
+        {
+            nodeInfo->has_position = true;
+            nodeInfo->position = NodeDB::getFixedPosition();
+        }
 
         LOG_D(TAG, "OwnNodeInfo: num=%08X, name=%s", nodeInfo->num, user.long_name);
         return true;

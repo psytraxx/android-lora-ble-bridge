@@ -285,6 +285,33 @@ namespace PeerNodeDB
         save();
     }
 
+    void setFavorite(uint32_t nodeNum, bool value)
+    {
+        PeerNode *node = getOrCreateNode(nodeNum);
+        if (!node) return;
+        node->isFavorite = value;
+        save();
+        LOG_D(TAG, "Peer 0x%08lx isFavorite=%d", (unsigned long)nodeNum, value);
+    }
+
+    void setIgnored(uint32_t nodeNum, bool value)
+    {
+        PeerNode *node = getOrCreateNode(nodeNum);
+        if (!node) return;
+        node->isIgnored = value;
+        save();
+        LOG_D(TAG, "Peer 0x%08lx isIgnored=%d", (unsigned long)nodeNum, value);
+    }
+
+    void toggleMuted(uint32_t nodeNum)
+    {
+        PeerNode *node = getOrCreateNode(nodeNum);
+        if (!node) return;
+        node->isMuted = !node->isMuted;
+        save();
+        LOG_D(TAG, "Peer 0x%08lx isMuted=%d", (unsigned long)nodeNum, node->isMuted);
+    }
+
     void clearAllNodes()
     {
         memset(peers, 0, sizeof(peers));
@@ -354,7 +381,11 @@ namespace PeerNodeDB
 
         nodeInfo->snr = (float)node->snr / 10.0f;
         nodeInfo->last_heard = node->lastHeard;
+        nodeInfo->has_hops_away = (node->hopsAway > 0);
         nodeInfo->hops_away = node->hopsAway;
+        nodeInfo->is_favorite = node->isFavorite;
+        nodeInfo->is_ignored = node->isIgnored;
+        nodeInfo->is_muted = node->isMuted;
 
         return true;
     }

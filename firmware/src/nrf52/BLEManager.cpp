@@ -250,6 +250,8 @@ void BLEManager::sendConfigDownload(uint32_t configId)
         meshtastic_Config_power_tag,
         meshtastic_Config_network_tag,
         meshtastic_Config_display_tag,
+        meshtastic_Config_security_tag,
+        meshtastic_Config_sessionkey_tag,
     };
     for (auto which : remainingConfigs)
     {
@@ -278,6 +280,7 @@ void BLEManager::sendConfigDownload(uint32_t configId)
         meshtastic_ModuleConfig_ambient_lighting_tag,
         meshtastic_ModuleConfig_detection_sensor_tag,
         meshtastic_ModuleConfig_paxcounter_tag,
+        meshtastic_ModuleConfig_statusmessage_tag,
     };
     for (auto which : moduleConfigs)
     {
