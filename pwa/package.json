@@ -15,21 +15,21 @@
 		"lit": "^3.3.2"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.4.4",
+		"@biomejs/biome": "2.4.7",
 		"@open-wc/testing": "^4.0.0",
 		"@tailwindcss/postcss": "^4.2.1",
 		"@tailwindcss/vite": "^4.2.1",
-		"@types/node": "^25.3.0",
+		"@types/node": "^25.5.0",
 		"@types/web-bluetooth": "^0.0.21",
 		"autoprefixer": "^10.4.27",
 		"daisyui": "^5.5.19",
 		"jsdom": "^28.1.0",
-		"postcss": "^8.5.6",
+		"postcss": "^8.5.8",
 		"tailwindcss": "^4.1.17",
 		"typescript": "^5.9.3",
 		"vite": "^7.3.1",
 		"vite-plugin-pwa": "^1.2.0",
-		"vitest": "^4.0.18",
+		"vitest": "^4.1.0",
 		"workbox-window": "^7.0.0"
 	}
 }
