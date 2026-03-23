@@ -44,10 +44,9 @@ bool PowerManager::configurePowerManagement()
 
 #ifdef BATTERY_ADC_PIN
     // Initialize ADC oneshot mode
-    adc_oneshot_unit_init_cfg_t init_config = {
-        .unit_id = ADC_UNIT_1,
-        .ulp_mode = ADC_ULP_MODE_DISABLE,
-    };
+    adc_oneshot_unit_init_cfg_t init_config = {};
+    init_config.unit_id = ADC_UNIT_1;
+    init_config.ulp_mode = ADC_ULP_MODE_DISABLE;
     esp_err_t err = adc_oneshot_new_unit(&init_config, &adc1_handle);
     if (err != ESP_OK)
     {
@@ -84,11 +83,10 @@ bool PowerManager::configurePowerManagement()
     }
 
     // Initialize ADC calibration
-    adc_cali_curve_fitting_config_t cali_config = {
-        .unit_id = ADC_UNIT_1,
-        .atten = ADC_ATTEN_DB_2_5,
-        .bitwidth = ADC_BITWIDTH_12,
-    };
+    adc_cali_curve_fitting_config_t cali_config = {};
+    cali_config.unit_id = ADC_UNIT_1;
+    cali_config.atten = ADC_ATTEN_DB_2_5;
+    cali_config.bitwidth = ADC_BITWIDTH_12;
     err = adc_cali_create_scheme_curve_fitting(&cali_config, &adc_cali_handle);
     if (err == ESP_OK)
     {

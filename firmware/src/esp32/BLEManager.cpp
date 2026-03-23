@@ -70,7 +70,7 @@ void InfoCharacteristicCallbacks::onRead(NimBLECharacteristic *pCharacteristic, 
 }
 
 // BLEManager implementation
-BLEManager::BLEManager(MessageQueue *bleToLoraQueue)
+BLEManager::BLEManager(MessageQueue *queue)
     : pServer(nullptr),
       pTxCharacteristic(nullptr),
       pRxCharacteristic(nullptr),
@@ -78,7 +78,7 @@ BLEManager::BLEManager(MessageQueue *bleToLoraQueue)
       deviceNameStr(""),
       serverCallbacks(nullptr),
       rxCallbacks(nullptr),
-      bleToLoraQueue(bleToLoraQueue)
+      bleToLoraQueue(queue)
 {
 }
 
@@ -128,9 +128,6 @@ bool BLEManager::setup(const char *deviceName)
         BLEConstants::INFO_CHARACTERISTIC_UUID,
         NIMBLE_PROPERTY::READ);
     pInfoCharacteristic->setCallbacks(new InfoCharacteristicCallbacks(this));
-
-    // Start the service
-    pService->start();
 
     LOG_I(TAG, "Device info characteristic created");
 
