@@ -16,7 +16,7 @@
 		"outDir": "./dist",
 		"experimentalDecorators": true,
 		"useDefineForClassFields": false,
-		"types": ["web-bluetooth"]
+		"types": ["web-bluetooth", "vitest/globals"]
 	},
 	"include": ["src/**/*"],
 	"exclude": ["node_modules", "dist"]
