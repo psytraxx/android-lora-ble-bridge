@@ -29,7 +29,7 @@
 		"autoprefixer": "^10.4.27",
 		"daisyui": "^5.5.19",
 		"jsdom": "^29.0.2",
-		"postcss": "^8.5.8",
+		"postcss": "^8.5.13",
 		"tailwindcss": "^4.1.17",
 		"typescript": "^6.0.2",
 		"vite": "^8.0.6",
