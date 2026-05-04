@@ -20,7 +20,7 @@
 		}
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.4.10",
+		"@biomejs/biome": "2.4.14",
 		"@open-wc/testing": "^4.0.0",
 		"@tailwindcss/postcss": "^4.2.2",
 		"@tailwindcss/vite": "^4.2.2",
