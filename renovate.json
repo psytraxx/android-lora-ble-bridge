@@ -18,6 +18,9 @@
     ],
     "automerge": true
   },
+  "platformio": {
+    "fileMatch": ["firmware/platformio\\.ini"]
+  },
   "packageRules": [
     {
       "description": "Keep Python 3.13 for firmware build compatibility",
@@ -28,6 +31,11 @@
         "actions/setup-python"
       ],
       "enabled": false
+    },
+    {
+      "description": "Group all firmware PlatformIO library updates together",
+      "matchManagers": ["platformio"],
+      "groupName": "firmware platformio libraries"
     }
   ]
 }
