@@ -1,10 +1,19 @@
 {
-	"rust-analyzer.cargo.target": "xtensa-esp32s3-none-elf",
-	"rust-analyzer.check.targets": ["xtensa-esp32s3-none-elf"],
-	"rust-analyzer.check.command": "clippy",
-	"rust-analyzer.cargo.allTargets": false,
-	"rust-analyzer.check.allTargets": false,
-	"chat.tools.terminal.autoApprove": {
-		"cargo clippy": true
-	}
+  "editor.formatOnSave": true,
+  "rust-analyzer.cargo.allTargets": false,
+  "rust-analyzer.cargo.target": "xtensa-esp32s3-none-elf",
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.server.extraEnv": {
+    "RUSTUP_TOOLCHAIN": "stable"
+  },
+  "rust-analyzer.check.overrideCommand": [
+    "cargo",
+    "+esp",
+    "check",
+    "--workspace",
+    "--message-format=json",
+    "--target",
+    "xtensa-esp32s3-none-elf"
+  ],
+  "chat.useAgentSkills": true
 }
