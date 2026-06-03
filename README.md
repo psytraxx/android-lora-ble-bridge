@@ -116,7 +116,7 @@ android-lora-ble-bridge/
 - [PlatformIO](https://platformio.org/) (recommended) or Arduino IDE
 - USB cable for flashing
 - Supported boards:
-  - ESP32: LilyGo T-Display S3, Heltec WiFi LoRa V3
+  - ESP32: Heltec Wireless Stick Lite V3, Heltec Wireless Stick V3 (with 64×32 OLED)
   - nRF52: Seeed XIAO nRF52840
 
 #### Progressive Web App
@@ -157,11 +157,18 @@ Output will be in `pwa/dist/` directory. Deploy to any static hosting (GitHub Pa
 
 #### Using PlatformIO (Recommended)
 
-**For ESP32 (Heltec WiFi LoRa V3):**
+**For Heltec Wireless Stick Lite V3 (no display):**
 ```bash
 cd firmware
-~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3              # Build
-~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3 --target upload --target monitor
+~/.platformio/penv/bin/pio run -e heltec-wireless-stick-lite-v3
+~/.platformio/penv/bin/pio run -e heltec-wireless-stick-lite-v3 --target upload --target monitor
+```
+
+**For Heltec Wireless Stick V3 (64×32 OLED):**
+```bash
+cd firmware
+~/.platformio/penv/bin/pio run -e heltec-wireless-stick-v3
+~/.platformio/penv/bin/pio run -e heltec-wireless-stick-v3 --target upload --target monitor
 ```
 
 **For nRF52 (Seeed XIAO):**
@@ -239,12 +246,12 @@ cd android
 
 ### Supported Hardware
 
-**ESP32 Boards:**
-- **LilyGo T-Display S3** - Built-in display, SX1278 support
-- **Heltec WiFi LoRa V3** - SX1262 with autonomous duty cycle
+**ESP32 Boards (ESP32-S3):**
+- **Heltec Wireless Stick Lite V3** - SX1262, no display (`heltec-wireless-stick-lite-v3`)
+- **Heltec Wireless Stick V3** - SX1262, 64×32 OLED display (`heltec-wireless-stick-v3`)
 
 **nRF52 Boards:**
-- **Seeed XIAO nRF52840** - Compact form factor, SX1262 support
+- **Seeed XIAO nRF52840** - Compact form factor, SX1262 support (`xiao_nrf52840`)
 
 **LoRa Radios:**
 - **SX1278** - Continuous RX mode, lower power
@@ -252,19 +259,7 @@ cd android
 
 ### Pin Configurations
 
-**LilyGo T-Display S3 (SX1278):**
-| SX1278 Pin | ESP32-S3 Pin | Function |
-|------------|--------------|----------|
-| SCK | GPIO12 | SPI Clock |
-| MISO | GPIO13 | SPI MISO |
-| MOSI | GPIO11 | SPI MOSI |
-| NSS/CS | GPIO10 | Chip Select |
-| RESET | GPIO43 | Reset |
-| DIO0 | GPIO3 | Interrupt |
-| 3.3V | 3.3V | Power |
-| GND | GND | Ground |
-
-**Heltec WiFi LoRa V3 (SX1262):**
+**Heltec Wireless Stick Lite V3 / Wireless Stick V3 (SX1262):**
 | SX1262 Pin | ESP32-S3 Pin | Function |
 |------------|--------------|----------|
 | SCK | GPIO9 | SPI Clock |
@@ -274,8 +269,14 @@ cd android
 | RESET | GPIO12 | Reset |
 | DIO1 | GPIO14 | Interrupt |
 | BUSY | GPIO13 | Busy signal |
-| 3.3V | 3.3V | Power |
-| GND | GND | Ground |
+
+**Heltec Wireless Stick V3 OLED (SSD1306, 64×32):**
+| OLED Pin | ESP32-S3 Pin |
+|----------|--------------|
+| SDA | GPIO17 |
+| SCL | GPIO18 |
+| RST | GPIO21 |
+| PWR | GPIO36 (VEXT, active LOW) |
 
 ### LoRa Module Configuration
 
@@ -324,7 +325,7 @@ The firmware (ESP32/nRF52) buffers up to 10 messages when your phone is disconne
 
 1. **Launch app** on both Android devices
 2. **Grant permissions**: Bluetooth, Location (GPS)
-3. **Wait for BLE connection**: App automatically scans for device (e.g., "ESP32S3-LoRa", "HellTecLite-LoRa", "nRF52-LoRa")
+3. **Wait for BLE connection**: App automatically scans for device (e.g., "HellTecLite-LoRa-XXXX", "WirelessStick-LoRa-XXXX", "nRF52-LoRa-XXXX")
 4. **Send message**:
    - Type message (max 50 characters, uppercase A-Z, 0-9, punctuation)
    - GPS is optional - app will send text even without GPS
@@ -600,7 +601,7 @@ If you change LoRa parameters (SF, BW, CR, preamble), reflash all devices — CA
 - Grant Bluetooth and Location permissions
 - Enable Bluetooth on phone
 - Ensure ESP32 is powered and advertising
-- Check that device name is "ESP32S3-LoRa" in logs
+- Check that device name matches board (e.g., "HellTecLite-LoRa-XXXX") in logs
 - Try restarting both phone and ESP32
 
 **No GPS fix:**
