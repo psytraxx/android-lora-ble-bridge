@@ -36,17 +36,19 @@ This is a **long-range messaging system** bridging BLE (Android/PWA ↔ ESP32/nR
 ### Firmware Build & Flash
 
 ```bash
-# ESP32 (Heltec WiFi LoRa V3 with SX1262)
 cd firmware
-~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3
-~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3 --target upload --target monitor
 
-# nRF52 (Seeed XIAO nRF52840 with SX1262)
+# Heltec Wireless Stick Lite V3 (ESP32-S3, SX1262, no display)
+~/.platformio/penv/bin/pio run -e heltec-wireless-stick-lite-v3
+~/.platformio/penv/bin/pio run -e heltec-wireless-stick-lite-v3 --target upload --target monitor
+
+# Heltec Wireless Stick V3 (ESP32-S3, SX1262, 64x32 OLED)
+~/.platformio/penv/bin/pio run -e heltec-wireless-stick-v3
+~/.platformio/penv/bin/pio run -e heltec-wireless-stick-v3 --target upload --target monitor
+
+# Seeed XIAO nRF52840 (nRF52840, SX1262)
 ~/.platformio/penv/bin/pio run -e xiao_nrf52840
 ~/.platformio/penv/bin/pio run -e xiao_nrf52840 --target upload --target monitor
-
-# List available boards
-~/.platformio/penv/bin/pio boards
 
 # Monitor serial output
 ~/.platformio/penv/bin/pio device monitor
@@ -97,6 +99,9 @@ git log --oneline -10
 ```
 android-lora-ble-bridge/
 ├── firmware/                          # Unified C++ firmware (ESP32 & nRF52)
+│   ├── boards/                        # Custom board definitions (pioarduino lacks V3 JSONs)
+│   │   ├── heltec_wireless_stick_v3.json
+│   │   └── heltec_wireless_stick_lite_v3.json
 │   ├── include/
 │   │   ├── common/                    # Platform-agnostic code
 │   │   │   ├── FirmwareConfig.h       # ⚙️ LoRa configuration (SF, BW, timing)
@@ -104,6 +109,7 @@ android-lora-ble-bridge/
 │   │   ├── esp32/                     # ESP32-specific implementations
 │   │   │   ├── PlatformTraits.h       # ESP32 platform traits
 │   │   │   ├── BLEManager.h           # NimBLE implementation
+│   │   │   ├── DisplayManager.h       # OLED display (ENABLE_OLED_DISPLAY builds only)
 │   │   │   ├── LoRaManager.h          # RadioLib wrapper for ESP32
 │   │   └── nrf52/                     # nRF52-specific implementations
 │   │       ├── PlatformTraits.h       # nRF52 platform traits
@@ -113,6 +119,7 @@ android-lora-ble-bridge/
 │   │   ├── unified_main.cpp           # 🎯 Single entry point (setup/loop)
 │   │   ├── Protocol.cpp               # Protocol implementation
 │   │   ├── esp32/                     # ESP32 platform code
+│   │   │   └── DisplayManager.cpp     # 64×32 SSD1306 OLED driver
 │   │   └── nrf52/                     # nRF52 platform code
 │   ├── platformio.ini                 # ⚙️ Build config for all platforms
 │   └── docs/                          # Firmware documentation
@@ -315,6 +322,8 @@ ACK collision avoidance is now handled by CAD — `getAckDelay()` has been remov
 ### ✅ Always Do
 
 - **Read files before modifying** - Never propose changes to unread code
+- **Update CHANGELOG.md on every completed change** - Add a versioned entry (see format below) for every bugfix, feature, refactor, or hardware addition before considering the task done
+- **Keep AGENTS.md and README.md in sync** - When adding a board, env, command, or file path, update the relevant sections in both docs at the same time
 - **Maintain protocol sync** - Update Protocol.h, Protocol.cpp, and LoRaProtocol.kt together
 - **Test after protocol changes** - Run unit tests (`./gradlew test`) and verify on hardware
 - **Use platform-appropriate logging**:
@@ -351,6 +360,31 @@ ACK collision avoidance is now handled by CAD — `getAckDelay()` has been remov
 
 ---
 
+## Changelog Maintenance
+
+Every completed task — bugfix, new feature, refactor, hardware addition, dependency bump — **must** end with a CHANGELOG.md entry. Do not wait to be asked.
+
+### Entry format
+
+```markdown
+### <Component> v<X.Y> (<Month YYYY>)
+- **<Short title>**: one-sentence description of what changed and why
+- **<Short title>**: ...
+```
+
+- `Component` is one of: `Firmware`, `Android`, `PWA`, `Docs`
+- Increment the minor version (`v3.8` → `v3.9`) for features; patch (`v3.7` → `v3.7.1`) for bugfixes
+- Entries go at the **top** of CHANGELOG.md, above all existing entries
+- One bullet per logical change — group related items under one bullet if they are a single unit of work
+
+### Documentation checklist (run through before marking task done)
+
+- [ ] CHANGELOG.md — new entry added at the top
+- [ ] AGENTS.md — board names, build commands, file structure reflect current state
+- [ ] README.md — supported hardware, pin tables, build commands match
+
+---
+
 ## Common Development Tasks
 
 ### Adding a New Message Type
@@ -366,7 +400,7 @@ cd android && ./gradlew test
 
 # 3. Flash firmware to test devices
 cd firmware
-~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3 --target upload
+~/.platformio/penv/bin/pio run -e heltec-wireless-stick-lite-v3 --target upload
 
 # 4. Test on hardware with serial monitoring
 ~/.platformio/penv/bin/pio device monitor
@@ -383,7 +417,7 @@ cd firmware
 # Tune CAD_MAX_RETRIES / CAD_BACKOFF_BASE_MS in FirmwareConfig.h if needed
 
 # 3. Reflash ALL devices
-~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3 --target upload
+~/.platformio/penv/bin/pio run -e heltec-wireless-stick-lite-v3 --target upload
 ~/.platformio/penv/bin/pio run -e xiao_nrf52840 --target upload
 
 # 4. Test communication between devices
@@ -538,7 +572,7 @@ cd android
 **Most Common Commands:**
 ```bash
 # Build & flash ESP32
-cd firmware && ~/.platformio/penv/bin/pio run -e heltec-wifi-lora-v3 --target upload
+cd firmware && ~/.platformio/penv/bin/pio run -e heltec-wireless-stick-lite-v3 --target upload
 
 # Android tests
 cd android && ./gradlew test

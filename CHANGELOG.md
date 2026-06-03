@@ -1,5 +1,12 @@
 ## Changelog
 
+### Firmware v3.8 (June 2026)
+- **Heltec Wireless Stick V3 support**: new `heltec-wireless-stick-v3` PlatformIO environment for the ESP32-S3 board with 64×32 SSD1306 OLED; `DisplayManager` shows BLE status, LoRa RSSI/SNR, and battery level on the display; display powered via VEXT (GPIO36), I²C on SDA=17/SCL=18/RST=21
+- **Board rename**: `heltec-wifi-lora-v3` env correctly renamed to `heltec-wireless-stick-lite-v3` to reflect actual hardware; board definition updated to `heltec_wireless_stick_lite_v3`
+- **Custom board definitions**: added `firmware/boards/heltec_wireless_stick_v3.json` and `firmware/boards/heltec_wireless_stick_lite_v3.json` — required because pioarduino 55.03.38 does not ship V3 Wireless Stick board JSONs; `boards_dir = boards` added to `[platformio]` section
+- **sdkconfig.defaults hardened**: added `CONFIG_BT_ENABLED`, Modbus mode flags, 8 MB flash size, and size-optimised compiler settings so new ESP32 environments generate a correct sdkconfig from scratch without manual copying
+- **Documentation**: AGENTS.md, README.md, and memory updated to reflect current board names, build commands, pin tables, and file structure; changelog maintenance rule added to AGENTS.md
+
 ### Firmware v3.7 (March 2026)
 - **Non-blocking TX→RX settle**: replaced `delay(RX_SETTLE_TIME_MS)` with a new `STATE_TX_SETTLING` state; `process()` polls `millis()` until the deadline passes, then calls `startReceive()` — main loop stays responsive during the 50ms settle window
 - **Non-blocking BLE GATT settle**: replaced `delay(500)` in `onBleConnected()` with a `bleGattReadyAt` deadline; buffered-message delivery in `loop()` is deferred until the deadline passes, avoiding a blocking pause on Android reconnect

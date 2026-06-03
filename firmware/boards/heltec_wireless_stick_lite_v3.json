@@ -5,7 +5,7 @@
     },
     "core": "esp32",
     "extra_flags": [
-      "-DARDUINO_heltec_wireless_stick_v3",
+      "-DARDUINO_heltec_wireless_stick_lite_v3",
       "-DARDUINO_USB_MODE=1",
       "-DARDUINO_RUNNING_CORE=1",
       "-DARDUINO_EVENT_RUNNING_CORE=1"
@@ -20,7 +20,7 @@
       ]
     ],
     "mcu": "esp32s3",
-    "variant": "heltec_wireless_stick_v3"
+    "variant": "heltec_wireless_stick_lite_v3"
   },
   "connectivity": [
     "wifi",
@@ -34,7 +34,7 @@
     "arduino",
     "espidf"
   ],
-  "name": "Heltec Wireless Stick V3",
+  "name": "Heltec Wireless Stick Lite V3",
   "upload": {
     "flash_size": "8MB",
     "maximum_ram_size": 327680,
@@ -42,6 +42,6 @@
     "require_upload_port": true,
     "speed": 460800
   },
-  "url": "https://heltec.org/project/wireless-stick-v3/",
+  "url": "https://heltec.org/project/wireless-stick-lite-v2/",
   "vendor": "Heltec"
 }
