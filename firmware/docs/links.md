@@ -34,3 +34,11 @@ https://github.com/meshtastic/firmware/blob/aa85fbbcc481516e2da2ff9744daff30b97a
 #define HICHG (22)                // P0.13: BQ25101 ISET 100mA instead of 50mA
 
 #define BATTERY_SENSE_RESOLUTION_BITS (10)
+
+
+new model
+Heltec WSL 3 with OLED display
+
+https://heltec.org/project/wireless-stick-v3/
+https://github.com/Heltec-Aaron-Lee/WiFi_Kit_series
+https://github.com/Heltec-Aaron-Lee/WiFi_Kit_series/blob/master/variants/heltec_wireless_stick_v3/pins_arduino.h

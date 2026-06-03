@@ -34,6 +34,9 @@ static const char *TAG = "Main";
 #include "esp32/PlatformTraits.h"
 using Platform = ESP32PlatformTraits;
 #define PLATFORM_NAME "ESP32"
+#ifdef ENABLE_OLED_DISPLAY
+#include "esp32/DisplayManager.h"
+#endif
 #elif defined(ARDUINO_ARCH_NRF52)
 #include "nrf52/PlatformTraits.h"
 using Platform = NRF52PlatformTraits;
@@ -74,6 +77,10 @@ static uint32_t bleGattReadyAt = 0;
 // Last received LoRa signal quality (updated on every LoRa receive)
 static int lastRssi = 0;
 static float lastSnr = 0.0f;
+
+#ifdef ENABLE_OLED_DISPLAY
+static bool isBleConnected = false;
+#endif
 
 // ============================================================================
 // Forward Declarations
@@ -151,6 +158,10 @@ static void deepSleepTimerCallback(TimerHandle_t xTimer)
         bleManager->stopAdvertising();
     }
 
+#ifdef ENABLE_OLED_DISPLAY
+    DisplayManager::clear();
+#endif
+
     // Enter deep sleep (does not return)
     Platform::enterDeepSleep();
 
@@ -174,6 +185,11 @@ void setup()
     // Platform-specific initialization
     Platform::initializeWatchdog();
     Platform::initializePower();
+
+#ifdef ENABLE_OLED_DISPLAY
+    DisplayManager::init();
+    DisplayManager::update(false, 0, 0.0f, Platform::readBatteryLevel());
+#endif
 
 #ifdef LED_PIN
     ledManager->setup();
@@ -377,11 +393,12 @@ void onBleConnected()
     LOG_I(TAG, "BLE connected");
     resetInactivityTimer();
 
-    // Record when the Android GATT stack will be ready for use.
-    // Some Android BLE stacks need ~500ms after connection to complete MTU
-    // negotiation. Rather than blocking here with delay(500), the main loop
-    // defers buffered-message delivery until this deadline passes.
     bleGattReadyAt = millis() + 500;
+
+#ifdef ENABLE_OLED_DISPLAY
+    isBleConnected = true;
+    DisplayManager::update(true, lastRssi, lastSnr, Platform::readBatteryLevel());
+#endif
 }
 
 void onBleDisconnected()
@@ -390,6 +407,11 @@ void onBleDisconnected()
 
     // Restart advertising for next connection
     bleManager->startAdvertising();
+
+#ifdef ENABLE_OLED_DISPLAY
+    isBleConnected = false;
+    DisplayManager::update(false, lastRssi, lastSnr, Platform::readBatteryLevel());
+#endif
 }
 
 void onLoRaReceived(const LoRaPacket &packet)
@@ -403,6 +425,10 @@ void onLoRaReceived(const LoRaPacket &packet)
 
     // Update BLE characteristic with fresh RSSI/SNR values
     bleManager->updateDeviceInfo();
+
+#ifdef ENABLE_OLED_DISPLAY
+    DisplayManager::update(isBleConnected, lastRssi, lastSnr, Platform::readBatteryLevel());
+#endif
 
 #ifdef LED_PIN
     ledManager->blink(LEDConstants::RX_BLINKS);
