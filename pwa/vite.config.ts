@@ -73,7 +73,7 @@ export default defineConfig({
             }
           }
         ],
-        navigateFallback: null
+        navigateFallback: `${base}index.html`
       },
       devOptions: {
         enabled: true

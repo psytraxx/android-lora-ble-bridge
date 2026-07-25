@@ -1140,6 +1140,12 @@ CONFIG_SR_VADN_WEBRTC=y
 # default:
 # CONFIG_SR_WN_WN9_HILEXIN is not set
 # default:
+# CONFIG_SR_WN_WN9_HIESP is not set
+# default:
+# CONFIG_SR_WN_WN9L_JA_KONNICHIHAESP_TTS3 is not set
+# default:
+# CONFIG_SR_WN_WN9L_FR_BONJOURESP_TTS3 is not set
+# default:
 # CONFIG_SR_WN_WN9_NIHAOMIAOBAN_TTS2 is not set
 # default:
 # CONFIG_SR_WN_WN9_XIAOAITONGXUE is not set
@@ -1151,8 +1157,6 @@ CONFIG_SR_VADN_WEBRTC=y
 # CONFIG_SR_WN_WN9L_NIHAOXIAOZHI_TTS3 is not set
 # default:
 # CONFIG_SR_WN_WN9_ALEXA is not set
-# default:
-# CONFIG_SR_WN_WN9_HIESP is not set
 # default:
 # CONFIG_SR_WN_WN9_JARVIS_TTS is not set
 # default:
@@ -1188,7 +1192,11 @@ CONFIG_SR_VADN_WEBRTC=y
 # default:
 # CONFIG_SR_WN_WN9_HEYIVY_TTS2 is not set
 # default:
-# CONFIG_SR_WN_WN9_HISTACKCHAN_TTS3 is not set
+# CONFIG_SR_WN_WN9L_HISTACKCHAN_TTS3 is not set
+# default:
+# CONFIG_SR_WN_WN9_HEYKIRA_TTS3 is not set
+# default:
+# CONFIG_SR_WN_WN9L_HEYGIGI_TTS3 is not set
 # default:
 # CONFIG_SR_WN_WN9_XIAOLONGXIAOLONG_TTS is not set
 # default:
@@ -1245,6 +1253,10 @@ CONFIG_SR_VADN_WEBRTC=y
 # CONFIG_SR_WN_WN9_XIAO3JIA1XIAO3JIA1_TTS3 is not set
 # default:
 # CONFIG_SR_WN_WN9_XIAO3FENG1XIAO3FENG1_TTS3 is not set
+# default:
+# CONFIG_SR_WN_WN9_HAI1XIAO3XIANG4_TTS3 is not set
+# default:
+# CONFIG_SR_WN_WN9L_NI3HAO3XING1BAO3_TTS3 is not set
 # end of Load Multiple Wake Words (WakeNet9)
 
 # default:
@@ -1267,6 +1279,8 @@ CONFIG_SR_MN_EN_NONE=y
 # CONFIG_SR_MN_EN_MULTINET6_QUANT is not set
 # default:
 # CONFIG_SR_MN_EN_MULTINET7_QUANT is not set
+# default:
+CONFIG_ESP_SR_EXTERNAL_MODEL_PATH=""
 # end of ESP Speech Recognition
 
 #
@@ -3875,6 +3889,15 @@ CONFIG_WIFI_PROV_STA_ALL_CHANNEL_SCAN=y
 # end of Wi-Fi Provisioning Manager
 
 #
+# cJSON
+#
+# default:
+CONFIG_CJSON_NESTING_LIMIT=1000
+# default:
+CONFIG_CJSON_CIRCULAR_LIMIT=10000
+# end of cJSON
+
+#
 # DSP Library
 #
 # default:
@@ -4043,6 +4066,8 @@ CONFIG_ESP_MODEM_CMUX_DEFRAGMENT_PAYLOAD=y
 # default:
 CONFIG_ESP_MODEM_CMUX_DELAY_AFTER_DLCI_SETUP=0
 # default:
+CONFIG_ESP_MODEM_CMUX_DELAY_AFTER_NETIF_DISCONNECT=0
+# default:
 # CONFIG_ESP_MODEM_CMUX_USE_SHORT_PAYLOADS_ONLY is not set
 # default:
 # CONFIG_ESP_MODEM_ADD_CUSTOM_MODULE is not set
@@ -4092,6 +4117,8 @@ CONFIG_ESP_SECURE_CERT_DS_PERIPHERAL=y
 #
 # libsodium
 #
+# default:
+CONFIG_LIBSODIUM_USE_MBEDTLS_SHA=y
 # end of libsodium
 
 #
@@ -4261,6 +4288,8 @@ CONFIG_LITTLEFS_MTIME_USE_SECONDS=y
 CONFIG_LITTLEFS_MALLOC_STRATEGY_DEFAULT=y
 # default:
 # CONFIG_LITTLEFS_MALLOC_STRATEGY_INTERNAL is not set
+# default:
+# CONFIG_LITTLEFS_MALLOC_STRATEGY_SPIRAM_PREFER is not set
 # default:
 CONFIG_LITTLEFS_ASSERTS=y
 # default:
