@@ -3,9 +3,16 @@
  *
  * The jsdom environment used here does not provide localStorage, so supply a
  * minimal in-memory implementation. Real browsers always have one.
+ *
+ * Node also exposes a built-in localStorage that is inert unless started with
+ * --localstorage-file, and whether it exists at all varies by version: absent
+ * on Node 26, present but unusable on Node 25 (which CI runs). So feature-test
+ * an actual method instead of the binding, and always install over a stub.
  */
 
-if (typeof globalThis.localStorage === 'undefined') {
+const existing = globalThis.localStorage as Storage | undefined;
+
+if (typeof existing?.clear !== 'function' || typeof existing?.getItem !== 'function') {
   const store = new Map<string, string>();
 
   const memoryStorage: Storage = {
