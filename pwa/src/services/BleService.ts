@@ -45,6 +45,16 @@ const LAST_DEVICE_ID_KEY = 'lora.lastDeviceId';
  */
 const DEVICE_OPTED_OUT = 'none';
 
+/**
+ * Polling cadence for the no-watchAdvertisements fallback.
+ *
+ * 3s keeps the wake feeling responsive without hammering the radio; 100
+ * attempts is ~5 minutes, long enough to cover someone walking back to the
+ * device but short of polling all night.
+ */
+const RECONNECT_INTERVAL_MS = 3_000;
+const RECONNECT_MAX_ATTEMPTS = 100;
+
 export enum ConnectionState {
   DISCONNECTED = 'DISCONNECTED',
   /** Device is paired but asleep; waiting for it to advertise again. */
@@ -83,6 +93,7 @@ export class BleService {
   private errorListeners = new Set<ErrorListener>();
 
   private advertisementWatch: AbortController | null = null;
+  private reconnectTimer: number | null = null;
 
   constructor() {
     // Check Web Bluetooth support
@@ -139,7 +150,7 @@ export class BleService {
       throw new Error('Web Bluetooth is not supported in this browser');
     }
 
-    this.stopAdvertisementWatch();
+    this.stopAutoReconnect();
 
     // Clean up any existing connection before starting a new one
     // to prevent listener leaks if connect() is called while already connected
@@ -218,11 +229,11 @@ export class BleService {
   /**
    * Disconnect from device.
    *
-   * This is an explicit user action, so it also forgets the device: otherwise
-   * the advertisement watch would immediately reconnect against their intent.
+   * This is an explicit user action, so it also forgets the device and stops
+   * all automatic reconnection: otherwise we would reconnect against intent.
    */
   async disconnect(): Promise<void> {
-    this.stopAdvertisementWatch();
+    this.stopAutoReconnect();
     this.forgetDevice();
 
     if (this.server?.connected) {
@@ -435,7 +446,10 @@ export class BleService {
    */
   private startAdvertisementWatch(device: BluetoothDevice): void {
     if (!this.supportsAdvertisementWatch()) {
-      console.log('watchAdvertisements not available; manual reconnect required');
+      // watchAdvertisements is flag-gated in Chrome. Until it ships, poll the
+      // handle instead: gatt.connect() needs no flag and succeeds as soon as
+      // the device is awake, which is the same outcome a little less promptly.
+      this.startReconnectPolling(device);
       return;
     }
 
@@ -468,6 +482,59 @@ export class BleService {
         this.setState(ConnectionState.DISCONNECTED);
       }
     );
+  }
+
+  /**
+   * Private: Retry gatt.connect() until the device wakes up.
+   *
+   * Fallback for browsers without watchAdvertisements. Only works while the
+   * page holds the device handle - a reload loses it and needs getDevices(),
+   * which is flag-gated too. Gives up after RECONNECT_MAX_ATTEMPTS so a device
+   * that is off for the night does not poll the radio forever.
+   */
+  private startReconnectPolling(device: BluetoothDevice, attempt = 0): void {
+    this.stopReconnectPolling();
+
+    if (attempt >= RECONNECT_MAX_ATTEMPTS) {
+      console.log('Gave up waiting for device to wake up');
+      this.setState(ConnectionState.DISCONNECTED);
+      return;
+    }
+
+    this.setState(ConnectionState.WAITING_FOR_DEVICE);
+
+    this.reconnectTimer = window.setTimeout(() => {
+      // A manual connect may have landed while this was pending.
+      if (this.isConnected()) return;
+
+      this.connectToDevice(device)
+        .then(() => {
+          console.log('Reconnected after device woke up');
+        })
+        .catch(() => {
+          this.startReconnectPolling(device, attempt + 1);
+        });
+    }, RECONNECT_INTERVAL_MS);
+  }
+
+  /**
+   * Private: Cancel any pending reconnect attempt
+   */
+  private stopReconnectPolling(): void {
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  /**
+   * Private: Stop all automatic reconnection, whichever mechanism is in use.
+   * Call before any user-initiated connect or disconnect so the automation
+   * never races the user.
+   */
+  private stopAutoReconnect(): void {
+    this.stopAdvertisementWatch();
+    this.stopReconnectPolling();
   }
 
   /**

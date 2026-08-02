@@ -3,6 +3,24 @@ import { BleService, ConnectionState } from './BleService';
 
 const LAST_DEVICE_ID_KEY = 'lora.lastDeviceId';
 
+/** A GATT server exposing the service and characteristics BleService expects. */
+function makeServer() {
+  const characteristic = {
+    startNotifications: vi.fn().mockResolvedValue(undefined),
+    stopNotifications: vi.fn().mockResolvedValue(undefined),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn()
+  };
+
+  return {
+    connected: true,
+    disconnect: vi.fn(),
+    getPrimaryService: vi.fn().mockResolvedValue({
+      getCharacteristic: vi.fn().mockResolvedValue(characteristic)
+    })
+  };
+}
+
 /**
  * Minimal stand-in for a BluetoothDevice. Extends EventTarget so the service's
  * real addEventListener/dispatchEvent wiring is exercised.
@@ -18,24 +36,9 @@ class FakeDevice extends EventTarget {
   ) {
     super();
 
-    const characteristic = {
-      startNotifications: vi.fn().mockResolvedValue(undefined),
-      stopNotifications: vi.fn().mockResolvedValue(undefined),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn()
-    };
-
-    const server = {
-      connected: true,
-      disconnect: vi.fn(),
-      getPrimaryService: vi.fn().mockResolvedValue({
-        getCharacteristic: vi.fn().mockResolvedValue(characteristic)
-      })
-    };
-
     this.gatt = {
       connect: connectable
-        ? vi.fn().mockResolvedValue(server)
+        ? vi.fn().mockResolvedValue(makeServer())
         : vi.fn().mockRejectedValue(new Error('GATT connect failed: device unreachable'))
     };
 
@@ -161,17 +164,7 @@ describe('BleService auto-reconnect', () => {
     expect(service.getState()).toBe(ConnectionState.WAITING_FOR_DEVICE);
 
     // The user presses the wake button; the device starts advertising again.
-    device.gatt.connect = vi.fn().mockResolvedValue({
-      connected: true,
-      disconnect: vi.fn(),
-      getPrimaryService: vi.fn().mockResolvedValue({
-        getCharacteristic: vi.fn().mockResolvedValue({
-          startNotifications: vi.fn().mockResolvedValue(undefined),
-          addEventListener: vi.fn(),
-          removeEventListener: vi.fn()
-        })
-      })
-    });
+    device.gatt.connect = vi.fn().mockResolvedValue(makeServer());
 
     device.dispatchEvent(new Event('advertisementreceived'));
     await flush();
@@ -217,6 +210,70 @@ describe('BleService auto-reconnect', () => {
     await fresh.tryAutoReconnect();
     await flush();
     expect(fresh.getState()).not.toBe(ConnectionState.CONNECTED);
+  });
+
+  it('polls to reconnect when watchAdvertisements is unavailable', async () => {
+    // Today's Chrome for Android: neither flag enabled. gatt.connect() still
+    // works on a handle we already hold, so a wake must still be picked up.
+    vi.useFakeTimers();
+    try {
+      const device = new FakeDevice('device-abc');
+      stubBluetooth({ requestDevice: device });
+      delete (globalThis as Record<string, unknown>).BluetoothDevice;
+
+      const service = new BleService();
+      await service.connect();
+      expect(service.getState()).toBe(ConnectionState.CONNECTED);
+
+      // Device sleeps and drops the link, and is unreachable while asleep.
+      device.gatt.connect = vi.fn().mockRejectedValue(new Error('unreachable'));
+      device.dispatchEvent(new Event('gattserverdisconnected'));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(service.getState()).toBe(ConnectionState.WAITING_FOR_DEVICE);
+
+      // A couple of failed attempts while it is still asleep.
+      await vi.advanceTimersByTimeAsync(7000);
+      expect(device.gatt.connect).toHaveBeenCalled();
+      expect(service.getState()).toBe(ConnectionState.WAITING_FOR_DEVICE);
+
+      // User presses the wake button.
+      device.gatt.connect = vi.fn().mockResolvedValue(makeServer());
+      await vi.advanceTimersByTimeAsync(3500);
+
+      expect(service.getState()).toBe(ConnectionState.CONNECTED);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops polling when the user disconnects on purpose', async () => {
+    vi.useFakeTimers();
+    try {
+      const device = new FakeDevice('device-abc');
+      stubBluetooth({ requestDevice: device });
+      delete (globalThis as Record<string, unknown>).BluetoothDevice;
+
+      const service = new BleService();
+      await service.connect();
+
+      device.gatt.connect = vi.fn().mockRejectedValue(new Error('unreachable'));
+      device.dispatchEvent(new Event('gattserverdisconnected'));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(service.getState()).toBe(ConnectionState.WAITING_FOR_DEVICE);
+
+      await service.disconnect();
+      const callsAtDisconnect = (device.gatt.connect as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      // Polling must not resume behind the user's back.
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect((device.gatt.connect as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
+        callsAtDisconnect
+      );
+      expect(service.getState()).toBe(ConnectionState.DISCONNECTED);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('watches for the device to return even when getDevices() is unavailable', async () => {
