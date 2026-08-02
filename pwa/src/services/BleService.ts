@@ -107,6 +107,21 @@ export class BleService {
   }
 
   /**
+   * Which auto-reconnect capabilities this browser exposes.
+   *
+   * Both are flag-gated in Chrome and gate different behaviour, so report them
+   * separately: without watchAdvertisements there is no zero-tap reconnect at
+   * all, while without getDevices a pairing simply cannot survive a reload.
+   */
+  getCapabilities(): { webBluetooth: boolean; getDevices: boolean; watchAdvertisements: boolean } {
+    return {
+      webBluetooth: this.isSupported(),
+      getDevices: this.supportsPersistentDevices(),
+      watchAdvertisements: this.supportsAdvertisementWatch()
+    };
+  }
+
+  /**
    * Get current connection state
    */
   getState(): ConnectionState {
@@ -167,8 +182,13 @@ export class BleService {
    * soon as it wakes up.
    */
   async tryAutoReconnect(): Promise<void> {
+    console.log('BLE capabilities:', this.getCapabilities());
+
     if (!this.supportsPersistentDevices()) {
-      console.log('Persistent device permissions not supported; manual connect required');
+      console.log(
+        'getDevices() unavailable; cannot restore a pairing across reloads. ' +
+          'Enable chrome://flags/#enable-web-bluetooth-new-permissions-backend'
+      );
       return;
     }
 
@@ -362,16 +382,22 @@ export class BleService {
    * backend). Without these, only the manual chooser flow is available.
    */
   private supportsPersistentDevices(): boolean {
+    return this.isSupported() && typeof navigator.bluetooth.getDevices === 'function';
+  }
+
+  /**
+   * Private: Whether devices can be watched for advertisements.
+   *
+   * Deliberately independent of getDevices(): the two ship behind different
+   * flags. Re-arming a watch after a disconnect only needs an existing device
+   * handle, so it must not be blocked by the absence of getDevices().
+   */
+  private supportsAdvertisementWatch(): boolean {
     // @types/web-bluetooth declares BluetoothDevice as a type only, so reach
     // for the runtime constructor through globalThis.
     const deviceCtor = (globalThis as { BluetoothDevice?: { prototype: object } }).BluetoothDevice;
 
-    return (
-      this.isSupported() &&
-      typeof navigator.bluetooth.getDevices === 'function' &&
-      !!deviceCtor &&
-      'watchAdvertisements' in deviceCtor.prototype
-    );
+    return this.isSupported() && !!deviceCtor && 'watchAdvertisements' in deviceCtor.prototype;
   }
 
   /**
@@ -408,7 +434,10 @@ export class BleService {
    * with its button is enough to restore the session.
    */
   private startAdvertisementWatch(device: BluetoothDevice): void {
-    if (!this.supportsPersistentDevices()) return;
+    if (!this.supportsAdvertisementWatch()) {
+      console.log('watchAdvertisements not available; manual reconnect required');
+      return;
+    }
 
     this.stopAdvertisementWatch();
 

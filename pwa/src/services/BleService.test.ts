@@ -219,6 +219,23 @@ describe('BleService auto-reconnect', () => {
     expect(fresh.getState()).not.toBe(ConnectionState.CONNECTED);
   });
 
+  it('watches for the device to return even when getDevices() is unavailable', async () => {
+    // Chrome ships getDevices() and watchAdvertisements() behind different
+    // flags, so a device already paired in this session must still be watched.
+    const device = new FakeDevice('device-abc');
+    stubBluetooth({ requestDevice: device });
+    delete (navigator.bluetooth as unknown as Record<string, unknown>).getDevices;
+
+    const service = new BleService();
+    await service.connect();
+
+    device.dispatchEvent(new Event('gattserverdisconnected'));
+    await flush();
+
+    expect(device.watchAdvertisements).toHaveBeenCalled();
+    expect(service.getState()).toBe(ConnectionState.WAITING_FOR_DEVICE);
+  });
+
   it('watches for the device to return after an unexpected disconnect', async () => {
     const device = new FakeDevice('device-abc');
     stubBluetooth({ requestDevice: device });
