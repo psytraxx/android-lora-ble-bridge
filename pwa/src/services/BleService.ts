@@ -16,8 +16,39 @@ const TX_CHAR_UUID = '00005678-0000-1000-8000-00805f9b34fb'; // ESP32 → Web (n
 const RX_CHAR_UUID = '00005679-0000-1000-8000-00805f9b34fb'; // Web → ESP32 (writes)
 const INFO_CHAR_UUID = '0000567a-0000-1000-8000-00805f9b34fb'; // Device info (read-only, 16 bytes)
 
+/**
+ * Name prefixes advertised by the supported boards (BASE_DEVICE_NAME in
+ * firmware/platformio.ini); firmware appends "-<MAC suffix>", e.g.
+ * "HellTecLite-LoRa-FADC".
+ *
+ * Every board name contains "LoRa", but Web Bluetooth only matches prefixes,
+ * not substrings - so the prefixes are listed individually. These supplement
+ * the service filter: a device whose advertisement omits the service UUID
+ * (packet truncation, or a scan response the host didn't merge) is still
+ * offered in the chooser.
+ */
+const DEVICE_NAME_PREFIXES = ['HellTecLite-LoRa', 'WirelessStick-LoRa', 'nRF52-LoRa'];
+
+/**
+ * localStorage key holding the id of the last successfully paired device,
+ * so we can find it again via navigator.bluetooth.getDevices() after a reload.
+ */
+const LAST_DEVICE_ID_KEY = 'lora.lastDeviceId';
+
+/**
+ * Written to LAST_DEVICE_ID_KEY when the user disconnects on purpose.
+ *
+ * The browser keeps the pairing permission regardless, so an absent key and an
+ * opted-out user are not the same thing: absent means "never paired here" (a
+ * lone permitted device is safe to adopt), while this sentinel means "do not
+ * reconnect until asked".
+ */
+const DEVICE_OPTED_OUT = 'none';
+
 export enum ConnectionState {
   DISCONNECTED = 'DISCONNECTED',
+  /** Device is paired but asleep; waiting for it to advertise again. */
+  WAITING_FOR_DEVICE = 'WAITING_FOR_DEVICE',
   SCANNING = 'SCANNING',
   CONNECTING = 'CONNECTING',
   DISCOVERING = 'DISCOVERING',
@@ -51,8 +82,7 @@ export class BleService {
   private messageListeners = new Set<MessageListener>();
   private errorListeners = new Set<ErrorListener>();
 
-  private disconnectTimeout: number | null = null;
-  private readonly AUTO_DISCONNECT_MS = 60_000; // 60 seconds
+  private advertisementWatch: AbortController | null = null;
 
   constructor() {
     // Check Web Bluetooth support
@@ -84,12 +114,17 @@ export class BleService {
   }
 
   /**
-   * Request user to select BLE device and connect
+   * Request user to select BLE device and connect.
+   *
+   * Requires a user gesture: the browser always shows its device chooser here.
+   * Once paired, tryAutoReconnect() can reconnect without any interaction.
    */
   async connect(): Promise<void> {
     if (!this.isSupported()) {
       throw new Error('Web Bluetooth is not supported in this browser');
     }
+
+    this.stopAdvertisementWatch();
 
     // Clean up any existing connection before starting a new one
     // to prevent listener leaks if connect() is called while already connected
@@ -99,72 +134,77 @@ export class BleService {
 
     this.setState(ConnectionState.SCANNING);
 
+    let selectedDevice: BluetoothDevice;
     try {
-      // Request device with LoRa service filter
-      this.device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [SERVICE_UUID] }]
+      // Match on the service UUID or on any known board name prefix, so a
+      // device that advertises one but not the other still shows up.
+      selectedDevice = await navigator.bluetooth.requestDevice({
+        filters: [
+          { services: [SERVICE_UUID] },
+          ...DEVICE_NAME_PREFIXES.map((namePrefix) => ({ namePrefix }))
+        ],
+        // Name-matched devices still need the service to be usable.
+        optionalServices: [SERVICE_UUID]
       });
-
-      const selectedDevice = this.device;
-      if (!selectedDevice) {
-        throw new Error('No device selected');
-      }
-
-      console.log('Device selected:', selectedDevice.name);
-
-      // Listen for disconnection
-      selectedDevice.addEventListener('gattserverdisconnected', this.onDisconnected);
-
-      this.setState(ConnectionState.CONNECTING);
-
-      // Connect to GATT server
-      if (!selectedDevice.gatt) {
-        throw new Error('GATT server not available on device');
-      }
-      this.server = await selectedDevice.gatt.connect();
-      console.log('GATT server connected');
-
-      this.setState(ConnectionState.DISCOVERING);
-
-      // Discover LoRa service
-      const service = await this.server.getPrimaryService(SERVICE_UUID);
-      console.log('LoRa service discovered');
-
-      // Get characteristics
-      this.txCharacteristic = await service.getCharacteristic(TX_CHAR_UUID);
-      this.rxCharacteristic = await service.getCharacteristic(RX_CHAR_UUID);
-      console.log('Characteristics discovered');
-
-      // Get device info characteristic (optional - don't fail if not present)
-      try {
-        this.infoCharacteristic = await service.getCharacteristic(INFO_CHAR_UUID);
-        console.log('Device info characteristic discovered');
-      } catch {
-        console.log('Device info characteristic not available');
-      }
-
-      this.setState(ConnectionState.ENABLING_NOTIFICATIONS);
-
-      // Enable notifications on TX characteristic
-      await this.txCharacteristic.startNotifications();
-      this.txCharacteristic.addEventListener('characteristicvaluechanged', this.onNotification);
-      console.log('Notifications enabled');
-
-      this.setState(ConnectionState.CONNECTED);
-      this.resetDisconnectTimeout();
     } catch (error) {
-      console.error('Connection failed:', error);
+      console.error('Device selection failed:', error);
       this.setState(ConnectionState.ERROR);
       this.emitError(error as Error);
       this.cleanup();
       throw error;
     }
+
+    console.log('Device selected:', selectedDevice.name);
+    await this.connectToDevice(selectedDevice);
   }
 
   /**
-   * Disconnect from device
+   * Reconnect to a previously paired device without any user interaction.
+   *
+   * Safe to call on startup: it resolves quietly when the browser lacks
+   * persistent-permission support or when no device has been paired yet.
+   * If the device is asleep, watches for its advertisement and connects as
+   * soon as it wakes up.
+   */
+  async tryAutoReconnect(): Promise<void> {
+    if (!this.supportsPersistentDevices()) {
+      console.log('Persistent device permissions not supported; manual connect required');
+      return;
+    }
+
+    if (this.state !== ConnectionState.DISCONNECTED && this.state !== ConnectionState.ERROR) {
+      return;
+    }
+
+    const device = await this.findKnownDevice();
+    if (!device) {
+      console.log('No previously paired device available');
+      return;
+    }
+
+    console.log('Found previously paired device:', device.name);
+
+    try {
+      await this.connectToDevice(device);
+      return;
+    } catch {
+      // Device is most likely asleep - wait for it to advertise again.
+      console.log('Device not reachable, waiting for it to wake up');
+    }
+
+    this.startAdvertisementWatch(device);
+  }
+
+  /**
+   * Disconnect from device.
+   *
+   * This is an explicit user action, so it also forgets the device: otherwise
+   * the advertisement watch would immediately reconnect against their intent.
    */
   async disconnect(): Promise<void> {
+    this.stopAdvertisementWatch();
+    this.forgetDevice();
+
     if (this.server?.connected) {
       this.server.disconnect();
     }
@@ -186,7 +226,6 @@ export class BleService {
 
       // @ts-expect-error - Web Bluetooth API typing issue with Uint8Array
       await this.rxCharacteristic.writeValueWithResponse(data);
-      this.resetDisconnectTimeout();
     } catch (error) {
       console.error('Failed to send message:', error);
       this.emitError(error as Error);
@@ -218,8 +257,6 @@ export class BleService {
       const bandwidthHz = value.getUint32(10, true);
       const spreadingFactor = value.getUint8(14);
       const codingRate = value.getUint8(15);
-
-      this.resetDisconnectTimeout();
 
       return {
         batteryLevel,
@@ -263,6 +300,182 @@ export class BleService {
   }
 
   /**
+   * Private: Connect to an already-selected device and set up characteristics.
+   * Shared by the chooser path (connect) and the auto-reconnect path.
+   */
+  private async connectToDevice(device: BluetoothDevice): Promise<void> {
+    this.device = device;
+
+    try {
+      // Listen for disconnection
+      device.addEventListener('gattserverdisconnected', this.onDisconnected);
+
+      this.setState(ConnectionState.CONNECTING);
+
+      // Connect to GATT server
+      if (!device.gatt) {
+        throw new Error('GATT server not available on device');
+      }
+      this.server = await device.gatt.connect();
+      console.log('GATT server connected');
+
+      this.setState(ConnectionState.DISCOVERING);
+
+      // Discover LoRa service
+      const service = await this.server.getPrimaryService(SERVICE_UUID);
+      console.log('LoRa service discovered');
+
+      // Get characteristics
+      this.txCharacteristic = await service.getCharacteristic(TX_CHAR_UUID);
+      this.rxCharacteristic = await service.getCharacteristic(RX_CHAR_UUID);
+      console.log('Characteristics discovered');
+
+      // Get device info characteristic (optional - don't fail if not present)
+      try {
+        this.infoCharacteristic = await service.getCharacteristic(INFO_CHAR_UUID);
+        console.log('Device info characteristic discovered');
+      } catch {
+        console.log('Device info characteristic not available');
+      }
+
+      this.setState(ConnectionState.ENABLING_NOTIFICATIONS);
+
+      // Enable notifications on TX characteristic
+      await this.txCharacteristic.startNotifications();
+      this.txCharacteristic.addEventListener('characteristicvaluechanged', this.onNotification);
+      console.log('Notifications enabled');
+
+      this.rememberDevice(device);
+      this.setState(ConnectionState.CONNECTED);
+    } catch (error) {
+      console.error('Connection failed:', error);
+      this.setState(ConnectionState.ERROR);
+      this.emitError(error as Error);
+      this.cleanup();
+      throw error;
+    }
+  }
+
+  /**
+   * Private: Whether the browser exposes persistent device permissions and
+   * passive advertisement watching (Chrome's new Web Bluetooth permissions
+   * backend). Without these, only the manual chooser flow is available.
+   */
+  private supportsPersistentDevices(): boolean {
+    // @types/web-bluetooth declares BluetoothDevice as a type only, so reach
+    // for the runtime constructor through globalThis.
+    const deviceCtor = (globalThis as { BluetoothDevice?: { prototype: object } }).BluetoothDevice;
+
+    return (
+      this.isSupported() &&
+      typeof navigator.bluetooth.getDevices === 'function' &&
+      !!deviceCtor &&
+      'watchAdvertisements' in deviceCtor.prototype
+    );
+  }
+
+  /**
+   * Private: Look up a previously paired device among those this origin has
+   * permission for.
+   */
+  private async findKnownDevice(): Promise<BluetoothDevice | null> {
+    let devices: BluetoothDevice[];
+    try {
+      devices = await navigator.bluetooth.getDevices();
+    } catch (error) {
+      console.warn('Failed to list known devices:', error);
+      return null;
+    }
+
+    if (devices.length === 0) return null;
+
+    const storedId = this.readStoredDeviceId();
+
+    // The user disconnected on purpose - stay disconnected until they ask.
+    if (storedId === DEVICE_OPTED_OUT) return null;
+
+    const match = devices.find((d) => d.id === storedId);
+    if (match) return match;
+
+    // No stored id (or a stale one), but exactly one device is permitted:
+    // it can only be ours, since permission was granted via our service filter.
+    return devices.length === 1 ? devices[0] : null;
+  }
+
+  /**
+   * Private: Wait for the device to start advertising, then reconnect.
+   * Used on startup and after an unexpected disconnect, so waking the device
+   * with its button is enough to restore the session.
+   */
+  private startAdvertisementWatch(device: BluetoothDevice): void {
+    if (!this.supportsPersistentDevices()) return;
+
+    this.stopAdvertisementWatch();
+
+    const controller = new AbortController();
+    this.advertisementWatch = controller;
+
+    const onAdvertisement = () => {
+      console.log('Device is advertising again, reconnecting');
+      this.stopAdvertisementWatch();
+      this.connectToDevice(device).catch((error: unknown) => {
+        console.warn('Auto-reconnect failed, resuming watch:', error);
+        this.startAdvertisementWatch(device);
+      });
+    };
+
+    device.addEventListener('advertisementreceived', onAdvertisement, { once: true });
+    controller.signal.addEventListener('abort', () => {
+      device.removeEventListener('advertisementreceived', onAdvertisement);
+    });
+
+    device.watchAdvertisements({ signal: controller.signal }).then(
+      () => {
+        this.setState(ConnectionState.WAITING_FOR_DEVICE);
+      },
+      (error: unknown) => {
+        console.warn('Failed to watch advertisements:', error);
+        this.stopAdvertisementWatch();
+        this.setState(ConnectionState.DISCONNECTED);
+      }
+    );
+  }
+
+  /**
+   * Private: Cancel any in-flight advertisement watch
+   */
+  private stopAdvertisementWatch(): void {
+    if (this.advertisementWatch) {
+      this.advertisementWatch.abort();
+      this.advertisementWatch = null;
+    }
+  }
+
+  private rememberDevice(device: BluetoothDevice): void {
+    try {
+      localStorage.setItem(LAST_DEVICE_ID_KEY, device.id);
+    } catch (error) {
+      console.warn('Failed to remember device:', error);
+    }
+  }
+
+  private forgetDevice(): void {
+    try {
+      localStorage.setItem(LAST_DEVICE_ID_KEY, DEVICE_OPTED_OUT);
+    } catch (error) {
+      console.warn('Failed to forget device:', error);
+    }
+  }
+
+  private readStoredDeviceId(): string | null {
+    try {
+      return localStorage.getItem(LAST_DEVICE_ID_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Private: Handle disconnection
    */
   private onDisconnected = (): void => {
@@ -274,8 +487,16 @@ export class BleService {
       console.warn('Failed to clear messages on disconnect:', e);
     }
 
+    // Capture the handle before cleanup() clears it, so we can keep watching
+    // for the device to come back (e.g. after it wakes from deep sleep).
+    const device = this.device;
+
     this.cleanup();
     this.setState(ConnectionState.DISCONNECTED);
+
+    if (device) {
+      this.startAdvertisementWatch(device);
+    }
   };
 
   /**
@@ -295,7 +516,6 @@ export class BleService {
       console.log('Parsed message:', message);
 
       this.emitMessage(message);
-      this.resetDisconnectTimeout();
     } catch (error) {
       console.warn(
         'Failed to parse received message (possibly corrupt/truncated), ignoring:',
@@ -337,29 +557,10 @@ export class BleService {
   }
 
   /**
-   * Private: Reset auto-disconnect timeout
-   */
-  private resetDisconnectTimeout(): void {
-    if (this.disconnectTimeout !== null) {
-      window.clearTimeout(this.disconnectTimeout);
-    }
-
-    this.disconnectTimeout = window.setTimeout(() => {
-      console.log('Auto-disconnect timeout reached');
-      this.disconnect();
-    }, this.AUTO_DISCONNECT_MS);
-  }
-
-  /**
    * Private: Cleanup resources
    */
   private cleanup(): void {
     const canStopNotifications = this.server?.connected === true;
-
-    if (this.disconnectTimeout !== null) {
-      window.clearTimeout(this.disconnectTimeout);
-      this.disconnectTimeout = null;
-    }
 
     if (this.txCharacteristic) {
       try {
