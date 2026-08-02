@@ -93,7 +93,12 @@ export class LoraApp extends LitElement {
         'warning',
         5000
       );
+      return;
     }
+
+    // Reconnect to a previously paired device without user interaction.
+    // Resolves quietly when nothing is paired yet; errors surface via onError.
+    void bleService.tryAutoReconnect();
   }
 
   disconnectedCallback() {
@@ -113,6 +118,7 @@ export class LoraApp extends LitElement {
   render() {
     const isConnected = this.connectionState === ConnectionState.CONNECTED;
     const isConnecting =
+      this.connectionState === ConnectionState.WAITING_FOR_DEVICE ||
       this.connectionState === ConnectionState.SCANNING ||
       this.connectionState === ConnectionState.CONNECTING ||
       this.connectionState === ConnectionState.DISCOVERING ||
@@ -154,6 +160,7 @@ export class LoraApp extends LitElement {
             showEmptyState
               ? html`<empty-state
                 class="h-full"
+                .waiting=${this.connectionState === ConnectionState.WAITING_FOR_DEVICE}
                 @connect-requested=${this.onConnectRequest}
               ></empty-state>`
               : html`<message-list class="h-full" .messages=${this.messages}></message-list>`
@@ -243,12 +250,12 @@ export class LoraApp extends LitElement {
 
     // Device not found or not in range
     if (message.includes('no device') || message.includes('not found')) {
-      return 'Device not found. Make sure your ESP32 is powered on and nearby, then try again.';
+      return 'Device not found. Press the button on your device to wake it, then try again.';
     }
 
     // Connection timeout
     if (message.includes('timeout') || message.includes('timed out')) {
-      return 'Connection timed out. Move closer to your device and try again.';
+      return 'Connection timed out. Press the button on your device to wake it and move closer.';
     }
 
     // Device already connected elsewhere
@@ -263,7 +270,7 @@ export class LoraApp extends LitElement {
 
     // GATT errors
     if (message.includes('gatt')) {
-      return 'Connection lost. Make sure your device is nearby and try reconnecting.';
+      return 'Connection lost. Press the button on your device to wake it and the app will reconnect.';
     }
 
     // Generic fallback with retry hint

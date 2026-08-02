@@ -60,7 +60,7 @@ export class PairingModal extends LitElement {
             <div class="flex gap-3 items-start">
               <div class="badge badge-primary shrink-0">1</div>
               <div class="flex-1 text-[15px] leading-relaxed">
-                Make sure your <strong class="font-semibold">ESP32 device is powered on</strong> and within range (about 10 meters)
+                <strong class="font-semibold">Press the button on your device</strong> to wake it, and make sure it is within range (about 10 meters)
               </div>
             </div>
 
@@ -86,12 +86,23 @@ export class PairingModal extends LitElement {
             </div>
           </div>
 
-          <div class="alert alert-warning mt-6">
+          <div class="alert alert-info mt-6">
+            ${informationCircleIcon('w-5 h-5 shrink-0')}
+            <div>
+              <h3 class="font-semibold">You only have to do this once</h3>
+              <p class="text-sm mt-1">
+                After pairing, the app remembers your device. Whenever it wakes from sleep,
+                just press its button &mdash; the app reconnects on its own.
+              </p>
+            </div>
+          </div>
+
+          <div class="alert alert-warning mt-4">
             ${informationCircleIcon('w-5 h-5 shrink-0')}
             <div>
               <h3 class="font-semibold">Don't See Your Device?</h3>
               <ul class="text-sm mt-1 space-y-1 ml-5 list-disc">
-                <li>Check that your device is powered on</li>
+                <li>Press the button on your device to wake it from sleep</li>
                 <li>Move closer to your device (within 10 meters)</li>
                 <li>Try closing and reopening the pairing dialog</li>
                 <li>Make sure no other app is connected to it</li>

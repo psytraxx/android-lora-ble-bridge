@@ -113,6 +113,11 @@ export class ConnectionStatus extends LitElement {
           ${xMarkIcon('w-4 h-4')}
           Disconnected
         </div>`;
+      case ConnectionState.WAITING_FOR_DEVICE:
+        return html`<div class="badge badge-warning gap-2">
+          <span class="loading loading-spinner loading-xs"></span>
+          Waiting for device
+        </div>`;
       case ConnectionState.SCANNING:
         return html`<div class="badge badge-warning gap-2">
           <span class="loading loading-spinner loading-xs"></span>
