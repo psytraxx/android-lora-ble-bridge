@@ -1,0 +1,77 @@
+[package]
+edition = "2024"
+name = "firmware-rs"
+version = "0.1.0"
+
+[[bin]]
+name = "firmware-rs"
+path = "./src/bin/main.rs"
+
+[dependencies]
+esp-hal = { version = "1.1.1", features = ["log-04", "unstable", "esp32s3"] }
+
+esp-rtos = { version = "0.3.0", features = [
+  "embassy",
+  "esp-alloc",
+  "esp-radio",
+  "log-04",
+  "esp32s3",
+] }
+
+esp-bootloader-esp-idf = { version = "0.5.0", features = ["log-04", "esp32s3"] }
+log = "0.4.30"
+
+embassy-executor = { version = "0.10.0", features = ["log"] }
+embassy-time = { version = "0.5.1", features = ["log"] }
+embedded-hal = { version = "1.0", features = ["defmt-03"] }
+embedded-hal-async = { version = "1.0", features = ["defmt-03"] }
+embedded-io = "0.7.1"
+embedded-io-async = "0.7.0"
+esp-alloc = { version = "0.10.0" }
+esp-backtrace = { version = "0.19.0", features = [
+  "panic-handler",
+  "println",
+  "esp32s3",
+] }
+esp-println = { version = "0.17.0", features = ["log-04", "esp32s3"] }
+esp-radio = { version = "0.18.0", default-features = false, features = [
+  "ble",
+  "esp-alloc",
+  "log-04",
+  "unstable",
+  "esp32s3",
+] }
+trouble-host = { git = "https://github.com/embassy-rs/trouble", rev = "5c22e8d4", features = [
+  "peripheral",
+  "central",
+  "gatt",
+  "derive",
+  "default-packet-pool-mtu-512",
+  "security",
+  "dev-disable-csprng-seed-requirement",
+], default-features = false }
+critical-section = "1.2.0"
+static_cell = "2.1.1"
+embassy-sync = { version = "0.8.0", features = ["log"] }
+heapless = "0.9.3"
+embassy-futures = { version = "0.1.2", features = ["log"] }
+lora-phy = "3.0.1"
+embassy-embedded-hal = "0.6.0"
+esp-storage = { version = "0.9.0", features = ["esp32s3"] }
+embedded-storage = "0.3"
+nb = "1"
+bt-hci = "0.8"
+
+[profile.dev]
+# Rust debug is too slow.
+# For debug builds always builds with some optimization
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1        # LLVM can perform better optimizations using a single thread
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 's'
+overflow-checks = false

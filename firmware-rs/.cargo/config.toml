@@ -1,0 +1,12 @@
+[target.xtensa-esp32s3-none-elf]
+runner = "espflash flash --monitor --chip esp32s3 --flash-mode dio --baud 921600 --flash-freq 80mhz --flash-size 8mb"
+
+[env]
+ESP_LOG = "info"
+
+[build]
+target = "xtensa-esp32s3-none-elf"
+rustflags = ["-C", "link-arg=-nostartfiles"]
+
+[unstable]
+build-std = ["alloc", "core"]
