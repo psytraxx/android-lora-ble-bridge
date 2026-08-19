@@ -17,6 +17,8 @@ concurrency:
 env:
     CARGO_TERM_COLOR: always
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    SCCACHE_GHA_ENABLED: "true"
+    RUSTC_WRAPPER: "sccache"
 
 jobs:
     rust-checks:
@@ -34,7 +36,8 @@ jobs:
             WIFI_PSK: password
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v6
+              uses: actions/checkout@v7
+
             - name: Setup Rust
               uses: esp-rs/xtensa-toolchain@v1.6
               with:
@@ -42,11 +45,15 @@ jobs:
                   buildtargets: esp32s3
                   # see https://github.com/esp-rs/rust-build/releases for available versions
                   ldproxy: false
-            - name: Enable caching
-              uses: Swatinem/rust-cache@v2
+
+            - name: Run sccache-cache
+              uses: mozilla-actions/sccache-action@v0.0.11
             - name: Run build
               run: cargo build --release
             - name: Run fmt
               run: cargo fmt --all -- --check --color always
             - name: Run clippy
               run: cargo clippy --all-features --workspace -- -D warnings
+            - name: Run sccache stat for check
+              shell: bash
+              run: ${SCCACHE_PATH} --show-stats
