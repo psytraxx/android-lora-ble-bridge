@@ -41,7 +41,7 @@ esp-radio = { version = "0.18.0", default-features = false, features = [
   "unstable",
   "esp32s3",
 ] }
-trouble-host = { git = "https://github.com/embassy-rs/trouble", features = [
+trouble-host = { git = "https://github.com/embassy-rs/trouble", rev = "5c22e8d4", features = [
   "peripheral",
   "central",
   "gatt",
