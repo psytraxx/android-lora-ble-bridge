@@ -17,46 +17,5 @@
       "security"
     ],
     "automerge": true
-  },
-  "customDatasources": {
-    "ds-pio-library": {
-      "description": "PlatformIO Library Registry",
-      "defaultRegistryUrlTemplate": "https://api.registry.platformio.org/v3/packages/{{#if (containsString packageName '/')}}{{{replace '/.*' '' packageName}}}{{else}}platformio{{/if}}/library/{{{replace '.*/' '' packageName}}}",
-      "format": "json",
-      "transformTemplates": [
-        "{\"releases\": [$map($.versions, function($v) { { \"version\": $v.name, \"releaseTimestamp\": $v.released_at } })], \"homepage\": $encodeUrl($join([\"https://registry.platformio.org/\",$.type,\"/\",$.owner.username,\"/\",$.name])) }"
-      ]
-    }
-  },
-  "customManagers": [
-    {
-      "customType": "regex",
-      "description": "PlatformIO Library Manager",
-      "managerFilePatterns": ["(^|/)firmware/platformio\\.ini$"],
-      "matchStrings": [
-        "^\\s*(?<depName>[\\w\\-\\.\\/][\\w\\s\\-\\.\\/]*)@\\^?(?<currentValue>[\\d\\.]+)\\s*$"
-      ],
-      "datasourceTemplate": "custom.ds-pio-library",
-      "versioningTemplate": "loose",
-      "depTypeTemplate": "dep-pio-library"
-    }
-  ],
-  "packageRules": [
-    {
-      "description": "Keep Python 3.13 for firmware build compatibility",
-      "matchFileNames": [
-        ".github/workflows/firmware-compile.yml"
-      ],
-      "matchDepNames": [
-        "actions/setup-python"
-      ],
-      "enabled": false
-    },
-    {
-      "description": "Group all firmware PlatformIO library updates together",
-      "matchDepTypes": ["dep-pio-library"],
-      "groupName": "firmware platformio libraries",
-      "addLabels": ["platformio"]
-    }
-  ]
+  }
 }
