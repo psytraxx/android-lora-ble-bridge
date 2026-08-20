@@ -14,11 +14,6 @@
 	"dependencies": {
 		"lit": "^3.3.2"
 	},
-	"overrides": {
-		"vite-plugin-pwa": {
-			"vite": "$vite"
-		}
-	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.9",
 		"@open-wc/testing": "^5.0.0",
