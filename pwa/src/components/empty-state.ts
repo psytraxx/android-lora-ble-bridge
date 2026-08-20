@@ -6,6 +6,8 @@ import { sharedStylesheet } from '../shared-styles';
 export class EmptyState extends LitElement {
   /** Device is already paired and we're waiting for it to wake up */
   @property({ type: Boolean }) waiting = false;
+  /** Name of the remembered device being waited for, if known */
+  @property({ type: String }) deviceName: string | null = null;
 
   static styles = [
     sharedStylesheet,
@@ -29,6 +31,15 @@ export class EmptyState extends LitElement {
     );
   }
 
+  private handleCancel() {
+    this.dispatchEvent(
+      new CustomEvent('cancel-requested', {
+        bubbles: true,
+        composed: true
+      })
+    );
+  }
+
   render() {
     if (this.waiting) {
       return html`
@@ -37,10 +48,18 @@ export class EmptyState extends LitElement {
 
           <h1 class="text-3xl font-bold mb-4">Waiting for your device</h1>
 
-          <p class="text-base-content/70 max-w-md">
-            Your device is paired but asleep. Press the button on the device to
-            wake it &mdash; the app will reconnect automatically.
+          <p class="text-base-content/70 max-w-md mb-6">
+            ${
+              this.deviceName
+                ? html`<span class="font-medium">${this.deviceName}</span> is paired but asleep.`
+                : 'Your device is paired but asleep.'
+            }
+            Press the button on the device to wake it &mdash; the app will reconnect automatically.
           </p>
+
+          <button @click=${this.handleCancel} class="btn btn-ghost btn-sm">
+            Stop waiting
+          </button>
         </div>
       `;
     }

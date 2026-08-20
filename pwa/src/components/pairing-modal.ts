@@ -74,7 +74,7 @@ export class PairingModal extends LitElement {
             <div class="flex gap-3 items-start">
               <div class="badge badge-primary shrink-0">3</div>
               <div class="flex-1 text-[15px] leading-relaxed">
-                Look for a device named <span class="badge badge-neutral font-mono text-sm">ESP32S3-LoRa</span> in the browser dialog
+                Look for a device named <span class="badge badge-neutral font-mono text-sm">HellTecLite-LoRa-XXXX</span> (or similar, ending in "-LoRa-XXXX") in the browser dialog
               </div>
             </div>
 

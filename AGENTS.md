@@ -74,6 +74,14 @@ npm run build    # Production build to dist/
 npm run preview  # Preview production build
 ```
 
+**Auto-reconnect**: `BleService` remembers the last-paired device (`localStorage`, `lora.knownDevice`)
+and reconnects automatically without a user gesture, using `watchAdvertisements()` /
+`getDevices()` where the browser supports them (Chrome flag
+`chrome://flags/#enable-web-bluetooth-new-permissions-backend`), falling back to timed
+`gatt.connect()` polling otherwise. The user can switch this off and forget the pairing from the
+settings menu (`settings-menu.ts`) — useful when testing with more than one board from the same
+browser. See `BleService.test.ts` for the behavior matrix across capability combinations.
+
 ### Debugging Tools
 
 ```bash

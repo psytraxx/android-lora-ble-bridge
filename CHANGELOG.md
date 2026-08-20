@@ -1,5 +1,12 @@
 ## Changelog
 
+### PWA v1.1 (August 2026)
+- **Auto-reconnect settings menu**: new navbar dropdown (`settings-menu.ts`) lets the user switch auto-reconnect on/off and forget the remembered device, so testing with a second board no longer requires disconnect-and-lose-the-pairing; `BleService` now stores the pairing (`lora.knownDevice`) and the preference (`lora.autoReconnect`) as separate keys, migrating transparently from the old single-key scheme
+- **Fixed getting stuck mid-reconnect**: `WAITING_FOR_DEVICE`/`CONNECTING`/`DISCOVERING`/`ENABLING_NOTIFICATIONS` previously rendered no button at all in the navbar or empty state, so a stalled reconnect attempt had no way out; both now offer a Cancel / "Stop waiting" control
+- **Bounded reconnect attempts**: `connectToDevice()` now times out after 15s instead of hanging indefinitely on a stuck GATT handshake; the poll/watch retry loop now backs off exponentially (3s → 30s) with a shared attempt cap instead of a flat 3s × 100, and reports an error via toast when it gives up
+- **Retry on visibility/adapter change**: reconnect attempts now retry immediately when the tab regains focus or Bluetooth is toggled back on, instead of waiting out a throttled background timer
+- **Tightened lone-device adoption**: auto-reconnect no longer silently adopts the only Bluetooth-permitted device once a *different* device has actually been remembered or explicitly forgotten — only applies on a genuinely fresh install
+
 ### Firmware v3.8 (June 2026)
 - **Heltec Wireless Stick V3 support**: new `heltec-wireless-stick-v3` PlatformIO environment for the ESP32-S3 board with 64×32 SSD1306 OLED; `DisplayManager` shows BLE status, LoRa RSSI/SNR, and battery level on the display; display powered via VEXT (GPIO36), I²C on SDA=17/SCL=18/RST=21
 - **Board rename**: `heltec-wifi-lora-v3` env correctly renamed to `heltec-wireless-stick-lite-v3` to reflect actual hardware; board definition updated to `heltec_wireless_stick_lite_v3`

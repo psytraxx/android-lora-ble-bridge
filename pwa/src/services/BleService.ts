@@ -30,30 +30,55 @@ const INFO_CHAR_UUID = '0000567a-0000-1000-8000-00805f9b34fb'; // Device info (r
 const DEVICE_NAME_PREFIXES = ['HellTecLite-LoRa', 'WirelessStick-LoRa', 'nRF52-LoRa'];
 
 /**
- * localStorage key holding the id of the last successfully paired device,
- * so we can find it again via navigator.bluetooth.getDevices() after a reload.
+ * localStorage key holding the last-paired device as JSON ({ id, name }), so
+ * we can find it again via navigator.bluetooth.getDevices() after a reload
+ * and show its name in the UI before any connection exists.
  */
-const LAST_DEVICE_ID_KEY = 'lora.lastDeviceId';
+const KNOWN_DEVICE_KEY = 'lora.knownDevice';
 
 /**
- * Written to LAST_DEVICE_ID_KEY when the user disconnects on purpose.
+ * Written to KNOWN_DEVICE_KEY by forgetDevice(), in place of removing the key.
  *
- * The browser keeps the pairing permission regardless, so an absent key and an
- * opted-out user are not the same thing: absent means "never paired here" (a
- * lone permitted device is safe to adopt), while this sentinel means "do not
- * reconnect until asked".
+ * An absent key and an explicitly-forgotten device are not the same thing:
+ * absent means "never paired on this browser", which is why findKnownDevice()
+ * safely auto-adopts a lone permitted device in that case. This sentinel means
+ * "the user deliberately let this one go" - important when testing with a
+ * second board, where the origin still has permission for the first and the
+ * adoption shortcut must not silently re-pair it.
  */
-const DEVICE_OPTED_OUT = 'none';
+const DEVICE_FORGOTTEN = 'forgotten';
 
 /**
- * Polling cadence for the no-watchAdvertisements fallback.
- *
- * 3s keeps the wake feeling responsive without hammering the radio; 100
- * attempts is ~5 minutes, long enough to cover someone walking back to the
- * device but short of polling all night.
+ * localStorage key holding the user's auto-reconnect preference ('on' | 'off').
+ * Absent means "on" - auto-reconnect is the default, opt-out behaviour.
  */
-const RECONNECT_INTERVAL_MS = 3_000;
-const RECONNECT_MAX_ATTEMPTS = 100;
+const AUTO_RECONNECT_KEY = 'lora.autoReconnect';
+
+/**
+ * Superseded storage scheme: a bare device id, with the sentinel 'none'
+ * meaning "user opted out". Migrated into KNOWN_DEVICE_KEY / AUTO_RECONNECT_KEY
+ * on first construction so existing installs keep their pairing.
+ */
+const LEGACY_LAST_DEVICE_ID_KEY = 'lora.lastDeviceId';
+const LEGACY_OPTED_OUT = 'none';
+
+/**
+ * How long connectToDevice() waits for the GATT/service/characteristic
+ * handshake before giving up. Without this, a device that ACKs the radio
+ * link but never completes GATT discovery (a real failure mode on some
+ * Android BLE stacks) pins the state at CONNECTING forever.
+ */
+const CONNECT_TIMEOUT_MS = 15_000;
+
+/**
+ * Backoff for the no-watchAdvertisements reconnect loop (and for resuming
+ * an advertisement watch that failed to arm): starts responsive, backs off
+ * to avoid hammering the radio while the device is off for a while, and
+ * gives up after RECONNECT_MAX_ATTEMPTS so it does not poll all night.
+ */
+const RECONNECT_BASE_DELAY_MS = 3_000;
+const RECONNECT_MAX_DELAY_MS = 30_000;
+const RECONNECT_MAX_ATTEMPTS = 20;
 
 export enum ConnectionState {
   DISCONNECTED = 'DISCONNECTED',
@@ -73,9 +98,16 @@ export interface BleDevice {
   rssi?: number;
 }
 
+/** A remembered pairing, persisted so the app can reconnect without the chooser. */
+export interface KnownDevice {
+  id: string;
+  name: string;
+}
+
 type StateListener = (state: ConnectionState) => void;
 type MessageListener = (message: Message) => void;
 type ErrorListener = (error: Error) => void;
+type SettingsListener = () => void;
 
 /**
  * BLE Service for Web Bluetooth communication
@@ -91,15 +123,28 @@ export class BleService {
   private stateListeners = new Set<StateListener>();
   private messageListeners = new Set<MessageListener>();
   private errorListeners = new Set<ErrorListener>();
+  private settingsListeners = new Set<SettingsListener>();
 
   private advertisementWatch: AbortController | null = null;
   private reconnectTimer: number | null = null;
+  private reconnectAttempt = 0;
+  /**
+   * The device a watch/poll is currently waiting on. Separate from `device`,
+   * which cleanup() nulls out as soon as the link drops - retryNow() needs a
+   * handle to retry against even while nothing is connected.
+   */
+  private waitingDevice: BluetoothDevice | null = null;
+
+  /** Set right before we tear down a link ourselves, so onDisconnected knows not to re-arm. */
+  private userInitiatedDisconnect = false;
 
   constructor() {
     // Check Web Bluetooth support
     if (!navigator.bluetooth) {
       console.error('Web Bluetooth API not supported');
     }
+
+    this.migrateLegacyStorage();
   }
 
   /**
@@ -108,6 +153,94 @@ export class BleService {
   getDevice(): BleDevice | null {
     if (!this.device) return null;
     return { id: this.device.id, name: this.device.name ?? '' };
+  }
+
+  /**
+   * Get the remembered pairing, if any - available even while disconnected,
+   * so the UI can say which device auto-reconnect will target.
+   */
+  getKnownDevice(): KnownDevice | null {
+    try {
+      const raw = localStorage.getItem(KNOWN_DEVICE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { id?: unknown; name?: unknown };
+      if (typeof parsed.id !== 'string') return null;
+      return { id: parsed.id, name: typeof parsed.name === 'string' ? parsed.name : '' };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Whether auto-reconnect (startup restore, watch-for-wake, poll-for-wake)
+   * is allowed to run. Defaults to on; the user can switch it off to test
+   * with a different device without the app racing them for the connection.
+   */
+  isAutoReconnectEnabled(): boolean {
+    try {
+      return localStorage.getItem(AUTO_RECONNECT_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Persist the auto-reconnect preference and act on it immediately: turning
+   * it on retries right away, turning it off cancels any in-flight watch or
+   * poll so it cannot race a manual connect the user is about to start.
+   */
+  setAutoReconnectEnabled(enabled: boolean): void {
+    try {
+      localStorage.setItem(AUTO_RECONNECT_KEY, enabled ? 'on' : 'off');
+    } catch (error) {
+      console.warn('Failed to persist auto-reconnect preference:', error);
+    }
+    this.emitSettingsChange();
+
+    if (enabled) {
+      void this.tryAutoReconnect();
+      return;
+    }
+
+    this.stopAutoReconnect();
+    // WAITING_FOR_DEVICE only exists while a watch/poll is active; both are
+    // now stopped, so leaving it set would strand the UI in that state.
+    if (this.state === ConnectionState.WAITING_FOR_DEVICE) {
+      this.setState(ConnectionState.DISCONNECTED);
+    }
+  }
+
+  /**
+   * Reset the backoff and retry immediately. Used when something changed
+   * that makes success more likely right now - the tab regained visibility,
+   * or the adapter came back on - rather than waiting out the current delay.
+   */
+  retryNow(): void {
+    if (!this.isAutoReconnectEnabled() || this.isConnected()) return;
+
+    if (
+      this.state !== ConnectionState.DISCONNECTED &&
+      this.state !== ConnectionState.ERROR &&
+      this.state !== ConnectionState.WAITING_FOR_DEVICE
+    ) {
+      return;
+    }
+
+    // this.device is only set while actually connected - while waiting for a
+    // reconnect it's already been cleared, so fall back to the device a
+    // watch/poll is currently targeting.
+    const device = this.device ?? this.waitingDevice;
+
+    this.stopAutoReconnect(); // cancels any pending watch/timer, resets the backoff
+
+    if (device) {
+      this.connectToDevice(device).catch(() => {
+        this.startAdvertisementWatch(device);
+      });
+      return;
+    }
+
+    void this.tryAutoReconnect();
   }
 
   /**
@@ -188,12 +321,17 @@ export class BleService {
    * Reconnect to a previously paired device without any user interaction.
    *
    * Safe to call on startup: it resolves quietly when the browser lacks
-   * persistent-permission support or when no device has been paired yet.
-   * If the device is asleep, watches for its advertisement and connects as
-   * soon as it wakes up.
+   * persistent-permission support, when auto-reconnect is switched off, or
+   * when no device has been paired yet. If the device is asleep, watches for
+   * its advertisement and connects as soon as it wakes up.
    */
   async tryAutoReconnect(): Promise<void> {
     console.log('BLE capabilities:', this.getCapabilities());
+
+    if (!this.isAutoReconnectEnabled()) {
+      console.log('Auto-reconnect is switched off');
+      return;
+    }
 
     if (!this.supportsPersistentDevices()) {
       console.log(
@@ -214,6 +352,7 @@ export class BleService {
     }
 
     console.log('Found previously paired device:', device.name);
+    this.reconnectAttempt = 0;
 
     try {
       await this.connectToDevice(device);
@@ -229,18 +368,51 @@ export class BleService {
   /**
    * Disconnect from device.
    *
-   * This is an explicit user action, so it also forgets the device and stops
-   * all automatic reconnection: otherwise we would reconnect against intent.
+   * This is an explicit user action, so it also stops all automatic
+   * reconnection - otherwise we would reconnect against intent. It keeps the
+   * remembered device, though: switching auto-reconnect back on should resume
+   * without going through the chooser again. Use forgetDevice() to discard
+   * the pairing itself.
    */
   async disconnect(): Promise<void> {
     this.stopAutoReconnect();
-    this.forgetDevice();
+
+    try {
+      localStorage.setItem(AUTO_RECONNECT_KEY, 'off');
+    } catch (error) {
+      console.warn('Failed to persist auto-reconnect preference:', error);
+    }
 
     if (this.server?.connected) {
+      this.userInitiatedDisconnect = true;
       this.server.disconnect();
     }
     this.cleanup();
     this.setState(ConnectionState.DISCONNECTED);
+    this.emitSettingsChange();
+  }
+
+  /**
+   * Forget the remembered device: stops any auto-reconnect, drops the link if
+   * live, and clears the stored pairing so a future reconnect needs the
+   * chooser again. Leaves the auto-reconnect preference untouched.
+   */
+  forgetDevice(): void {
+    this.stopAutoReconnect();
+
+    try {
+      localStorage.setItem(KNOWN_DEVICE_KEY, DEVICE_FORGOTTEN);
+    } catch (error) {
+      console.warn('Failed to forget device:', error);
+    }
+
+    if (this.server?.connected) {
+      this.userInitiatedDisconnect = true;
+      this.server.disconnect();
+    }
+    this.cleanup();
+    this.setState(ConnectionState.DISCONNECTED);
+    this.emitSettingsChange();
   }
 
   /**
@@ -330,6 +502,12 @@ export class BleService {
     return () => this.errorListeners.delete(listener);
   }
 
+  /** Fires when the remembered device or the auto-reconnect preference changes. */
+  onSettingsChange(listener: SettingsListener): () => void {
+    this.settingsListeners.add(listener);
+    return () => this.settingsListeners.delete(listener);
+  }
+
   /**
    * Private: Connect to an already-selected device and set up characteristics.
    * Shared by the chooser path (connect) and the auto-reconnect path.
@@ -343,39 +521,9 @@ export class BleService {
 
       this.setState(ConnectionState.CONNECTING);
 
-      // Connect to GATT server
-      if (!device.gatt) {
-        throw new Error('GATT server not available on device');
-      }
-      this.server = await device.gatt.connect();
-      console.log('GATT server connected');
+      await this.withTimeout(this.establishConnection(device), CONNECT_TIMEOUT_MS);
 
-      this.setState(ConnectionState.DISCOVERING);
-
-      // Discover LoRa service
-      const service = await this.server.getPrimaryService(SERVICE_UUID);
-      console.log('LoRa service discovered');
-
-      // Get characteristics
-      this.txCharacteristic = await service.getCharacteristic(TX_CHAR_UUID);
-      this.rxCharacteristic = await service.getCharacteristic(RX_CHAR_UUID);
-      console.log('Characteristics discovered');
-
-      // Get device info characteristic (optional - don't fail if not present)
-      try {
-        this.infoCharacteristic = await service.getCharacteristic(INFO_CHAR_UUID);
-        console.log('Device info characteristic discovered');
-      } catch {
-        console.log('Device info characteristic not available');
-      }
-
-      this.setState(ConnectionState.ENABLING_NOTIFICATIONS);
-
-      // Enable notifications on TX characteristic
-      await this.txCharacteristic.startNotifications();
-      this.txCharacteristic.addEventListener('characteristicvaluechanged', this.onNotification);
-      console.log('Notifications enabled');
-
+      this.reconnectAttempt = 0;
       this.rememberDevice(device);
       this.setState(ConnectionState.CONNECTED);
     } catch (error) {
@@ -385,6 +533,71 @@ export class BleService {
       this.cleanup();
       throw error;
     }
+  }
+
+  /**
+   * Private: GATT connect + service/characteristic discovery + notifications.
+   * Split out from connectToDevice() so it can be raced against a timeout
+   * without duplicating the surrounding state-machine/error handling.
+   */
+  private async establishConnection(device: BluetoothDevice): Promise<void> {
+    // Connect to GATT server
+    if (!device.gatt) {
+      throw new Error('GATT server not available on device');
+    }
+    this.server = await device.gatt.connect();
+    console.log('GATT server connected');
+
+    this.setState(ConnectionState.DISCOVERING);
+
+    // Discover LoRa service
+    const service = await this.server.getPrimaryService(SERVICE_UUID);
+    console.log('LoRa service discovered');
+
+    // Get characteristics
+    this.txCharacteristic = await service.getCharacteristic(TX_CHAR_UUID);
+    this.rxCharacteristic = await service.getCharacteristic(RX_CHAR_UUID);
+    console.log('Characteristics discovered');
+
+    // Get device info characteristic (optional - don't fail if not present)
+    try {
+      this.infoCharacteristic = await service.getCharacteristic(INFO_CHAR_UUID);
+      console.log('Device info characteristic discovered');
+    } catch {
+      console.log('Device info characteristic not available');
+    }
+
+    this.setState(ConnectionState.ENABLING_NOTIFICATIONS);
+
+    // Enable notifications on TX characteristic
+    await this.txCharacteristic.startNotifications();
+    this.txCharacteristic.addEventListener('characteristicvaluechanged', this.onNotification);
+    console.log('Notifications enabled');
+  }
+
+  /**
+   * Private: Reject with a timeout error if the given promise takes too long.
+   * Used to bound connectToDevice() - without it a hung gatt.connect() (a
+   * real failure mode on some Android BLE stacks) pins the state at
+   * CONNECTING with no way out.
+   */
+  private withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        reject(new Error('Connection timed out'));
+      }, ms);
+
+      promise.then(
+        (value) => {
+          window.clearTimeout(timer);
+          resolve(value);
+        },
+        (error: unknown) => {
+          window.clearTimeout(timer);
+          reject(error as Error);
+        }
+      );
+    });
   }
 
   /**
@@ -426,16 +639,25 @@ export class BleService {
 
     if (devices.length === 0) return null;
 
-    const storedId = this.readStoredDeviceId();
+    const known = this.getKnownDevice();
+    if (known) {
+      return devices.find((d) => d.id === known.id) ?? null;
+    }
 
-    // The user disconnected on purpose - stay disconnected until they ask.
-    if (storedId === DEVICE_OPTED_OUT) return null;
+    // getKnownDevice() also returns null for an explicitly forgotten device
+    // (the DEVICE_FORGOTTEN sentinel) - that must not fall through to
+    // adoption below, or "forget device" would just re-pair itself whenever
+    // only one board happens to be permitted.
+    let hasStoredRecord: boolean;
+    try {
+      hasStoredRecord = localStorage.getItem(KNOWN_DEVICE_KEY) !== null;
+    } catch {
+      hasStoredRecord = false;
+    }
+    if (hasStoredRecord) return null;
 
-    const match = devices.find((d) => d.id === storedId);
-    if (match) return match;
-
-    // No stored id (or a stale one), but exactly one device is permitted:
-    // it can only be ours, since permission was granted via our service filter.
+    // Truly nothing recorded yet, but exactly one device is permitted: it can
+    // only be ours, since permission was granted via our service filter.
     return devices.length === 1 ? devices[0] : null;
   }
 
@@ -445,11 +667,20 @@ export class BleService {
    * with its button is enough to restore the session.
    */
   private startAdvertisementWatch(device: BluetoothDevice): void {
+    if (!this.isAutoReconnectEnabled()) return;
+
+    this.waitingDevice = device;
+
     if (!this.supportsAdvertisementWatch()) {
       // watchAdvertisements is flag-gated in Chrome. Until it ships, poll the
       // handle instead: gatt.connect() needs no flag and succeeds as soon as
       // the device is awake, which is the same outcome a little less promptly.
       this.startReconnectPolling(device);
+      return;
+    }
+
+    if (this.reconnectAttempt >= RECONNECT_MAX_ATTEMPTS) {
+      this.giveUpWaiting();
       return;
     }
 
@@ -463,6 +694,7 @@ export class BleService {
       this.stopAdvertisementWatch();
       this.connectToDevice(device).catch((error: unknown) => {
         console.warn('Auto-reconnect failed, resuming watch:', error);
+        this.reconnectAttempt += 1;
         this.startAdvertisementWatch(device);
       });
     };
@@ -477,32 +709,38 @@ export class BleService {
         this.setState(ConnectionState.WAITING_FOR_DEVICE);
       },
       (error: unknown) => {
-        console.warn('Failed to watch advertisements:', error);
+        // The watch itself failed to arm (not just "no advertisement yet") -
+        // fall back to polling instead of stranding the user disconnected.
+        console.warn('Failed to watch advertisements, falling back to polling:', error);
         this.stopAdvertisementWatch();
-        this.setState(ConnectionState.DISCONNECTED);
+        this.startReconnectPolling(device);
       }
     );
   }
 
   /**
-   * Private: Retry gatt.connect() until the device wakes up.
+   * Private: Retry gatt.connect() until the device wakes up, backing off
+   * between attempts.
    *
    * Fallback for browsers without watchAdvertisements. Only works while the
    * page holds the device handle - a reload loses it and needs getDevices(),
    * which is flag-gated too. Gives up after RECONNECT_MAX_ATTEMPTS so a device
    * that is off for the night does not poll the radio forever.
    */
-  private startReconnectPolling(device: BluetoothDevice, attempt = 0): void {
+  private startReconnectPolling(device: BluetoothDevice, attempt = this.reconnectAttempt): void {
+    if (!this.isAutoReconnectEnabled()) return;
+
+    this.waitingDevice = device;
     this.stopReconnectPolling();
 
     if (attempt >= RECONNECT_MAX_ATTEMPTS) {
-      console.log('Gave up waiting for device to wake up');
-      this.setState(ConnectionState.DISCONNECTED);
+      this.giveUpWaiting();
       return;
     }
 
     this.setState(ConnectionState.WAITING_FOR_DEVICE);
 
+    const delay = this.nextReconnectDelay(attempt);
     this.reconnectTimer = window.setTimeout(() => {
       // A manual connect may have landed while this was pending.
       if (this.isConnected()) return;
@@ -512,9 +750,29 @@ export class BleService {
           console.log('Reconnected after device woke up');
         })
         .catch(() => {
+          this.reconnectAttempt = attempt + 1;
           this.startReconnectPolling(device, attempt + 1);
         });
-    }, RECONNECT_INTERVAL_MS);
+    }, delay);
+  }
+
+  /**
+   * Private: Exponential backoff with a small jitter, capped so waits stay
+   * bounded even after many failed attempts.
+   */
+  private nextReconnectDelay(attempt: number): number {
+    const base = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** attempt, RECONNECT_MAX_DELAY_MS);
+    const jitter = Math.random() * Math.min(500, base * 0.1);
+    return base + jitter;
+  }
+
+  /**
+   * Private: Stop waiting after the attempt cap and tell the user how to retry.
+   */
+  private giveUpWaiting(): void {
+    console.log('Gave up waiting for device to wake up');
+    this.setState(ConnectionState.DISCONNECTED);
+    this.emitError(new Error('Device did not reconnect. Press Connect to try again.'));
   }
 
   /**
@@ -528,13 +786,16 @@ export class BleService {
   }
 
   /**
-   * Private: Stop all automatic reconnection, whichever mechanism is in use.
+   * Private: Stop all automatic reconnection, whichever mechanism is in use,
+   * and reset the backoff so the next reconnect cycle starts fresh.
    * Call before any user-initiated connect or disconnect so the automation
    * never races the user.
    */
   private stopAutoReconnect(): void {
     this.stopAdvertisementWatch();
     this.stopReconnectPolling();
+    this.reconnectAttempt = 0;
+    this.waitingDevice = null;
   }
 
   /**
@@ -549,25 +810,34 @@ export class BleService {
 
   private rememberDevice(device: BluetoothDevice): void {
     try {
-      localStorage.setItem(LAST_DEVICE_ID_KEY, device.id);
+      const record: KnownDevice = { id: device.id, name: device.name ?? '' };
+      localStorage.setItem(KNOWN_DEVICE_KEY, JSON.stringify(record));
     } catch (error) {
       console.warn('Failed to remember device:', error);
     }
+    this.emitSettingsChange();
   }
 
-  private forgetDevice(): void {
+  /**
+   * Private: One-time migration from the old bare-id + 'none'-sentinel scheme
+   * to the current { id, name } record plus a separate on/off preference.
+   * Runs quietly on construction so existing installs keep their pairing.
+   */
+  private migrateLegacyStorage(): void {
     try {
-      localStorage.setItem(LAST_DEVICE_ID_KEY, DEVICE_OPTED_OUT);
+      const legacy = localStorage.getItem(LEGACY_LAST_DEVICE_ID_KEY);
+      if (legacy === null) return;
+
+      if (legacy === LEGACY_OPTED_OUT) {
+        localStorage.setItem(AUTO_RECONNECT_KEY, 'off');
+      } else if (localStorage.getItem(KNOWN_DEVICE_KEY) === null) {
+        const record: KnownDevice = { id: legacy, name: '' };
+        localStorage.setItem(KNOWN_DEVICE_KEY, JSON.stringify(record));
+      }
+
+      localStorage.removeItem(LEGACY_LAST_DEVICE_ID_KEY);
     } catch (error) {
-      console.warn('Failed to forget device:', error);
-    }
-  }
-
-  private readStoredDeviceId(): string | null {
-    try {
-      return localStorage.getItem(LAST_DEVICE_ID_KEY);
-    } catch {
-      return null;
+      console.warn('Failed to migrate legacy device storage:', error);
     }
   }
 
@@ -586,11 +856,13 @@ export class BleService {
     // Capture the handle before cleanup() clears it, so we can keep watching
     // for the device to come back (e.g. after it wakes from deep sleep).
     const device = this.device;
+    const wasUserInitiated = this.userInitiatedDisconnect;
+    this.userInitiatedDisconnect = false;
 
     this.cleanup();
     this.setState(ConnectionState.DISCONNECTED);
 
-    if (device) {
+    if (device && !wasUserInitiated) {
       this.startAdvertisementWatch(device);
     }
   };
@@ -649,6 +921,16 @@ export class BleService {
   private emitError(error: Error): void {
     this.errorListeners.forEach((listener) => {
       listener(error);
+    });
+  }
+
+  /**
+   * Private: Notify listeners that the remembered device or the
+   * auto-reconnect preference changed.
+   */
+  private emitSettingsChange(): void {
+    this.settingsListeners.forEach((listener) => {
+      listener();
     });
   }
 

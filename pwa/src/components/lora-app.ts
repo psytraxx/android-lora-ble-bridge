@@ -7,7 +7,7 @@ import { html, LitElement } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { MESSAGE_TYPE, type Message, PROTOCOL, type TextMessage } from '../protocol';
 import type { DeviceInfo } from '../protocol/types';
-import { bleService, ConnectionState } from '../services/BleService';
+import { bleService, ConnectionState, type KnownDevice } from '../services/BleService';
 import { locationService } from '../services/LocationService';
 import { AckStatus, type ChatMessage, messageRepository } from '../services/MessageRepository';
 import { toastService } from '../services/ToastService';
@@ -32,6 +32,8 @@ export class LoraApp extends LitElement {
   @state() private showInfoModal = false;
   @state() private deviceInfo: DeviceInfo | null = null;
   @state() private deviceInfoLoading = false;
+  @state() private autoReconnect = true;
+  @state() private knownDevice: KnownDevice | null = null;
 
   private ackTimeouts = new Map<number, number>();
   private unsubscribers: (() => void)[] = [];
@@ -80,11 +82,21 @@ export class LoraApp extends LitElement {
       })
     );
 
+    // Subscribe to auto-reconnect preference / remembered device changes
+    this.unsubscribers.push(
+      bleService.onSettingsChange(() => {
+        this.autoReconnect = bleService.isAutoReconnectEnabled();
+        this.knownDevice = bleService.getKnownDevice();
+      })
+    );
+
     // Initial state
     this.connectionState = bleService.getState();
     this.messages = messageRepository.getMessages();
     const dev = bleService.getDevice();
     this.deviceName = dev?.name ?? null;
+    this.autoReconnect = bleService.isAutoReconnectEnabled();
+    this.knownDevice = bleService.getKnownDevice();
 
     // Check if Web Bluetooth is supported
     if (!bleService.isSupported()) {
@@ -99,6 +111,30 @@ export class LoraApp extends LitElement {
     // Reconnect to a previously paired device without user interaction.
     // Resolves quietly when nothing is paired yet; errors surface via onError.
     void bleService.tryAutoReconnect();
+
+    // Chrome throttles background-tab timers, so a reconnect poll can stall
+    // while the app is backgrounded. Retry immediately once it's visible
+    // again, or as soon as the adapter comes back on.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        bleService.retryNow();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    this.unsubscribers.push(() => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    });
+
+    // Retry as soon as the adapter comes back on. navigator.bluetooth is an
+    // EventTarget everywhere Web Bluetooth exists; browsers that never fire
+    // 'availabilitychanged' simply never call this, which is harmless.
+    const onAvailabilityChanged = () => {
+      bleService.retryNow();
+    };
+    navigator.bluetooth.addEventListener('availabilitychanged', onAvailabilityChanged);
+    this.unsubscribers.push(() => {
+      navigator.bluetooth.removeEventListener('availabilitychanged', onAvailabilityChanged);
+    });
   }
 
   disconnectedCallback() {
@@ -133,9 +169,14 @@ export class LoraApp extends LitElement {
             <connection-status
               .state=${this.connectionState}
               .deviceName=${this.deviceName}
+              .autoReconnect=${this.autoReconnect}
+              .knownDevice=${this.knownDevice}
+              .supportsPersistentDevices=${bleService.getCapabilities().getDevices}
               @connect=${this.onConnectDirect}
               @disconnect=${this.onDisconnect}
               @info-request=${this.onInfoRequest}
+              @auto-reconnect-changed=${this.onAutoReconnectChanged}
+              @forget-device=${this.onForgetDevice}
             ></connection-status>
             ${
               isConnecting
@@ -161,7 +202,9 @@ export class LoraApp extends LitElement {
               ? html`<empty-state
                 class="h-full"
                 .waiting=${this.connectionState === ConnectionState.WAITING_FOR_DEVICE}
+                .deviceName=${this.knownDevice?.name ?? null}
                 @connect-requested=${this.onConnectRequest}
+                @cancel-requested=${this.onDisconnect}
               ></empty-state>`
               : html`<message-list class="h-full" .messages=${this.messages}></message-list>`
           }
@@ -301,6 +344,17 @@ export class LoraApp extends LitElement {
     toastService.show('Disconnected', 'info');
     // Clear device info
     this.deviceName = null;
+  }
+
+  private onAutoReconnectChanged(e: CustomEvent<{ enabled: boolean }>) {
+    bleService.setAutoReconnectEnabled(e.detail.enabled);
+    toastService.show(e.detail.enabled ? 'Auto-reconnect on' : 'Auto-reconnect off', 'info');
+  }
+
+  private onForgetDevice() {
+    bleService.forgetDevice();
+    this.deviceName = null;
+    toastService.show('Device forgotten', 'info');
   }
 
   private async onSendMessage(e: CustomEvent) {

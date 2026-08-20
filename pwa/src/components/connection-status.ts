@@ -5,8 +5,10 @@
 
 import { html, LitElement } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
+import type { KnownDevice } from '../services/BleService';
 import { ConnectionState } from '../services/BleService';
 import './theme-switcher';
+import './settings-menu';
 import { sharedStylesheet } from '../shared-styles';
 import {
   exclamationTriangleIcon,
@@ -16,11 +18,23 @@ import {
   xMarkIcon
 } from '../utils/icons';
 
+// SCANNING is excluded: it means the browser's native chooser is open, which
+// already has its own Cancel. A button here could race that dialog's result.
+const TRANSIENT_STATES = new Set([
+  ConnectionState.WAITING_FOR_DEVICE,
+  ConnectionState.CONNECTING,
+  ConnectionState.DISCOVERING,
+  ConnectionState.ENABLING_NOTIFICATIONS
+]);
+
 @customElement('connection-status')
 export class ConnectionStatus extends LitElement {
   @property({ type: String }) state: ConnectionState = ConnectionState.DISCONNECTED;
   @property({ type: String }) deviceName: string | null = null;
   @property({ type: String }) deviceId: string | null = null;
+  @property({ type: Boolean }) autoReconnect = true;
+  @property({ attribute: false }) knownDevice: KnownDevice | null = null;
+  @property({ type: Boolean }) supportsPersistentDevices = true;
 
   static styles = [sharedStylesheet];
 
@@ -29,6 +43,9 @@ export class ConnectionStatus extends LitElement {
     const showConnectButton =
       this.state === ConnectionState.DISCONNECTED || this.state === ConnectionState.ERROR;
     const showDisconnectButton = this.state === ConnectionState.CONNECTED;
+    // A transient state (waiting/scanning/connecting/...) has no button today,
+    // which strands the user with nothing to click if it never resolves.
+    const showCancelButton = TRANSIENT_STATES.has(this.state);
     const showInfoButton = this.state === ConnectionState.CONNECTED;
 
     return html`
@@ -84,10 +101,25 @@ export class ConnectionStatus extends LitElement {
             }
           </div>
           <theme-switcher></theme-switcher>
+          <settings-menu
+            .autoReconnect=${this.autoReconnect}
+            .knownDevice=${this.knownDevice}
+            .supportsPersistentDevices=${this.supportsPersistentDevices}
+          ></settings-menu>
           ${
             showConnectButton
               ? html`<button class="btn btn-primary" @click=${this.onConnect}>
                   Connect
+                </button>`
+              : ''
+          }
+          ${
+            showCancelButton
+              ? html`<button class="btn btn-ghost btn-sm" @click=${this.onDisconnect}>
+                  <span class="sm:hidden">
+                    ${stopCircleIcon('w-4 h-4')}
+                  </span>
+                  <span class="hidden sm:inline">Cancel</span>
                 </button>`
               : ''
           }

@@ -135,6 +135,13 @@ android-lora-ble-bridge/
 - ❌ iOS/Safari (Web Bluetooth not available)
 - ❌ Firefox (Web Bluetooth disabled by default)
 
+**Auto-reconnect:** once paired, the app reconnects to your device on its own whenever it wakes up
+— no need to tap Connect again. Turn it off from the settings menu (⋮ icon in the navbar) if you
+want to test with a different board without the app racing you for the connection; "Forget device"
+there clears the remembered pairing entirely. For zero-tap reconnect across page reloads, enable
+`chrome://flags/#enable-web-bluetooth-new-permissions-backend` — without it, reconnect after a wake
+still works within the same tab session, it just can't survive a reload.
+
 #### Local Development
 ```bash
 cd pwa
