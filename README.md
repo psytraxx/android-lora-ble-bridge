@@ -120,8 +120,7 @@ android-lora-ble-bridge/
   - nRF52: Seeed XIAO nRF52840
 
 #### Progressive Web App
-- [Node.js](https://nodejs.org/) 18 or higher
-- npm (included with Node.js)
+- [Bun](https://bun.sh/) 1.x or higher
 
 ### Progressive Web App Build
 
@@ -145,8 +144,8 @@ still works within the same tab session, it just can't survive a reload.
 #### Local Development
 ```bash
 cd pwa
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 Visit `http://localhost:5173` (Web Bluetooth works on localhost without HTTPS)
@@ -154,8 +153,8 @@ Visit `http://localhost:5173` (Web Bluetooth works on localhost without HTTPS)
 #### Production Build
 ```bash
 cd pwa
-npm install
-npm run build
+bun install
+bun run build
 ```
 
 Output will be in `pwa/dist/` directory. Deploy to any static hosting (GitHub Pages, Netlify, etc.).

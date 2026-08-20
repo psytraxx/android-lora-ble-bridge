@@ -68,10 +68,10 @@ adb logcat -s LoRaApp                 # View app logs
 
 ```bash
 cd pwa
-npm install
-npm run dev      # Development server at localhost:5173
-npm run build    # Production build to dist/
-npm run preview  # Preview production build
+bun install
+bun run dev      # Development server at localhost:5173
+bun run build    # Production build to dist/
+bun run preview  # Preview production build
 ```
 
 **Auto-reconnect**: `BleService` remembers the last-paired device (`localStorage`, `lora.knownDevice`)
