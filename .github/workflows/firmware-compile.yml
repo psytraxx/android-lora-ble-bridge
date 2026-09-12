@@ -30,14 +30,14 @@ jobs:
           path: |
             ~/.cache/pip
             ~/.platformio/.cache
-          key: ${{ runner.os }}-pio
+          key: ${{ runner.os }}-pio-6.1.19
 
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11.7"
 
       - name: Install PlatformIO Core
-        run: pip install --upgrade platformio
+        run: pip install platformio==6.1.19
 
       - name: Build PlatformIO Project
         run: pio run
