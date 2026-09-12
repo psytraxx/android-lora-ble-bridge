@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -23,7 +24,6 @@ import com.example.lorabridge.domain.model.AckStatus
 import com.example.lorabridge.domain.model.ChatMessage
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 /**
  * Message bubble component for chat display
@@ -36,7 +36,7 @@ fun MessageBubble(
     message: ChatMessage,
     onMapClick: (Double, Double) -> Unit
 ) {
-    val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+    val timeFormat = SimpleDateFormat("HH:mm", LocalLocale.current.platformLocale)
 
     Box(
         modifier = Modifier
