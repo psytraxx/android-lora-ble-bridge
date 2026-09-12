@@ -15,15 +15,6 @@
 #error "Unsupported platform"
 #endif
 
-/**
- * @file LoRaManager.h
- * @brief Unified LoRa radio manager for ESP32 and nRF52 platforms
- *
- * This class provides a high-level interface for LoRa communication,
- * abstracting RadioLib details and providing event-driven packet handling.
- * Works on both ESP32 and nRF52.
- */
-
 /// State machine states for LoRa manager
 enum LoRaState : uint8_t
 {
@@ -62,166 +53,55 @@ using LoRaReceiveCallback = std::function<void(const LoRaPacket &packet)>;
 /// Callback type for transmission completion
 using LoRaTransmitCallback = std::function<void(bool success)>;
 
-/**
- * @brief High-level manager for LoRa radio operations
- *
- * Responsibilities:
- *  - Initialize and configure LoRa radio with specified parameters
- *  - Transmit messages via LoRa with interrupt-driven approach
- *  - Receive packets using interrupt-driven approach
- *  - Provide event callbacks for received packets and transmission completion
- *  - Abstract RadioLib implementation details from application
- */
 class LoRaManager
 {
 public:
-    /**
-     * @brief Construct LoRaManager with GPIO pin configuration
-     * @param sck SPI clock pin
-     * @param miso SPI MISO pin
-     * @param mosi SPI MOSI pin
-     * @param ss SPI slave select pin
-     * @param rst Reset pin
-     * @param dio0 DIO0 interrupt pin
-     * @param busy Busy pin (for SX126x radios)
-     */
-    LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy);
+    // rfSwitch: external RXEN pin for boards with an RF switch stage beyond
+    // the radio's internal DIO2 switch (e.g. Wio-SX1262), or -1 if unused
+    LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy, int rfSwitch = -1);
 
     // Non-copyable (singleton with dynamic allocation)
     LoRaManager(const LoRaManager&) = delete;
     LoRaManager& operator=(const LoRaManager&) = delete;
 
-    /**
-     * @brief Initialize LoRa radio - This method must be called on cold start of the device.
-     * @return true on success, false on failure
-     */
+    // Must be called on cold start; use handleSleepWakeup() instead after a LoRa wakeup
     bool begin();
 
-    /**
-     * @brief Handle wakeup from deep sleep caused by LoRa packet.
-     *
-     * Attempts to read the pending packet without resetting the radio.
-     * Should be called instead of begin() if wakeup reason is LoRa.
-     *
-     * @return true if packet was successfully read and handled
-     */
+    // Reads a pending packet without resetting the radio, for deep-sleep LoRa wakeups
     bool handleSleepWakeup();
 
-    /**
-     * @brief Start continuous receive mode or duty-cycled receive mode
-     *
-     * Uses hardware-based duty cycle mode
-     * where the radio autonomously sleeps between RX windows to save power.
-     *
-     * @return true on success, false on failure
-     */
     bool startReceive(bool dutyCycle = false);
 
-    /**
-     * @brief Start non-blocking interrupt-driven transmission
-     *
-     * This method initiates transmission and returns immediately.
-     * The transmit callback will be invoked when transmission completes.
-     * Automatically switches from RX -> TX, and back to RX after completion.
-     *
-     * @param data Pointer to data buffer
-     * @param len Length of data to transmit
-     * @return true if transmission started successfully, false otherwise
-     */
+    // Internal use only; queueTransmit() is the public TX entry point (see FirmwareConfig.h notes)
     bool startTransmit(const uint8_t *data, size_t len);
 
-    /**
-     * @brief Enqueue a packet for CAD-based transmission
-     *
-     * Adds the packet to an internal TX queue. The packet will be transmitted
-     * when the channel is detected as free via CAD (Channel Activity Detection).
-     *
-     * @param data Pointer to data buffer
-     * @param len Length of data to transmit
-     * @return true if enqueued successfully, false if queue is full
-     */
+    // Public TX API: enqueues for CAD-based transmission (sends once the channel is free)
     bool queueTransmit(const uint8_t *data, size_t len);
 
-    /**
-     * @brief Check if transmission is in progress
-     * @return true if transmitting, false otherwise
-     */
     bool isTransmitting() const { return state == STATE_TRANSMITTING; }
 
-    /**
-     * @brief Set callback for received packets
-     *
-     * The callback will be invoked from the main loop (not ISR)
-     * when a packet is successfully received.
-     *
-     * @param callback Function to call with received packet
-     */
+    // Invoked from the main loop, not the ISR
     void setReceiveCallback(LoRaReceiveCallback callback);
 
-    /**
-     * @brief Set callback for transmission completion
-     *
-     * The callback will be invoked from the main loop (not ISR)
-     * when transmission completes (success or failure).
-     *
-     * @param callback Function to call with transmission result
-     */
+    // Invoked from the main loop, not the ISR
     void setTransmitCallback(LoRaTransmitCallback callback);
 
-    /**
-     * @brief Process LoRa events (call from main loop or task)
-     *
-     * Checks for received packets and transmission completion,
-     * invoking callbacks as needed.
-     * This should be called regularly from the main loop or FreeRTOS task.
-     */
+    // Call regularly from the main loop or FreeRTOS task
     void process();
 
-    /**
-     * @brief Get current RSSI of last received packet
-     * @return RSSI in dBm
-     */
     int getRSSI() const;
 
-    /**
-     * @brief Get current SNR of last received packet
-     * @return SNR in dB
-     */
     float getSNR() const;
 
-    /**
-     * @brief Check if LoRa radio is initialized
-     * @return true if initialized, false otherwise
-     */
     bool isInitialized() const { return state != STATE_UNINITIALIZED; }
 
-    /**
-     * @brief Static ISR handler for LoRa DIO0 receive interrupt
-     * Must be public to be registered as ISR callback
-     */
+    // Must be public to be registered as the DIO0 receive ISR callback
     static void LORA_ISR_ATTR onReceiveISR();
 
-    /**
-     * @brief Static ISR handler for LoRa DIO0 transmit interrupt
-     * Must be public to be registered as ISR callback
-     */
+    // Must be public to be registered as the DIO0 transmit ISR callback
     static void LORA_ISR_ATTR onTransmitISR();
 
-    /**
-     * @brief Calculates the Time on Air (ToA) for a LoRa packet.
-     *
-     * This function is based on the formulas provided in the Semtech datasheets.
-     *
-     * @param spreadingFactor The spreading factor (7-12).
-     * @param bandwidth The bandwidth in Hz (e.g., 125000).
-     * @param codingRate The coding rate (1-4, corresponding to 4/5 to 4/8).
-     * @param preambleLength The number of preamble symbols.
-     * @param payloadLength The length of the payload in bytes.
-     * @param explicitHeader True if an explicit header is used, false for implicit.
-     * @param crcEnabled True if CRC is enabled.
-     * @param lowDataRateOptimize True if low data rate optimization is enabled.
-     * @return The Time on Air in milliseconds.
-     */
+    // Time on Air per the Semtech LoRa modem datasheet formulas; codingRate is 1-4 for CR 4/5-4/8
     static inline double calculateToA_ms(
         uint8_t spreadingFactor,
         double bandwidth,
@@ -263,7 +143,8 @@ private:
     int pinSS;
     int pinRST;
     int pinDIO0;
-    int pinBusy; // For SX126x radios
+    int pinBusy;    // For SX126x radios
+    int pinRfSwitch; // External RXEN pin, or -1 if unused (Wio-SX1262 style boards)
 
     // RadioLib Module instance (kept for direct access during wakeup)
     Module *module;

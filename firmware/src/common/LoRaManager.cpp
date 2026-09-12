@@ -12,7 +12,7 @@ static const char *TAG = "LoRa";
 // Static instance for ISR access
 LoRaManager *LoRaManager::instance = nullptr;
 
-LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy)
+LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0, int busy, int rfSwitch)
     : pinSCK(sck),
       pinMISO(miso),
       pinMOSI(mosi),
@@ -20,6 +20,7 @@ LoRaManager::LoRaManager(int sck, int miso, int mosi, int ss, int rst, int dio0,
       pinRST(rst),
       pinDIO0(dio0),
       pinBusy(busy),
+      pinRfSwitch(rfSwitch),
       module(nullptr),
       radio(nullptr),
       state(STATE_UNINITIALIZED),
@@ -137,8 +138,20 @@ bool LoRaManager::begin()
                 LOG_I(TAG, "Boosted RX gain mode enabled");
             }
 
+            // DIO2-as-RF-switch stays enabled regardless of board: it drives the SX126x's
+            // internal antenna throw. Boards with an additional external RXEN/TXEN line
+            // (e.g. Wio-SX1262, whose RXEN gates a front-end LNA/PA stage DIO2 doesn't
+            // reach) layer setRfSwitchPins() on top — this matches Meshtastic's driver,
+            // which calls both for this exact module. RADIOLIB_NC is safe/no-op when a
+            // pin isn't wired.
             radio->setDio2AsRfSwitch(true);
             LOG_I(TAG, "DIO2 configured as RF switch");
+
+            if (pinRfSwitch >= 0)
+            {
+                radio->setRfSwitchPins(pinRfSwitch, RADIOLIB_NC);
+                LOG_I(TAG, "External RXEN switch pin configured on pin %d", pinRfSwitch);
+            }
 
 #if defined(LORA_MAX_CURRENT)
             // REQUIRED: PA current limit protects the SX126x PA from over-current.

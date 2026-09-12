@@ -5,21 +5,6 @@
 #include <cstring>
 #include "common/LoRaManager.h"
 
-/**
- * @file FirmwareConfig.h
- * @brief Unified configuration for LoRa-BLE Bridge firmware (ESP32 and nRF52)
- *
- * This header consolidates all firmware constants, timeouts, and configuration
- * in one location for easy modification and documentation.
- *
- * Design Goals:
- *  - Single source of truth for configuration values
- *  - Platform-specific values handled via conditional compilation
- *  - Self-documenting with clear comments
- *  - Type-safe constants instead of preprocessor macros
- *  - Easy to port to runtime configuration (JSON/EEPROM) later
- */
-
 //==============================================================================
 // GPIO Pin Configuration
 //==============================================================================
@@ -43,9 +28,9 @@
 
 namespace LoRaConstants
 {
-    constexpr float FREQUENCY = 433.92; ///< LoRa frequency in MHz
+    constexpr float FREQUENCY = LORA_FREQUENCY; ///< LoRa frequency in MHz (region-specific, set via build flag)
 
-    constexpr float BANDWIDTH = 125.0; ///< LoRa bandwidth in kHz (250 = faster data rate, moderate range)
+    constexpr float BANDWIDTH = 125.0; ///< LoRa bandwidth in kHz (lower = longer range, slower; 250 = faster, shorter range)
 
     constexpr uint8_t SPREADING_FACTOR = 11; ///< LoRa spreading factor (7-12, higher = longer range, slower)
 
@@ -64,7 +49,7 @@ namespace LoRaConstants
     constexpr int DEEP_SLEEP_WAKE_TIME_MS = 600;
 
     /// Preamble length for all LoRa transmissions
-    /// Set to 64 symbols (~525ms at SF11/BW250) to ensure reliable duty-cycle RX detection
+    /// Set to 64 symbols (~1050ms at SF11/BW125) to ensure reliable duty-cycle RX detection
     /// and allow the text message itself to wake sleeping receivers (no separate WakeUp needed)
     constexpr int PREAMBLE_LENGTH = 64;
 

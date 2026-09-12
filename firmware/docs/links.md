@@ -30,14 +30,18 @@
 
 ---
 
-## Seeed XIAO nRF52840 (`xiao_nrf52840`)
+## Seeed XIAO nRF52840 + Wio-SX1262 (`xiao_nrf52840`)
 
 **Official**
-- Wiki / getting started: https://wiki.seeedstudio.com/XIAO_BLE/
+- Seeed XIAO nRF52840 wiki: https://wiki.seeedstudio.com/XIAO_BLE/
+- Wio-SX1262 LoRa module (radio + `LORA_RF_SWITCH` pin reference): [Wio-SX1262 for XIAO V1.0.pdf](Wio-SX1262%20for%20XIAO%20V1.0.pdf)
 
 **Pinout / variants**
-- Arduino variant (pin names, ADC, battery): https://github.com/maxgerhardt/framework-arduinoadafruitnrf52-seeed/blob/main/variants/Seeed_XIAO_nRF52840/variant.cpp
-- Meshtastic variant (battery ADC reference — used for BATTERY_VOLTAGE_DIVIDER=3.0, ADC_CTRL=VBAT_ENABLE): https://github.com/meshtastic/firmware/blob/aa85fbbcc481516e2da2ff9744daff30b97a121f/variants/nrf52840/seeed_xiao_nrf52840_kit/variant.h#L117
+- XIAO nRF52840 pinout reference: [XIAO-nRF52840-pinout_sheet.xlsx](XIAO-nRF52840-pinout_sheet.xlsx)
+- Board photo: [imageXIAO_nRF52840-2.webp](imageXIAO_nRF52840-2.webp)
+- Module photo: [image_Wio-SX1262_-1.webp](image_Wio-SX1262_-1.webp)
+
+> **Note**: This env runs the SX1262 radio at 869.525 MHz (EU868), not 433.92 MHz like the Heltec boards, and defines `LORA_RF_SWITCH=D5` for the Wio-SX1262's RF switch control pin.
 
 ---
 
@@ -45,15 +49,3 @@
 
 - Heltec Arduino framework repo (all ESP32-S3 variant files): https://github.com/Heltec-Aaron-Lee/WiFi_Kit_series
 - PlatformIO pioarduino platform (used for all ESP32 envs): https://github.com/pioarduino/platform-espressif32
-
----
-
-## Removal candidates
-
-The following were working notes that are now fully implemented and no longer add value as references:
-
-| Item | Reason safe to remove |
-|---|---|
-| Inline battery `#define` snippets (WSL V3 + XIAO) | Values already in `platformio.ini`; Meshtastic variant links above point to the same source |
-| `"new model / Heltec WSL 3 with OLED display"` note | Board is now implemented and documented |
-| Bare `https://github.com/Heltec-Aaron-Lee/WiFi_Kit_series` root link (duplicate of the one in Generic section) | Superseded by specific variant links above |

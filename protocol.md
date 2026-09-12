@@ -37,10 +37,10 @@ Used to acknowledge receipt of text messages.
 ### Text Length Limit
 - **Maximum**: 50 characters (enforced in both Android and ESP32)
 - **Rationale**: Optimized for long-range LoRa transmission
-  - With SF11, BW250 kHz, CR4/5, 433.92 MHz configuration
-  - Time on Air: ~1.5 seconds for max message with GPS (51 bytes)
-  - Allows ~24 messages/hour within 1% duty cycle limits (EU)
-  - Range: 10-25 km typical (SF11+BW250 balance of range and speed)
+  - With SF11, BW125 kHz, CR4/7 configuration (433.92 MHz on ESP32, 869.525 MHz EU868 on nRF52)
+  - Time on Air: ~3 seconds for max message with GPS (51 bytes)
+  - Allows ~12 messages/hour within 1% duty cycle limits (EU)
+  - Range: 10-25 km typical (SF11+BW125 balance of range and speed)
 
 ### 6-bit Character Encoding
 - **Character Set**: ` ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-:;'"@#$%&*()[]{}=+/<>_`
@@ -158,54 +158,52 @@ Total: 2 bytes
 
 ### LoRa Configuration
 
-**Current Settings (v3.5 - Jan 2026):**
+**Current Settings:**
 - **Spreading Factor**: SF11 (excellent range)
-- **Bandwidth**: 250 kHz (balance of range and data rate)
-- **Coding Rate**: 4/5 (25% overhead, efficient for low-interference)
-- **Frequency**: 433.92 MHz (default, configurable)
-- **TX Power**: 20 dBm / ~100 mW (default, configurable -4 to 20 dBm)
+- **Bandwidth**: 125 kHz (favors range over data rate)
+- **Coding Rate**: 4/7 (higher overhead, stronger error correction)
+- **Frequency**: 433.92 MHz on ESP32 boards, 869.525 MHz (EU868) on nRF52 (default, configurable)
+- **TX Power**: 22 dBm / ~158 mW (default, configurable)
 - **Preamble**: 64 symbols (extended preamble for direct wake-up of duty-cycled receivers)
 
-**Note:** Settings balanced for good range (10-25 km) with reasonable throughput. SF11+BW250+CR4/5 provides faster transmission than BW125 while maintaining excellent range.
+**Note:** Settings favor range and reliability over throughput. SF11+BW125+CR4/7 trades transmission speed for stronger error correction and duty-cycle wake-up range.
 
 ### Time on Air (ToA)
 
-**At SF11, BW250 kHz, CR4/5 (current configuration - v3.5):**
+**At SF11, BW125 kHz, CR4/7 (current configuration):**
 
-| Message Size | Content | ToA @ SF11 BW250 CR4/5 | Example |
+| Message Size | Content | ToA @ SF11 BW125 CR4/7 | Example |
 |--------------|---------|------------------------|---------|
-| 2 bytes | ACK | ~0.4 s | Acknowledgment |
-| 8 bytes | 3-char text (no GPS) | ~0.5 s | "SOS" |
-| 20 bytes | 15-char text (no GPS) | ~0.7 s | "AT CHECKPOINT 2" |
-| 28 bytes | 15-char text + GPS | ~0.9 s | "AT CHECKPOINT 2" with location |
-| 40 bytes | 35-char text (no GPS) | ~1.1 s | Medium length text |
-| 51 bytes | 50-char text + GPS | ~1.5 s | Maximum length with GPS |
+| 2 bytes | ACK | ~0.8 s | Acknowledgment |
+| 8 bytes | 3-char text (no GPS) | ~1.0 s | "SOS" |
+| 20 bytes | 15-char text (no GPS) | ~1.4 s | "AT CHECKPOINT 2" |
+| 28 bytes | 15-char text + GPS | ~1.8 s | "AT CHECKPOINT 2" with location |
+| 40 bytes | 35-char text (no GPS) | ~2.2 s | Medium length text |
+| 51 bytes | 50-char text + GPS | ~3.0 s | Maximum length with GPS |
 
-**Benefits of current configuration (SF11 + BW250 + CR4/5):**
+**Benefits of current configuration (SF11 + BW125 + CR4/7):**
 - Good range: 10-25 km typical
-- Faster transmission than BW125 (~2x speed improvement)
-- Lower duty cycle usage allows more messages per hour
-- CR4/5 provides efficient error correction with less overhead
+- Strong error correction reduces packet loss on marginal links
+- Extended preamble reliably wakes duty-cycled receivers
 - Good balance for most use cases
 
 ### Duty Cycle Compliance (EU: 1% = 36 seconds/hour)
 
-**Based on SF11, BW250 kHz, CR4/5 (current configuration - v3.5):**
+**Based on SF11, BW125 kHz, CR4/7 (current configuration):**
 
 | Scenario | Per Message | Messages/Hour | Use Case |
 |----------|-------------|---------------|----------|
-| Emergency (5 char) | ~0.5 s | ~72 | SOS messages |
-| Text only (25 char) | ~0.8 s | ~45 | Normal messages |
-| Text (15 char) + GPS | ~0.9 s | ~40 | Status with location |
-| Text only (50 char) | ~1.2 s | ~30 | Detailed updates without GPS |
-| Text (50 char) + GPS | ~1.5 s | ~24 | Full message with location |
-| ACK | ~0.4 s | ~90 | Acknowledgments |
+| Emergency (5 char) | ~1.0 s | ~36 | SOS messages |
+| Text only (25 char) | ~1.6 s | ~22 | Normal messages |
+| Text (15 char) + GPS | ~1.8 s | ~20 | Status with location |
+| Text only (50 char) | ~2.4 s | ~15 | Detailed updates without GPS |
+| Text (50 char) + GPS | ~3.0 s | ~12 | Full message with location |
+| ACK | ~0.8 s | ~45 | Acknowledgments |
 
 **Range vs. Speed Trade-off:**
-- SF11+BW250: Good balance of range and throughput
-- Messages transmit ~2x faster than BW125 configuration
-- Ideal for: General messaging, moderate distances, higher throughput needs
-- Consider: For extreme range (30+ km), BW125 may be better
+- SF11+BW125: Favors range and link margin over throughput
+- Ideal for: Maximizing range and reliability over speed
+- Consider: If more throughput is needed at shorter range, BW250 could be used instead
 
 **Note:** Use [LoRa Calculator](https://www.loratools.nl/#/airtime) to calculate exact ToA for your specific messages.
 
@@ -213,15 +211,13 @@ Total: 2 bytes
 
 ### Timing and practical notes
 
-- Preamble length: 64 symbols (~525ms at SF11/BW250). This extended preamble ensures reliable duty-cycle RX detection and allows text messages to directly wake sleeping receivers without a separate wake-up mechanism.
+- Preamble length: 64 symbols (~1050ms at SF11/BW125). This extended preamble ensures reliable duty-cycle RX detection and allows text messages to directly wake sleeping receivers without a separate wake-up mechanism.
 
 - RX settle time: hardware receivers (SX126x) need a short stabilization window after switching into RX. Allow ~50 ms after calling startReceive()/startReceiveDutyCycleAuto() before assuming the radio is actively listening for payload bytes.
 
-- ACK timing: when a node receives a packet it waits a short ACK delay before transmitting its ACK. The delay accounts for the sender's TX→RX switch time (50ms) plus a small margin, with random jitter (0-300ms) to prevent collisions when multiple receivers ACK simultaneously. Total ACK delay is typically 150-450ms.
+- ACK timing: ACK transmission goes through the same CAD (Channel Activity Detection) queue as any other transmit. Before sending, the radio performs `scanChannel()` — if the channel is free, it transmits immediately; if busy, it backs off (`CAD_BACKOFF_BASE_MS` + jitter) and retries, up to `CAD_MAX_RETRIES` before force-transmitting. This naturally staggers simultaneous ACKs from multiple receivers without a fixed delay/jitter scheme.
 
-- Duty-cycle interoperability: the 64-symbol preamble ensures that duty-cycled SX1262 receivers (using RadioLib's startReceiveDutyCycleAuto()) will detect incoming text messages directly. No separate wake-up mechanism is required. Continuous-receive radios (SX127x) simply stay in RX and detect the preamble normally.
-
-- Practical tip for testing: when validating interoperability between an autonomous-duty SX1262 node and a continuous SX127x receiver, send a single packet from the transmitter and monitor the receiver for the full transmission cycle. ACK response should arrive within ~500ms after the receiver processes the message.
+- Duty-cycle interoperability: the 64-symbol preamble ensures that duty-cycled SX1262 receivers (using RadioLib's startReceiveDutyCycleAuto()) will detect incoming text messages directly. No separate wake-up mechanism is required.
 
 
 ### Error Handling
