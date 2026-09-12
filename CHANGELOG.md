@@ -1,99 +1,92 @@
 ## Changelog
 
-### PWA v1.1 (August 2026)
-- **Auto-reconnect settings menu**: new navbar dropdown (`settings-menu.ts`) lets the user switch auto-reconnect on/off and forget the remembered device, so testing with a second board no longer requires disconnect-and-lose-the-pairing; `BleService` now stores the pairing (`lora.knownDevice`) and the preference (`lora.autoReconnect`) as separate keys, migrating transparently from the old single-key scheme
-- **Fixed getting stuck mid-reconnect**: `WAITING_FOR_DEVICE`/`CONNECTING`/`DISCOVERING`/`ENABLING_NOTIFICATIONS` previously rendered no button at all in the navbar or empty state, so a stalled reconnect attempt had no way out; both now offer a Cancel / "Stop waiting" control
-- **Bounded reconnect attempts**: `connectToDevice()` now times out after 15s instead of hanging indefinitely on a stuck GATT handshake; the poll/watch retry loop now backs off exponentially (3s → 30s) with a shared attempt cap instead of a flat 3s × 100, and reports an error via toast when it gives up
-- **Retry on visibility/adapter change**: reconnect attempts now retry immediately when the tab regains focus or Bluetooth is toggled back on, instead of waiting out a throttled background timer
-- **Tightened lone-device adoption**: auto-reconnect no longer silently adopts the only Bluetooth-permitted device once a *different* device has actually been remembered or explicitly forgotten — only applies on a genuinely fresh install
+### 2026-09-12
 
-### Firmware v3.8 (June 2026)
-- **Heltec Wireless Stick V3 support**: new `heltec-wireless-stick-v3` PlatformIO environment for the ESP32-S3 board with 64×32 SSD1306 OLED; `DisplayManager` shows BLE status, LoRa RSSI/SNR, and battery level on the display; display powered via VEXT (GPIO36), I²C on SDA=17/SCL=18/RST=21
-- **Board rename**: `heltec-wifi-lora-v3` env correctly renamed to `heltec-wireless-stick-lite-v3` to reflect actual hardware; board definition updated to `heltec_wireless_stick_lite_v3`
-- **Custom board definitions**: added `firmware/boards/heltec_wireless_stick_v3.json` and `firmware/boards/heltec_wireless_stick_lite_v3.json` — required because pioarduino 55.03.38 does not ship V3 Wireless Stick board JSONs; `boards_dir = boards` added to `[platformio]` section
-- **sdkconfig.defaults hardened**: added `CONFIG_BT_ENABLED`, Modbus mode flags, 8 MB flash size, and size-optimised compiler settings so new ESP32 environments generate a correct sdkconfig from scratch without manual copying
-- **Documentation**: AGENTS.md, README.md, and memory updated to reflect current board names, build commands, pin tables, and file structure; changelog maintenance rule added to AGENTS.md
+**Changed**
+- Switched the radio config to favor range and reliability over speed: messages now take longer to send but are more resistant to interference and travel further at the edge of range.
+- The nRF52 board now transmits on a different radio frequency (869.525 MHz instead of 433.92 MHz), matching the European frequency band its new LoRa module is built for.
+- Increased transmit power slightly across all boards for a small range boost.
+- Brought the documentation back in line with how the radio is actually configured, and removed mentions of a radio module the project never actually supported.
 
-### Firmware v3.7 (March 2026)
-- **Non-blocking TX→RX settle**: replaced `delay(RX_SETTLE_TIME_MS)` with a new `STATE_TX_SETTLING` state; `process()` polls `millis()` until the deadline passes, then calls `startReceive()` — main loop stays responsive during the 50ms settle window
-- **Non-blocking BLE GATT settle**: replaced `delay(500)` in `onBleConnected()` with a `bleGattReadyAt` deadline; buffered-message delivery in `loop()` is deferred until the deadline passes, avoiding a blocking pause on Android reconnect
-- **Protocol validation**: `Message::deserialize()` now early-rejects packets where `packedLen` or `charCount` exceed their maximum valid values before any buffer access
-- **MessageBuffer corruption recovery**: `peek()` now iterates (not recurses) over corrupted NVS entries, preventing potential stack overflow when multiple consecutive entries are bad
-- **`std::unique_ptr`** used for `bleManager`, `loraManager`, and `ledManager` in `unified_main.cpp` — clarifies ownership with zero runtime cost
-- **Build hardening**: `-Wextra` added globally; `-Wshadow` scoped to project sources only (via `build_src_flags`) to avoid noise from third-party libraries like RadioLib
+### 2026-08-01
 
-### Firmware v3.6 (February 2026)
-- **CAD-based transmission queue** added to `LoRaManager`
-  - `queueTransmit()` is now the public API for all outgoing packets (ACKs and BLE-originated messages)
-  - Internal 5-entry circular TX queue; `processTxQueue()` runs in the main loop when radio is idle
-  - Channel Activity Detection via `radio->scanChannel()`: transmits if free, backs off if busy
-  - Up to 5 CAD retries with jitter before force-transmitting (`CAD_MAX_RETRIES`, `CAD_BACKOFF_BASE_MS`, `CAD_BACKOFF_JITTER_MS`)
-  - Radio restarted into RX after each failed CAD scan (scanChannel leaves it in standby)
-- **Removed `getAckDelay()`** - CAD collision avoidance replaces manual ACK delay + jitter
-- **PowerManager fix**: serial flush and drain delay now occur after GPIO pin configuration, immediately before `Serial.end()` — ensures all logs are sent before deep sleep
-- **PlatformIO**: platform version downgraded for Heltec WiFi LoRa v3 compatibility
-- **sdkconfig**: removed unused ESP TLS peripheral configuration
+**Added**
+- A settings menu in the PWA lets you turn auto-reconnect on or off and forget a previously paired device, so switching to a different board for testing no longer means losing the existing pairing.
 
-### Android (February 2026)
-- Dependency bumps: AGP 9.0.1, Kotlin 2.3.10, Compose BOM 2026.02.01, Hilt 2.59.2, Activity Compose 1.12.4, Mockito 5.22.0
+**Fixed**
+- Reconnecting to a device could get stuck with no way to cancel; a "Stop waiting" option is now always available during reconnect.
+- A stuck reconnect attempt no longer hangs indefinitely — it now gives up and reports an error after a reasonable wait, and retries sooner when you switch back to the app or turn Bluetooth back on.
+- Auto-reconnect no longer mistakenly latches onto a different device than the one you actually paired.
 
-### Firmware v3.5 (January 2026)
-- **Removed WakeUp message type (0x03)** - Protocol simplified to Text (0x01) and Ack (0x02) messages only
-- **LoRa config updated**: BW250 kHz + CR4/5 (was BW125 + CR4/8) for better throughput
-- Preamble extended from 32 to 64 symbols - text messages now directly wake duty-cycled receivers
-- ACK timing simplified - short delay (~150-450ms) instead of ToA-based calculation (~2+ seconds)
-- Removed WAKEUP_TO_MESSAGE_DELAY_MS - no longer needed with extended preamble
-- Documentation updated across README.md, protocol.md, AGENTS.md
+### 2026-06-01
 
-### Firmware v3.4 (November 29, 2025)
-- LoRa configuration optimized for dense urban environments
-- Updated to SF11 + BW125 kHz + CR4/8 for maximum range (~3.5x improvement)
-- Preamble reduced from 512 to 32 symbols
-- Auto-calculated timing constants (ACK_DELAY_MS)
-- Documentation updated across README.md, protocol.md, GEMINI.md
-- Range improvement: 3-10 km → 10-35 km typical
+**Added**
+- Support for a new ESP32 board variant with a built-in display, showing connection status, signal strength, and battery level.
 
-### Firmware v3.3 (November 24-26, 2025)
-- Sleep method renamed: `goToSleep()` → `enterDeepSleep()`
-- Wake-up reason detection (EXT0 vs EXT1) for proper handling
-- LED pin corrected (blue → green)
-- CPU frequency reduced to 160 MHz (30-40% power savings)
-- Optional WakeUp parameter in `startTransmit()`
-- Enhanced SX1262 autonomous duty cycle support
-- Code structure refactoring for readability
-- GEMINI.md documentation added
-- Message send status return value fixed
+**Changed**
+- Renamed a firmware build target to match the actual hardware it targets, to avoid confusion when flashing.
+- Hardened the default ESP32 build settings so new boards work out of the box without manual configuration steps.
 
-### Firmware v3.2 (November 21, 2025)
-- Unified multi-platform architecture (ESP32 + nRF52)
-- Platform traits for compile-time polymorphism
-- Loop-based execution on both platforms
-- nRF52 (Seeed XIAO nRF52840) support added
-- LoRa settings: SF11 → SF9, preamble 512 → 8 symbols
-- NimBLE (ESP32) and Arduino BLE (nRF52) integration
-- RadioLib support for SX1262 and SX1278
-- Message buffering up to 10 messages
+### 2026-03-01
 
-### Android App - Kotlin Rewrite (October 2025)
-- Migrated from Java to Kotlin + Jetpack Compose
-- Clean Architecture (Domain/Data/Presentation)
-- 74 unit tests (was 9 in Java version)
-- Dependency injection with Hilt
-- Material 3 UI with reactive StateFlow
-- Auto-reconnect functionality (UC-1.3)
+**Changed**
+- The radio now switches into receive mode without pausing the rest of the firmware, so the device stays responsive during that brief window.
+- Reconnecting over Bluetooth no longer causes a noticeable pause while the app catches up.
 
-### Protocol v3.0 (October 2025)
-- Unified TextMessage with optional GPS (was separate messages)
-- Message types: TEXT (0x01), ACK (0x02) - Note: WAKE_UP (0x03) was removed in v3.5
-- 6-bit character packing (64-char set, 24% bandwidth savings)
-- GPS coordinates optional (hasGps flag)
-- Click message to open Google Maps
+**Fixed**
+- Malformed incoming messages are now rejected safely instead of risking a crash.
+- A rare corruption in the on-device message buffer could previously cause a crash; it now recovers gracefully instead.
 
-### Protocol v2.0 (October 2025)
-- Separated TextMessage and GpsMessage
-- 6-bit encoding introduced (vs UTF-8)
-- 40% bandwidth savings for text-only messages
+### 2026-02-15
 
-### Protocol v1.0 (October 2025)
-- Initial protocol with UTF-8 encoding
-- Combined text+GPS in single DataMessage
+**Changed**
+- Acknowledgment messages now wait for a genuinely free radio channel before sending, instead of a fixed random delay — this avoids collisions more reliably when multiple devices reply at once.
+- Removed an older, simpler collision-avoidance delay that's no longer needed with the new channel-sensing approach.
+- Fixed a bug in low-power mode where log messages could be cut off before the device went to sleep.
+
+### 2026-02-01
+
+**Changed**
+- Updated Android app dependencies (Kotlin, Compose, and related libraries) to their latest versions.
+
+### 2026-01-15
+
+**Changed**
+- Simplified the message protocol down to just text messages and acknowledgments, removing a separate wake-up message type that was no longer needed.
+- Extended the radio preamble so an incoming text message can directly wake a sleeping receiver, without needing a dedicated wake-up message first.
+- Simplified how acknowledgment timing works, replacing a more complex calculation with a short fixed delay.
+
+### 2025-11-29
+
+**Changed**
+- Reconfigured the radio settings to prioritize range, roughly tripling the usable distance between devices in dense urban environments.
+
+### 2025-11-24
+
+**Changed**
+- Renamed the sleep function for clarity.
+- The firmware now distinguishes between being woken up by an incoming radio message versus a button press, and handles each correctly.
+- Fixed the status LED using the wrong color.
+- Reduced CPU speed while awake to save 30-40% more battery.
+
+**Fixed**
+- Fixed a bug where sending a message didn't correctly report whether it succeeded.
+
+### 2025-11-21
+
+**Added**
+- Support for a second, smaller hardware platform (Seeed XIAO nRF52840), running the same firmware as the ESP32 boards.
+- The firmware can now buffer up to 10 messages when the phone is disconnected, instead of dropping them.
+
+**Changed**
+- Rebuilt the firmware around a single shared codebase for both supported platforms, instead of maintaining separate versions.
+
+### 2025-10-15
+
+**Added**
+- Rewrote the Android app from Java to Kotlin with a modern UI framework, along with a much larger automated test suite.
+- The app can now send text messages together with GPS location in a single message, and tapping a message with a location opens it in Google Maps.
+- Introduced a more compact way of encoding text that uses noticeably less radio airtime than plain text.
+
+**Changed**
+- Simplified the message format so text and location travel together as one message instead of two separate ones.

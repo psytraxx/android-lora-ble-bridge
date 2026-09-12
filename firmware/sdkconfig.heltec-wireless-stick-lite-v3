@@ -1135,12 +1135,28 @@ CONFIG_SR_VADN_WEBRTC=y
 # end of Load Multiple Wake Words (WakeNet9s)
 
 #
-# Load Multiple Wake Words (WakeNet9)
+# Load Multiple Wake Words (WakeNet9 or WakeNet10)
 #
+# default:
+# CONFIG_SR_WN_WN10_HILEXIN_INT16 is not set
+# default:
+# CONFIG_SR_WN_WN10_XIAOAITONGXUE is not set
+# default:
+# CONFIG_SR_WN_WN10_XIAOAITONGXUE_INT16 is not set
+# default:
+# CONFIG_SR_WN_WN10_NIHAOXIAOZHI is not set
+# default:
+# CONFIG_SR_WN_WN10_NIHAOXIAOZHI_INT16 is not set
 # default:
 # CONFIG_SR_WN_WN9_HILEXIN is not set
 # default:
 # CONFIG_SR_WN_WN9_HIESP is not set
+# default:
+# CONFIG_SR_WN_WN10_MOSAICO is not set
+# default:
+# CONFIG_SR_WN_WN10_HEYHERMES is not set
+# default:
+# CONFIG_SR_WN_WN10_HEYNOVA is not set
 # default:
 # CONFIG_SR_WN_WN9L_JA_KONNICHIHAESP_TTS3 is not set
 # default:
@@ -1257,7 +1273,7 @@ CONFIG_SR_VADN_WEBRTC=y
 # CONFIG_SR_WN_WN9_HAI1XIAO3XIANG4_TTS3 is not set
 # default:
 # CONFIG_SR_WN_WN9L_NI3HAO3XING1BAO3_TTS3 is not set
-# end of Load Multiple Wake Words (WakeNet9)
+# end of Load Multiple Wake Words (WakeNet9 or WakeNet10)
 
 # default:
 CONFIG_SR_MN_CN_NONE=y
@@ -3898,6 +3914,46 @@ CONFIG_CJSON_CIRCULAR_LIMIT=10000
 # end of cJSON
 
 #
+# ESP-DL Configuration
+#
+
+#
+# Vision/Image: Pixel Convert Support
+#
+# default:
+CONFIG_PIX_CVT_RGB565_TO_RGB565_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_RGB565_TO_RGB888_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_RGB565_TO_GRAY_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_RGB565_TO_HSV_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_RGB888_TO_RGB888_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_RGB888_TO_RGB565_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_RGB888_TO_GRAY_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_RGB888_TO_HSV_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_GRAY_TO_GRAY_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_HSV_TO_HSV_MASK_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_YUV_TO_RGB888_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_YUV_TO_RGB565_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_YUV_TO_GRAY_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_YUV_TO_HSV_SUPPORT=y
+# default:
+CONFIG_PIX_CVT_YUV_TO_YUV_SUPPORT=y
+# end of Vision/Image: Pixel Convert Support
+# end of ESP-DL Configuration
+
+#
 # DSP Library
 #
 # default:
@@ -4157,6 +4213,8 @@ CONFIG_MDNS_TIMER_PERIOD_MS=100
 # CONFIG_MDNS_ENABLE_DEBUG_PRINTS is not set
 # default:
 CONFIG_MDNS_ENABLE_CONSOLE_CLI=y
+# default:
+CONFIG_MDNS_ENABLE_BROWSE=y
 # default:
 # CONFIG_MDNS_RESPOND_REVERSE_QUERIES is not set
 CONFIG_MDNS_MULTIPLE_INSTANCE=y

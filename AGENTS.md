@@ -7,7 +7,7 @@ description: Expert embedded systems and Android developer for LoRa-BLE communic
 
 You are an expert embedded systems and Android developer specializing in:
 - **ESP32/nRF52 firmware** with trait-based architecture and deep sleep optimization
-- **LoRa radio protocols** (SX1262/SX1278) with timing-critical ACK mechanisms
+- **LoRa radio protocols** (SX1262) with timing-critical ACK mechanisms
 - **Android development** using Kotlin, Jetpack Compose, and Clean Architecture
 - **BLE communication** between Android and embedded devices
 - **Progressive Web Apps** with Web Bluetooth API
@@ -24,8 +24,8 @@ This is a **long-range messaging system** bridging BLE (Android/PWA ↔ ESP32/nR
 - **Firmware:** C++17, PlatformIO, RadioLib, NimBLE (ESP32), Arduino BLE (nRF52)
 - **Android:** Kotlin 1.9+, Jetpack Compose, Gradle 8.7+, AGP 8.6+
 - **PWA:** TypeScript, Lit, Vite, Web Bluetooth API
-- **Hardware:** ESP32-S3, nRF52840, SX1262/SX1278 LoRa radios
-- **Radio:** 433.92 MHz, SF11, BW250 kHz, CR4/5, 20 dBm, 64-symbol preamble
+- **Hardware:** ESP32-S3, nRF52840, SX1262 LoRa radios
+- **Radio:** ESP32 433.92 MHz / nRF52 869.525 MHz (EU868), SF11, BW125 kHz, CR4/7, 22 dBm, 64-symbol preamble
 
 **For complete documentation, see [README.md](README.md)**
 
@@ -153,7 +153,7 @@ android-lora-ble-bridge/
 │   ├── package.json
 │   └── vite.config.ts
 ├── protocol.md                        # 📋 Protocol specification
-├── CHANGELOG.md                       # Version history
+├── CHANGELOG.md                       # Dated log of changes
 └── README.md                          # Complete documentation
 ```
 
@@ -299,12 +299,12 @@ fun testStatusMessageSerialization() { /* ... */ }
 ### Current Configuration (v3.6)
 
 ```cpp
-// firmware/include/common/FirmwareConfig.h
-LORA_FREQUENCY:        433.92 MHz  // Worldwide ISM band
-LORA_BANDWIDTH:        250 kHz     // Balance of range and speed
+// firmware/include/common/FirmwareConfig.h + platformio.ini
+LORA_FREQUENCY:        433.92 MHz (ESP32) / 869.525 MHz EU868 (nRF52)
+LORA_BANDWIDTH:        125 kHz     // Balance of range and speed
 LORA_SPREADING_FACTOR: 11          // Excellent range + reliability
-LORA_CODING_RATE:      5           // CR4/5 (25% overhead)
-LORA_TX_POWER:         20 dBm      // 100 mW (check regional limits!)
+LORA_CODING_RATE:      7           // CR4/7 (higher error correction overhead)
+LORA_TX_POWER:         22 dBm      // ~158 mW (check regional limits!)
 LORA_PREAMBLE_LENGTH:  64 symbols  // Extended preamble for direct wake-up
 ```
 
@@ -330,7 +330,7 @@ ACK collision avoidance is now handled by CAD — `getAckDelay()` has been remov
 ### ✅ Always Do
 
 - **Read files before modifying** - Never propose changes to unread code
-- **Update CHANGELOG.md on every completed change** - Add a versioned entry (see format below) for every bugfix, feature, refactor, or hardware addition before considering the task done
+- **Update CHANGELOG.md on every completed change** - Add a dated entry (see format below) for every bugfix, feature, refactor, or hardware addition before considering the task done
 - **Keep AGENTS.md and README.md in sync** - When adding a board, env, command, or file path, update the relevant sections in both docs at the same time
 - **Maintain protocol sync** - Update Protocol.h, Protocol.cpp, and LoRaProtocol.kt together
 - **Test after protocol changes** - Run unit tests (`./gradlew test`) and verify on hardware
@@ -374,16 +374,26 @@ Every completed task — bugfix, new feature, refactor, hardware addition, depen
 
 ### Entry format
 
+No version numbers — this project doesn't cut releases, so entries are dated and grouped by what kind of change they are.
+
 ```markdown
-### <Component> v<X.Y> (<Month YYYY>)
-- **<Short title>**: one-sentence description of what changed and why
-- **<Short title>**: ...
+### <YYYY-MM-DD>
+
+**Added**
+- <What was added, and why, in plain language — no code, no internals>
+
+**Changed**
+- <What changed, and why>
+
+**Fixed**
+- <What was broken and why it's fixed now>
 ```
 
-- `Component` is one of: `Firmware`, `Android`, `PWA`, `Docs`
-- Increment the minor version (`v3.8` → `v3.9`) for features; patch (`v3.7` → `v3.7.1`) for bugfixes
+- Omit a section (`Added`/`Changed`/`Fixed`) entirely if there's nothing for it that day
+- Write for someone who doesn't know the codebase: say what the change means for the product, not how it was implemented (no function names, file paths, or internal state machines)
 - Entries go at the **top** of CHANGELOG.md, above all existing entries
 - One bullet per logical change — group related items under one bullet if they are a single unit of work
+- If there's already an entry for today, add to it rather than creating a second dated section
 
 ### Documentation checklist (run through before marking task done)
 
@@ -547,23 +557,22 @@ cd android
 ## Performance Expectations
 
 **Range:**
-- Urban: 3-10 km (SF11 + BW250)
+- Urban: 3-10 km (SF11 + BW125)
 - Suburban: 10-25 km
 - Line-of-sight: 25-35 km
 
 **Battery Life:**
 - SX1262 (autonomous duty cycle): ~52 days on 2500 mAh
-- SX1278 (continuous RX): ~7 days on 2500 mAh
 
 **Airtime:**
-- Typical message (30 chars + GPS): ~0.7s at SF11 + BW250
-- ACK message (2 bytes): ~0.4s at SF11 + BW250
-- Total round-trip: ~2-3s including ACK delays
+- Typical message (30 chars + GPS): ~1.4s at SF11 + BW125
+- ACK message (2 bytes): ~0.8s at SF11 + BW125
+- Total round-trip: ~3-4s including ACK delays
 
-**Duty Cycle (EU 433 MHz):**
+**Duty Cycle (EU 433/868 MHz):**
 - Legal limit: 1% (36s/hour)
-- Current config: ~2s per message + ACK
-- Max messages/hour: ~18 (well within limit)
+- Current config: ~4s per message + ACK
+- Max messages/hour: ~9 (well within limit)
 
 ---
 

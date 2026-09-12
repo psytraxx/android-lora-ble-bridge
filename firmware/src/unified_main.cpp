@@ -223,6 +223,17 @@ void setup()
     bleManager->startAdvertising();
 
     // Initialize LoRa manager (heap allocation required due to runtime pin configuration)
+#if defined(LORA_RF_SWITCH)
+    loraManager = std::unique_ptr<LoRaManager>(new LoRaManager(
+        LORA_SCK,
+        LORA_MISO,
+        LORA_MOSI,
+        LORA_SS,
+        LORA_RST,
+        LORA_DIO0,
+        LORA_BUSY,
+        LORA_RF_SWITCH));
+#else
     loraManager = std::unique_ptr<LoRaManager>(new LoRaManager(
         LORA_SCK,
         LORA_MISO,
@@ -231,6 +242,7 @@ void setup()
         LORA_RST,
         LORA_DIO0,
         LORA_BUSY));
+#endif
 
     loraManager->setReceiveCallback(onLoRaReceived);
     loraManager->setTransmitCallback(onLoRaTransmitted);

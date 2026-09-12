@@ -18,12 +18,12 @@ Both projects are **vastly superior** for general-purpose off-grid communication
 
 - 📱 **Android App**: Modern Kotlin app with Jetpack Compose, GPS integration, and BLE communication
 - 🌐 **Progressive Web App**: Cross-platform PWA with Web Bluetooth support - [Try it now!](https://psytraxx.github.io/android-lora-ble-bridge/)
-- 📡 **Long Range**: 10-25 km typical range (SF11 + BW250 balanced for speed and range)
+- 📡 **Long Range**: 10-25 km typical range (SF11 + BW125 balanced for speed and range)
 - 🔋 **Power Optimized**: Autonomous duty cycle on SX1262 (~52 days on 2500 mAh battery)
 - 📦 **Message Buffering**: Buffers up to 10 messages when phone is disconnected
-- ✅ **Reliable**: 64-symbol preamble with CR4/5 error correction
+- ✅ **Reliable**: 64-symbol preamble with CR4/7 error correction
 - 🌍 **GPS Precision**: ±1 meter accuracy (GPS sent only when available)
-- ⚡ **Balanced Performance**: SF11 + BW250 provides good range with faster data rates
+- ⚡ **Balanced Performance**: SF11 + BW125 provides good range with robust error correction
 - 📉 **Bandwidth Efficient**: 6-bit character packing (40% smaller than UTF-8)
 - 🔧 **Hardware Autonomous**: SX1262 manages duty cycle independently while ESP32 sleeps
 
@@ -36,7 +36,7 @@ The system uses a **unified trait-based architecture** supporting multiple platf
 ```mermaid
 graph TD
     A[Android Phone 1<br/>- Internal GPS<br/>- Text Input<br/>- Display<br/>- Kotlin + Compose App] -->|Text + GPS Data| B[BLE]
-    B --> C[ESP32/nRF52 Device<br/>LoRa Transmitter<br/>- SX1262/SX1278 Module<br/>- Unified C++ Firmware]
+    B --> C[ESP32/nRF52 Device<br/>LoRa Transmitter<br/>- SX1262 Module<br/>- Unified C++ Firmware]
     C -->|LoRa Transmission| D[LoRa Radio Waves]
     D --> E[ESP32/nRF52 Device<br/>LoRa Receiver<br/>- Same Unified Firmware]
     E -->|Forwarded Data| F[BLE]
@@ -70,13 +70,13 @@ graph TD
 - **Deep sleep support** - Wake-up reason detection to prevent message loops
 - **Power optimized** - 160 MHz CPU, multiple weeks battery life (SX1262)
 - **Supported platforms:** ESP32, nRF52
-- **Supported radios:** SX1262 (autonomous duty cycle), SX1278 (continuous RX)
+- **Supported radios:** SX1262 (autonomous duty cycle)
 
 **Key Components:**
 - `unified_main.cpp` - Single entry point with setup()/loop() pattern
 - `PlatformTraits.h` - Platform-specific type definitions
 - `BLEManager` - BLE integration (NimBLE on ESP32, Arduino BLE on nRF52)
-- `LoRaManager` - RadioLib integration with SX1262/SX1278 support
+- `LoRaManager` - RadioLib integration with SX1262 support
 - `MessageQueue` - Simple queue for BLE↔LoRa message passing
 - Platform-specific managers with non-blocking operations
 
@@ -204,7 +204,7 @@ A read-only BLE characteristic under the custom LoRa service provides on-demand 
 | 3 | 2 | int16 LE | SNR | Last received SNR × 100 (divide by 100 for dB) |
 | 5 | 1 | int8 | TX Power | Transmit power (dBm) |
 | 6 | 4 | uint32 LE | Frequency | LoRa frequency (Hz), e.g. 433920000 |
-| 10 | 4 | uint32 LE | Bandwidth | LoRa bandwidth (Hz), e.g. 250000 |
+| 10 | 4 | uint32 LE | Bandwidth | LoRa bandwidth (Hz), e.g. 125000 |
 | 14 | 1 | uint8 | SF | Spreading factor (7-12) |
 | 15 | 1 | uint8 | CR | Coding rate denominator (5-8, meaning 4/5 to 4/8) |
 
@@ -212,7 +212,7 @@ On read, the firmware populates fresh battery voltage, last received RSSI/SNR, a
 
 **Configuration:**
 - LoRa settings configured in `firmware/include/common/FirmwareConfig.h`
-- Default: 433.92 MHz, SF11, BW250 kHz, CR4/5, 20 dBm TX, 64-symbol preamble, 160 MHz CPU
+- Default: ESP32 433.92 MHz / nRF52 869.525 MHz (EU868), SF11, BW125 kHz, CR4/7, 22 dBm TX, 64-symbol preamble, 160 MHz CPU
 - Device name auto-generated from chip ID
 - Deep sleep with wake-up reason detection for proper handling
 
@@ -257,10 +257,9 @@ cd android
 - **Heltec Wireless Stick V3** - SX1262, 64×32 OLED display (`heltec-wireless-stick-v3`)
 
 **nRF52 Boards:**
-- **Seeed XIAO nRF52840** - Compact form factor, SX1262 support (`xiao_nrf52840`)
+- **Seeed XIAO nRF52840** - Compact form factor, SX1262 support via Wio-SX1262 module, 869.525 MHz EU868 (`xiao_nrf52840`)
 
-**LoRa Radios:**
-- **SX1278** - Continuous RX mode, lower power
+**LoRa Radio:**
 - **SX1262** - Autonomous duty cycle, ultra-low power (~1.5-2mA avg)
 
 ### Pin Configurations
@@ -357,10 +356,9 @@ The firmware (ESP32/nRF52) buffers up to 10 messages when your phone is disconne
 - **Max text**: 50 characters (38 bytes with 6-bit packing)
 - **GPS data**: 8 bytes when included (fixed size)
 - **Range**: 10-25 km typical (SF11 balanced configuration)
-- **Airtime**: ~1.3-1.8 seconds per message (BW250 kHz, SF11, CR4/5, 64-symbol preamble)
+- **Airtime**: ~2.5-3.5 seconds per message (BW125 kHz, SF11, CR4/7, 64-symbol preamble)
 - **Battery Life (SX1262)**: Multiple weeks on 2500 mAh with autonomous duty cycle (~1.5-2mA avg)
-- **Battery Life (SX1278)**: Several days on 2500 mAh with continuous RX (~12-15mA avg)
-- **LoRa Config**: 433.92 MHz, BW250 kHz, SF11, CR4/5, 20 dBm TX, 64-symbol preamble
+- **LoRa Config**: ESP32 433.92 MHz / nRF52 869.525 MHz (EU868), BW125 kHz, SF11, CR4/7, 22 dBm TX, 64-symbol preamble
 - **Duty Cycle**: EU requires 1% (36s/hour) - calculate at [LoRa Calculator](https://www.loratools.nl/#/airtime)
 
 **Platform Comparison:**
@@ -370,7 +368,7 @@ The firmware (ESP32/nRF52) buffers up to 10 messages when your phone is disconne
 | Architecture | Loop-based (Arduino) | Loop-based (Arduino) |
 | BLE Stack | NimBLE | Arduino BLE |
 | Power Management | Deep sleep support | SoftDevice power modes |
-| Radio Support | SX1262, SX1278 | SX1262 |
+| Radio Support | SX1262 | SX1262 |
 | Flash/RAM | 8MB / 327KB | 1MB / 256KB |
 | Execution Model | setup() + loop() | setup() + loop() |
 
@@ -420,7 +418,6 @@ RTC_DATA_ATTR int bootCount = 0;  // Survives deep sleep
 **Sleep Method:** Use `enterDeepSleep()` for semantic clarity
 **Battery Life:**
 - SX1262 autonomous duty cycle: Multiple weeks on 2500 mAh
-- SX1278 continuous RX: Several days on 2500 mAh
 - Active mode (160 MHz): ~30-40% less power than 240 MHz
 
 ## Message Flow & ACK Timing
@@ -442,7 +439,7 @@ sequenceDiagram
     Note right of AS: ~10-50ms
 
     ES->>ER: 2. Forward to LoRa
-    Note right of ES: Airtime varies (SF11+BW250kHz)
+    Note right of ES: Airtime varies (SF11+BW125kHz)
 
     ER->>AR: 3. Forward via BLE
     Note right of ER: ~10-50ms
@@ -451,7 +448,7 @@ sequenceDiagram
   Note over ER: 4. CAD check → transmit ACK when channel free
 
   ER->>ES: 5. Send ACK (LoRa)
-  Note left of ER: ACK airtime (SF11+BW250kHz)<br/>+ 50ms mode switch
+  Note left of ER: ACK airtime (SF11+BW125kHz)<br/>+ 50ms mode switch
 
   ES->>AS: 6. Receive ACK (BLE)
   Note left of ES: ~10-50ms + notify
@@ -518,12 +515,12 @@ loraManager.startReceive(true);
 | Phase | Time | Description |
 |-------|------|-------------|
 | **BLE Transfer** | 10-50ms | Android ↔ ESP32 via Bluetooth LE |
-| **LoRa Airtime** | ~1.3-1.8s | Text+GPS packet at SF11, BW250kHz, 64-preamble (typical message) |
+| **LoRa Airtime** | ~2.5-3.5s | Text+GPS packet at SF11, BW125kHz, 64-preamble (typical message) |
 | **Preamble** | Included | 64-symbol preamble for duty-cycled receivers |
 | **Mode Switch (TX→RX)** | 10-50ms | Radio mode transition |
 | **RX Settle** | 50ms | Additional settle time in code |
 | **CAD Check** | ~0-500ms | Channel Activity Detection before ACK TX (backoff if busy) |
-| **ACK Airtime** | ~686ms | ACK packet (2 bytes) at SF11, BW250kHz, 64-preamble |
+| **ACK Airtime** | ~1.4s | ACK packet (2 bytes) at SF11, BW125kHz, 64-preamble |
 
 ### Why These Timings Matter
 
@@ -593,12 +590,12 @@ If you change LoRa parameters (SF, BW, CR, preamble), reflash all devices — CA
 **LoRa not transmitting:**
 - Check SPI wiring (SCK, MISO, MOSI, CS)
 - Verify 3.3V power to LoRa module
-- Check antenna connection (433 MHz antenna)
+- Check antenna connection (433/868 MHz antenna, matching board frequency)
 - Monitor serial for "LoRa TX successful" messages
 
 **Radio init failed:**
 - Check RESET and DIO0 pin connections
-- Verify SX1278 module is 433 MHz capable
+- Verify SX1262 module matches the board's configured frequency (433.92 MHz for ESP32, 869.525 MHz for nRF52)
 - Check power supply (some modules need more current)
 
 ### Android Issues
@@ -647,7 +644,7 @@ adb logcat -s LoRaApp
 
 ## External Resources
 - [ESP32-S3 Documentation](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/)
-- [SX1278 Datasheet](https://www.semtech.com/products/wireless-rf/lora-core/sx1276)
+- [SX1262 Datasheet](https://www.semtech.com/products/wireless-rf/lora-core/sx1262)
 - [LoRa Calculator](https://www.loratools.nl/#/airtime) - Time on Air calculator
 
 ## License
@@ -656,7 +653,7 @@ adb logcat -s LoRaApp
 
 ## Contributing
 
-[Add contribution guidelines here]
+See [AGENTS.md](AGENTS.md) for architecture, build commands, and coding conventions. Open an issue or PR against `main`.
 
 
 ## Acknowledgments
@@ -664,7 +661,7 @@ adb logcat -s LoRaApp
 Built with:
 - [ESP-IDF](https://github.com/espressif/esp-idf) - ESP32 framework for ESP32 firmware
 - [Arduino Core](https://github.com/espressif/arduino-esp32) - ESP32 Arduino framework
-- [RadioLib](https://github.com/jgromes/RadioLib) - Universal radio library supporting SX1262/SX1278
+- [RadioLib](https://github.com/jgromes/RadioLib) - Universal radio library supporting SX1262
 - [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) - Lightweight BLE stack for Arduino/ESP32
 
 ---
