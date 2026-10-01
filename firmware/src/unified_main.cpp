@@ -64,7 +64,17 @@ static MessageQueue loraToBleQueue;
 static std::unique_ptr<LoRaManager> loraManager;
 
 #ifdef LED_PIN
-static std::unique_ptr<LEDManager> ledManager(new LEDManager(LED_PIN, LEDConstants::HEARTBEAT_INTERVAL_MS, LEDConstants::HEARTBEAT_DURATION_MS));
+#ifndef LED_RED_PIN
+#define LED_RED_PIN -1
+#endif
+#ifndef LED_BLUE_PIN
+#define LED_BLUE_PIN -1
+#endif
+#ifndef LED_ACTIVE_LOW
+#define LED_ACTIVE_LOW 0
+#endif
+static std::unique_ptr<LEDManager> ledManager(new LEDManager(LED_PIN, LED_RED_PIN, LED_BLUE_PIN, LED_ACTIVE_LOW,
+                                                             LEDConstants::HEARTBEAT_INTERVAL_MS, LEDConstants::HEARTBEAT_DURATION_MS));
 #endif
 
 // Deep sleep inactivity timer
@@ -443,7 +453,7 @@ void onLoRaReceived(const LoRaPacket &packet)
 #endif
 
 #ifdef LED_PIN
-    ledManager->blink(LEDConstants::RX_BLINKS);
+    ledManager->blink(LEDConstants::RX_BLINKS, LEDManager::Color::Blue);
 #endif
 
     Message msg;
@@ -499,7 +509,7 @@ void onLoRaTransmitted(bool success)
     {
         LOG_I(TAG, "LoRa transmission successful");
 #ifdef LED_PIN
-        ledManager->blink(LEDConstants::TX_BLINKS);
+        ledManager->blink(LEDConstants::TX_BLINKS, LEDManager::Color::Red);
 #endif
     }
     else
