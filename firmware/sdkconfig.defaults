@@ -6,6 +6,9 @@ CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 CONFIG_BT_CTRL_MODEM_SLEEP=y
 CONFIG_BT_CTRL_MODEM_SLEEP_MODE_1=y
 CONFIG_BT_CTRL_LPCLK_SEL_MAIN_XTAL=y
+# No 32 kHz crystal on these boards: keep the main XTAL powered in light sleep so the
+# BLE controller can use it as sleep clock; without this BLE blocks light sleep entirely
+CONFIG_BT_CTRL_MAIN_XTAL_PU_DURING_LIGHT_SLEEP=y
 # Keep USB Serial/JTAG console alive: no auto light sleep while USB host is attached
 CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
 # Required to compile espidf
