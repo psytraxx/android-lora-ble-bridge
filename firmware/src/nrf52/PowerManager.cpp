@@ -37,9 +37,8 @@ bool PowerManager::configurePowerManagement()
 #else
     analogReadResolution(PowerConstants::ADC_RESOLUTION_BITS);
 #endif
-    // Set analog reference to 3.0V (0.6V ref × 5 = 3.0V max range)
-    // This provides better accuracy for LiPo batteries (3.0V-4.2V range after voltage divider)
-    analogReference(AR_INTERNAL_3_0);
+    // Same reference as Meshtastic's nRF52 platform: AR_INTERNAL = 0.6V ref × 6 = 3.6V full scale
+    analogReference(AR_INTERNAL);
 
 #ifdef BATTERY_ADC_CTRL
     // Initialize VBAT_ENABLE to HIGH (disabled state) to save power
@@ -146,47 +145,60 @@ uint8_t PowerManager::voltageToPercentage(uint16_t voltagePerCellMv)
 
 uint16_t PowerManager::readBatteryVoltage()
 {
-    const uint32_t BATTERY_SENSE_SAMPLES = 10;
+    // Mirrors Meshtastic's AnalogBatteryLevel::getBattVoltage() (src/Power.cpp)
+    const uint32_t BATTERY_SENSE_SAMPLES = 15;
+    const uint32_t MIN_READ_INTERVAL_MS = 5000;
 
-    // Enable battery ADC (set VBAT_ENABLE LOW on Seeed XIAO)
+    static bool initialReadDone = false;
+    static float lastReadValue = OCV[NUM_OCV_POINTS - 1] * NUM_CELLS;
+    static uint32_t lastReadTimeMs = 0;
+
+    // Do not call analogRead() often
+    if (initialReadDone && (millis() - lastReadTimeMs < MIN_READ_INTERVAL_MS))
+    {
+        return (uint16_t)lastReadValue;
+    }
+    lastReadTimeMs = millis();
+
+    // Enable VBAT divider (VBAT_ENABLE LOW on Seeed XIAO); includes 10ms settle delay
     batteryAdcEnable();
 
-    // Let the ADC settle after enabling the voltage divider
-    delay(1);
-
-    // Read battery voltage from ADC with averaging
-    // XIAO nRF52840: Battery voltage is divided by ~3.0 via hardware voltage divider
-    uint32_t adcSum = 0;
+    uint32_t raw = 0;
     for (uint32_t i = 0; i < BATTERY_SENSE_SAMPLES; i++)
     {
-        adcSum += analogRead(BATTERY_ADC_PIN);
+        raw += analogRead(BATTERY_ADC_PIN);
     }
-    int adcValue = adcSum / BATTERY_SENSE_SAMPLES;
+    raw = raw / BATTERY_SENSE_SAMPLES;
 
-    // Disable battery ADC to save power (set VBAT_ENABLE HIGH)
     batteryAdcDisable();
 
-// Convert ADC value to voltage in millivolts
-// Based on Adafruit nRF52 reference implementation
 #if defined(BATTERY_SENSE_RESOLUTION_BITS)
-    const int adc_max_value = (1 << BATTERY_SENSE_RESOLUTION_BITS) - 1;
+    const int resolutionBits = BATTERY_SENSE_RESOLUTION_BITS;
 #else
-    const int adc_max_value = 4095; // 12-bit default
+    const int resolutionBits = PowerConstants::ADC_RESOLUTION_BITS;
 #endif
 
-    // nRF52840 with AR_INTERNAL_3_0: 0.6V internal reference × 5 = 3.0V max range
-    // Formula: voltage_mv = raw_adc × VBAT_DIVIDER_COMP × (ADC_MAX_VOLTAGE / (2^resolution))
-    // VBAT_MV_PER_LSB = ADC_MAX_VOLTAGE / (2^resolution) = 3000 / 4096 = 0.73242188
-    // Seeed XIAO has ~1.5kΩ / 510Ω divider ≈ 3.0 compensation factor
-    const float VBAT_MV_PER_LSB = (PowerConstants::ADC_MAX_VOLTAGE * 1000.0) / ((float)(adc_max_value + 1));
-    float voltage_mv = adcValue * PowerConstants::BATTERY_DIVIDER * VBAT_MV_PER_LSB;
+    // scaled = multiplier × (1000 × AREF / 2^bits) × raw
+    // XIAO divider: R17=1M / R18=510k → multiplier 3
+    float scaled = PowerConstants::BATTERY_DIVIDER *
+                   ((1000.0f * PowerConstants::ADC_MAX_VOLTAGE) / (float)(1 << resolutionBits)) * raw;
 
-    // Log battery readings for debugging (every read during debug)
-    uint8_t percentage = voltageToPercentage((uint16_t)voltage_mv);
-    LOG_I(TAG, "Battery: adc=%d/%d, voltage=%u mV, percentage=%u%%",
-          adcValue, adc_max_value, (uint16_t)voltage_mv, percentage);
+    if (!initialReadDone)
+    {
+        // Flush the smoothing filter with the first reading if plausible
+        if (scaled > lastReadValue)
+            lastReadValue = scaled;
+        initialReadDone = true;
+    }
+    else
+    {
+        lastReadValue += (scaled - lastReadValue) * 0.5f; // Virtual LPF
+    }
 
-    return (uint16_t)voltage_mv;
+    LOG_D(TAG, "Battery: raw=%lu, scaled=%u mV, filtered=%u mV",
+          (unsigned long)raw, (uint16_t)scaled, (uint16_t)lastReadValue);
+
+    return (uint16_t)lastReadValue;
 }
 
 uint8_t PowerManager::readBatteryLevel()

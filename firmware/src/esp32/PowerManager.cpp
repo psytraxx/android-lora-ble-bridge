@@ -291,6 +291,9 @@ uint8_t PowerManager::voltageToPercentage(uint16_t voltagePerCellMv)
 
 uint8_t PowerManager::readBatteryLevel()
 {
+#ifndef BATTERY_ADC_PIN
+    return 0; // No battery sense on this board (e.g. XIAO ESP32-S3) - report unknown as 0
+#endif
     uint16_t voltage = readBatteryVoltage();
 
     // Check for no battery condition
