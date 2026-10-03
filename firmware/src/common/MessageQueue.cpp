@@ -1,5 +1,6 @@
 #include "common/MessageQueue.h"
 #include "common/Logging.h"
+#include "common/LoopWake.h"
 #include <Arduino.h>
 
 static const char* TAG = "MsgQ";
@@ -34,7 +35,14 @@ bool MessageQueue::push(const Message &msg)
 
     // Non-blocking send (timeout = 0)
     // Returns pdTRUE if successful, pdFALSE if queue is full
-    return xQueueSend(queueHandle, &msg, 0) == pdTRUE;
+    if (xQueueSend(queueHandle, &msg, 0) != pdTRUE)
+    {
+        return false;
+    }
+
+    // Wake main loop so the message is handled without waiting for the idle timeout
+    LoopWake::signal();
+    return true;
 }
 
 bool MessageQueue::pop(Message &msg)

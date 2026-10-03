@@ -51,8 +51,10 @@ struct ESP32PlatformTraits
         PowerManager::disableWiFi();
         PowerManager::disableBluetoothClassic();
 
-        // Configure wake sources for future deep sleep
-        PowerManager::configureWakeupSources(WAKE_BUTTON, LORA_DIO0);
+        // Release GPIO holds left over from deep sleep. Wake sources are armed only
+        // in enterDeepSleep(): ext0/ext1 also apply to light sleep and would switch
+        // DIO0 to the RTC mux, breaking its GPIO interrupt while awake.
+        PowerManager::releaseSleepHolds(LORA_DIO0);
     }
 
     static uint8_t readBatteryLevel()

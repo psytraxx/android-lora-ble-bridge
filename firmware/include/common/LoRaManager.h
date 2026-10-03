@@ -80,6 +80,9 @@ public:
 
     bool isTransmitting() const { return state == STATE_TRANSMITTING; }
 
+    /// True while the radio or TX queue needs prompt main-loop servicing
+    bool hasPendingWork() const { return state != STATE_IDLE || txQueueCount > 0; }
+
     // Invoked from the main loop, not the ISR
     void setReceiveCallback(LoRaReceiveCallback callback);
 

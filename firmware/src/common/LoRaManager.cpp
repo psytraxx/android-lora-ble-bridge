@@ -1,6 +1,7 @@
 #include <common/LoRaManager.h>
 #include "common/Logging.h"
 #include "common/FirmwareConfig.h"
+#include "common/LoopWake.h"
 #include <Arduino.h>
 #include <SPI.h>
 
@@ -351,6 +352,20 @@ bool LoRaManager::processTxQueue()
 
 void LoRaManager::process()
 {
+    // Missed-edge recovery: the SX126x holds DIO1 HIGH until its IRQ is cleared, so a
+    // HIGH level with no ISR seen means the edge was lost (e.g. during ESP32 light sleep)
+    if (pinDIO0 >= 0 && digitalRead(pinDIO0) == HIGH)
+    {
+        if (state == STATE_IDLE)
+        {
+            state = STATE_PACKET_RECEIVED;
+        }
+        else if (state == STATE_TRANSMITTING)
+        {
+            state = STATE_PACKET_SENT;
+        }
+    }
+
     // Check for received packets
     if (state == STATE_PACKET_RECEIVED)
     {
@@ -530,6 +545,7 @@ void LORA_ISR_ATTR LoRaManager::onReceiveISR()
     {
         instance->state = STATE_PACKET_RECEIVED;
     }
+    LoopWake::signalFromISR();
 }
 
 void LORA_ISR_ATTR LoRaManager::onTransmitISR()
@@ -538,4 +554,5 @@ void LORA_ISR_ATTR LoRaManager::onTransmitISR()
     {
         instance->state = STATE_PACKET_SENT;
     }
+    LoopWake::signalFromISR();
 }

@@ -17,6 +17,7 @@
 #include "common/MessageQueue.h"
 #include "common/FirmwareConfig.h"
 #include "common/LEDManager.h"
+#include "common/LoopWake.h"
 
 // Platform-specific FreeRTOS includes
 #if defined(ARDUINO_ARCH_ESP32)
@@ -80,6 +81,10 @@ static std::unique_ptr<LEDManager> ledManager(new LEDManager(LED_PIN, LED_RED_PI
 // Deep sleep inactivity timer
 static TimerHandle_t deepSleepTimerHandle = nullptr;
 
+// Set by the inactivity timer (timer service task); deep sleep is entered from loop()
+// so radio SPI access never races with loraManager->process()
+static volatile bool sleepRequested = false;
+
 // Deadline after which the BLE GATT stack is considered ready for use.
 // Avoids blocking the main loop after connection (replaces delay(500) in callback).
 static uint32_t bleGattReadyAt = 0;
@@ -141,8 +146,8 @@ DeviceInfoData provideDeviceInfo()
 /**
  * @brief FreeRTOS timer callback for inactivity timeout (deep sleep trigger)
  *
- * This one-shot timer expires after the configured inactivity period.
- * When triggered, it prepares the device and enters deep sleep mode.
+ * Runs in the timer service task, so it only requests sleep; loop() performs
+ * the shutdown sequence on the main task (see enterDeepSleep()).
  * The timer is reset on any BLE or LoRa activity.
  *
  * @param xTimer Handle of the timer that triggered this callback
@@ -151,6 +156,15 @@ static void deepSleepTimerCallback(TimerHandle_t xTimer)
 {
     (void)xTimer; // Unused parameter
 
+    sleepRequested = true;
+    LoopWake::signal();
+}
+
+/**
+ * @brief Put radio into duty-cycle RX, stop BLE and enter deep sleep (main task only)
+ */
+static void enterDeepSleep()
+{
     LOG_I(TAG, "Inactivity timeout - entering deep sleep...");
 
     // Start LoRa in duty cycle mode before sleep
@@ -330,6 +344,12 @@ void loop()
     // Reset watchdog
     Platform::resetWatchdog();
 
+    if (sleepRequested)
+    {
+        enterDeepSleep();
+        sleepRequested = false; // Only reached if sleep failed
+    }
+
 // Update LED state machine (non-blocking, includes heartbeat)
 #ifdef LED_PIN
     ledManager->update();
@@ -403,7 +423,15 @@ void loop()
         }
     }
 
-    delay(20);
+    // Block until an event (LoRa IRQ, BLE write, sleep request) or timeout.
+    // Short timeout only while something needs fine-grained timing; otherwise the
+    // MCU idles longer (nRF52 WFE via SoftDevice, ESP32 auto light sleep).
+    bool busy = loraManager->hasPendingWork() || !loraToBleQueue.isEmpty() ||
+                (bleManager->isConnected() && !storageManager->isEmpty());
+#ifdef LED_PIN
+    busy = busy || ledManager->isBlinking();
+#endif
+    LoopWake::wait(busy ? PowerConstants::LOOP_ACTIVE_WAIT_MS : PowerConstants::LOOP_IDLE_WAIT_MS);
 }
 
 // ============================================================================

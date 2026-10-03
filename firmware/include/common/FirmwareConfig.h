@@ -168,6 +168,13 @@ namespace PowerConstants
     /// BLE advertising continues until device is connected or enters deep sleep
     constexpr unsigned long INACTIVITY_TIMEOUT_MS = 60000UL;
 
+    /// Main loop wait while radio/LED/BLE work is in flight (fine-grained timing)
+    constexpr uint32_t LOOP_ACTIVE_WAIT_MS = 20;
+
+    /// Main loop wait when idle; events wake the loop early. Also bounds RX latency
+    /// if a LoRa IRQ edge is missed during ESP32 light sleep.
+    constexpr uint32_t LOOP_IDLE_WAIT_MS = 100;
+
 #if defined(ARDUINO_ARCH_NRF52)
     /// Battery voltage divider ratio - defined in platformio.ini:
     /// BATTERY_VOLTAGE_DIVIDER
