@@ -40,4 +40,4 @@ jobs:
         run: pip install platformio==6.1.19
 
       - name: Build PlatformIO Project
-        run: pio run
+        run: pio run -e xiao_nrf52840 -e xiao_esp32s3
