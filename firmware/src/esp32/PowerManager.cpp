@@ -27,7 +27,7 @@ bool PowerManager::configurePowerManagement()
     esp_pm_config_t pm_config = {
         .max_freq_mhz = 160,
         .min_freq_mhz = 80,
-        .light_sleep_enable = true}; // Try to enable light sleep
+        .light_sleep_enable = false}; // Deep sleep only (see enterDeepSleep)
 
     esp_err_t rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
