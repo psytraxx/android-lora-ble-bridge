@@ -51,13 +51,16 @@ public:
      */
     static void configureWakeupSources(int wakeButton, int loraDio0);
 
+    /// Release gpio_hold on pins latched by enterDeepSleep() (call at boot)
+    static void releaseSleepHolds(int loraDio0);
+
     /**
      * @brief Enter deep sleep mode (does not return)
      *
      * Enters deep sleep with configured wakeup sources. This function does NOT return -
      * the device will reset on wakeup and execution starts from setup().
      *
-     * Wakeup sources must be configured via configureWakeupSources() first.
+     * Arms wakeup sources via configureWakeupSources() itself.
      *
      * The function will:
      *  1. Disable external peripherals via VEXT

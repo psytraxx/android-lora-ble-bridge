@@ -27,7 +27,7 @@ bool PowerManager::configurePowerManagement()
     esp_pm_config_t pm_config = {
         .max_freq_mhz = 160,
         .min_freq_mhz = 80,
-        .light_sleep_enable = false}; // Deep sleep only (see enterDeepSleep)
+        .light_sleep_enable = true}; // Auto light sleep when idle (tickless idle); BLE uses modem sleep
 
     esp_err_t rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
@@ -327,13 +327,15 @@ void PowerManager::disableBluetoothClassic()
     LOG_I(TAG, "Bluetooth Classic disabled");
 }
 
+void PowerManager::releaseSleepHolds(int loraDio0)
+{
+    gpio_hold_dis((gpio_num_t)LORA_SS);
+    gpio_hold_dis((gpio_num_t)loraDio0);
+}
+
 void PowerManager::configureWakeupSources(int wakeButton, int loraDio0)
 {
     LOG_I(TAG, "Configuring deep sleep wake sources...");
-
-    // Release holds on pins that might have been held during sleep
-    gpio_hold_dis((gpio_num_t)LORA_SS);
-    gpio_hold_dis((gpio_num_t)loraDio0);
 
     // Configure LoRa DIO0 as EXT0 wake source (wake on HIGH level)
     // When LoRa receives a packet, DIO0 goes HIGH and wakes the device
@@ -369,6 +371,9 @@ void PowerManager::disableExternalPeripherals()
 void PowerManager::enterDeepSleep()
 {
     LOG_I(TAG, "Entering deep sleep...");
+
+    // Arm wake sources now (not at boot) so they don't affect auto light sleep
+    configureWakeupSources(WAKE_BUTTON, LORA_DIO0);
 
     // Disable external peripherals to save power
     disableExternalPeripherals();

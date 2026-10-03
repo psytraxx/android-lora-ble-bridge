@@ -128,6 +128,9 @@ public:
         }
     }
 
+    /// True while a blink sequence is running (needs fine-grained update() calls)
+    bool isBlinking() const { return blinkActive; }
+
     /**
      * @brief Turn the current LED on.
      */
