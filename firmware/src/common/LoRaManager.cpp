@@ -79,17 +79,17 @@ bool LoRaManager::begin()
             LORA_TX_POWER,
             LoRaConstants::PREAMBLE_LENGTH);
 
-        this->state = STATE_IDLE;
-        LOG_I(TAG, "LoRa setup successful");
-        LOG_I(TAG, "  Frequency: %.2f MHz", LoRaConstants::FREQUENCY);
-        LOG_I(TAG, "  Bandwidth: %.1f kHz", LoRaConstants::BANDWIDTH);
-        LOG_I(TAG, "  Spreading Factor: %d", LoRaConstants::SPREADING_FACTOR);
-        LOG_I(TAG, "  Coding Rate: 4/%d", LoRaConstants::CODING_RATE);
-        LOG_I(TAG, "  TX Power: %d dBm", LORA_TX_POWER);
-        LOG_I(TAG, "  Preamble Length: %d symbols", LoRaConstants::PREAMBLE_LENGTH);
-
         if (initResult == RADIOLIB_ERR_NONE)
         {
+            this->state = STATE_IDLE;
+            LOG_I(TAG, "LoRa setup successful");
+            LOG_I(TAG, "  Frequency: %.2f MHz", LoRaConstants::FREQUENCY);
+            LOG_I(TAG, "  Bandwidth: %.1f kHz", LoRaConstants::BANDWIDTH);
+            LOG_I(TAG, "  Spreading Factor: %d", LoRaConstants::SPREADING_FACTOR);
+            LOG_I(TAG, "  Coding Rate: 4/%d", LoRaConstants::CODING_RATE);
+            LOG_I(TAG, "  TX Power: %d dBm", LORA_TX_POWER);
+            LOG_I(TAG, "  Preamble Length: %d symbols", LoRaConstants::PREAMBLE_LENGTH);
+
             int res = radio->setCRC(true);
             if (res != RADIOLIB_ERR_NONE)
             {
@@ -170,6 +170,11 @@ bool LoRaManager::begin()
 #endif
 
 #endif
+
+            // Seed Arduino random() from the radio's wideband noise so CAD backoff
+            // jitter differs between nodes (nRF52's random() is otherwise unseeded)
+            randomSeed(((uint32_t)radio->randomByte() << 24) | ((uint32_t)radio->randomByte() << 16) |
+                       ((uint32_t)radio->randomByte() << 8) | radio->randomByte());
 
             return true;
         }
@@ -261,10 +266,21 @@ bool LoRaManager::startTransmit(const uint8_t *data, size_t len)
     if (txState != RADIOLIB_ERR_NONE)
     {
         LOG_E(TAG, "Failed to start transmission, code %d", txState);
-        startReceive();
+        startReceive(true);
         state = STATE_IDLE;
+        if (transmitCallback)
+        {
+            transmitCallback(false);
+        }
         return false;
     }
+
+    // Lost TX_DONE recovery: time-on-air plus margin (codingRate param is 1-4 for CR 4/5-4/8)
+    txDeadline = millis() +
+                 (uint32_t)calculateToA_ms(LoRaConstants::SPREADING_FACTOR, LoRaConstants::BANDWIDTH,
+                                           LoRaConstants::CODING_RATE - 4, LoRaConstants::PREAMBLE_LENGTH,
+                                           (uint8_t)len) +
+                 LoRaConstants::TIMING_MARGIN_MS;
 
     LOG_I(TAG, "Transmission started (non-blocking)");
     return true;
@@ -304,22 +320,34 @@ bool LoRaManager::queueTransmit(const uint8_t *data, size_t len)
     return true;
 }
 
+bool LoRaManager::transmitQueueHead()
+{
+    TxPacket &pkt = txQueue[txQueueHead];
+    txQueueHead = (txQueueHead + 1) % TX_QUEUE_SIZE;
+    txQueueCount--;
+    cadRetries = 0;
+    cadBackoffUntil = 0;
+    return startTransmit(pkt.data, pkt.len);
+}
+
 bool LoRaManager::processTxQueue()
 {
     if (txQueueCount == 0 || state != STATE_IDLE)
         return false;
 
+    // Still backing off after a busy channel: keep listening, the other node's
+    // packet may be arriving right now
+    if (cadBackoffUntil != 0 && (int32_t)(millis() - cadBackoffUntil) < 0)
+        return false;
+
+    // Detach the RX ISR so CAD_DONE on DIO1 isn't mistaken for a received packet
+    radio->clearPacketReceivedAction();
     int16_t result = radio->scanChannel();
 
     if (result == RADIOLIB_CHANNEL_FREE)
     {
         LOG_I(TAG, "CAD: channel free, transmitting");
-        TxPacket &pkt = txQueue[txQueueHead];
-        bool ok = startTransmit(pkt.data, pkt.len);
-        txQueueHead = (txQueueHead + 1) % TX_QUEUE_SIZE;
-        txQueueCount--;
-        cadRetries = 0;
-        return ok;
+        return transmitQueueHead();
     }
     else if (result == RADIOLIB_LORA_DETECTED)
     {
@@ -329,16 +357,15 @@ bool LoRaManager::processTxQueue()
         if (cadRetries >= LoRaConstants::CAD_MAX_RETRIES)
         {
             LOG_W(TAG, "CAD: max retries reached, force transmitting");
-            TxPacket &pkt = txQueue[txQueueHead];
-            bool ok = startTransmit(pkt.data, pkt.len);
-            txQueueHead = (txQueueHead + 1) % TX_QUEUE_SIZE;
-            txQueueCount--;
-            cadRetries = 0;
-            return ok;
+            return transmitQueueHead();
         }
 
-        // Restart RX since scanChannel() left radio in standby
-        startReceive(true);
+        // Random backoff long enough for the detected packet to finish. Use continuous
+        // RX meanwhile: duty-cycle RX could miss the preamble already in flight.
+        uint32_t backoff = LoRaConstants::CAD_BACKOFF_BASE_MS + random(LoRaConstants::CAD_BACKOFF_JITTER_MS);
+        cadBackoffUntil = millis() + backoff;
+        LOG_D(TAG, "CAD: backing off %u ms", (unsigned)backoff);
+        startReceive(false);
         return false;
     }
     else
@@ -429,6 +456,19 @@ void LoRaManager::process()
         // the hardware settle time required for reliable TX->RX transitions.
         state = STATE_TX_SETTLING;
         txSettleDeadline = millis() + LoRaConstants::RX_SETTLE_TIME_MS;
+        return;
+    }
+
+    // Lost TX_DONE recovery: give up on the transmission once its deadline passes
+    if (state == STATE_TRANSMITTING && (int32_t)(millis() - txDeadline) >= 0)
+    {
+        LOG_E(TAG, "TX timeout - no TX_DONE interrupt, returning to RX");
+        radio->finishTransmit();
+        startReceive(true);
+        if (transmitCallback)
+        {
+            transmitCallback(false);
+        }
         return;
     }
 

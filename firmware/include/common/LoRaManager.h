@@ -182,11 +182,20 @@ private:
     int txQueueCount = 0;
     int cadRetries = 0;
 
+    // Earliest millis() at which the next CAD attempt may run (random backoff after busy)
+    uint32_t cadBackoffUntil = 0;
+
+    // millis() deadline for TX_DONE; recovers from a lost TX interrupt
+    uint32_t txDeadline = 0;
+
     // TX→RX settle deadline (millis timestamp, used in STATE_TX_SETTLING)
     uint32_t txSettleDeadline = 0;
 
     /// Process TX queue: CAD check then transmit if channel free
     bool processTxQueue();
+
+    /// Pop the queue head and start transmitting it; reports failure via transmitCallback
+    bool transmitQueueHead();
 };
 
 #endif // LORA_MANAGER_H

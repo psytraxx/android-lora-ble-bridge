@@ -56,8 +56,11 @@ namespace LoRaConstants
     /// CAD (Channel Activity Detection) configuration
     /// Used to check if the channel is free before transmitting
     constexpr int CAD_MAX_RETRIES = 5;        ///< Max CAD attempts before force-transmitting
-    constexpr int CAD_BACKOFF_BASE_MS = 50;   ///< Base backoff between CAD retries
-    constexpr int CAD_BACKOFF_JITTER_MS = 100; ///< Random jitter added to backoff
+    /// Backoff after a busy CAD. Must be on the scale of a packet's airtime (~1.6 s with the
+    /// 64-symbol preamble at SF11/BW125), otherwise all retries land inside one foreign
+    /// packet and we force-transmit into it.
+    constexpr int CAD_BACKOFF_BASE_MS = 500;    ///< Base backoff between CAD retries
+    constexpr int CAD_BACKOFF_JITTER_MS = 1000; ///< Random jitter added to backoff
 
     /// Number of retry attempts for LoRa initialization
     constexpr int INIT_RETRY_COUNT = 3;
