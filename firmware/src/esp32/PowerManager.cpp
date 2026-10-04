@@ -27,7 +27,10 @@ bool PowerManager::configurePowerManagement()
     esp_pm_config_t pm_config = {
         .max_freq_mhz = 160,
         .min_freq_mhz = 80,
-        .light_sleep_enable = true}; // Auto light sleep when idle (tickless idle); BLE uses modem sleep
+        // Auto light sleep is intentionally OFF: it gates APB mid-SPI, which skews
+        // CAD channel assessment and delays DIO1 RX-done servicing. DFS (80-160 MHz)
+        // is kept — it does not interfere with radio timing. BLE still uses modem sleep.
+        .light_sleep_enable = false};
 
     esp_err_t rv = esp_pm_configure(&pm_config);
     if (rv != ESP_OK)
