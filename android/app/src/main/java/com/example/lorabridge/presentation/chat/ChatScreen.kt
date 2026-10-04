@@ -5,32 +5,51 @@ import android.content.Intent
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocationOff
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,12 +58,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.example.lorabridge.domain.model.DeviceInfo
+import com.example.lorabridge.domain.model.Message
 import com.example.lorabridge.presentation.components.ConnectionDialog
 import com.example.lorabridge.presentation.components.MessageBubble
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -102,8 +123,11 @@ fun ChatScreen(
         }
     }
 
-    // Auto-scroll to bottom when new message added
-    LaunchedEffect(uiState.messages.size) {
+    // Auto-scroll to bottom when a new message arrives, and again when the
+    // keyboard opens — otherwise the newest bubble stays hidden behind it.
+    val density = LocalDensity.current
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
+    LaunchedEffect(uiState.messages.size, imeVisible) {
         if (uiState.messages.isNotEmpty()) {
             listState.animateScrollToItem(uiState.messages.size - 1)
         }
@@ -146,11 +170,10 @@ fun ChatScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("LoRa Chat", fontWeight = FontWeight.Bold)
-                    }
+                    Text(
+                        text = "LoRa Chat",
+                        style = MaterialTheme.typography.titleLarge
+                    )
                 },
                 actions = {
                     val isConnected =
@@ -165,55 +188,88 @@ fun ChatScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             )
-        }
+        },
+        // The composer applies the bottom insets itself (see below), so the
+        // Scaffold must not also reserve space for them.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .imePadding()
         ) {
-            // Status row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            // Status strip: connection on the left, GPS fix on the right. Sits on
+            // a tinted surface so it reads as chrome rather than as chat content.
+            val isConnected =
+                uiState.connectionState is com.example.lorabridge.domain.model.BleConnectionState.Connected
+
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
             ) {
-                val isConnected =
-                    uiState.connectionState is com.example.lorabridge.domain.model.BleConnectionState.Connected
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .background(
+                                color = if (isConnected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.error
+                                },
+                                shape = CircleShape
+                            )
+                    )
 
-                Text(
-                    text = uiState.connectionStatusText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.weight(1f),
-                    color = if (isConnected) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    }
-                )
+                    Text(
+                        text = uiState.connectionStatusText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
 
-                Text(
-                    text = uiState.gpsText,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontSize = 12.sp
-                )
+                    Icon(
+                        imageVector = if (uiState.hasGpsFix) {
+                            Icons.Default.LocationOn
+                        } else {
+                            Icons.Default.LocationOff
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = if (uiState.hasGpsFix) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
 
-                // Show disconnect button when connected
-                if (isConnected) {
-                    IconButton(
-                        onClick = { viewModel.disconnect() },
-                        modifier = Modifier.padding(start = 8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Disconnect",
-                            tint = MaterialTheme.colorScheme.error
-                        )
+                    Text(
+                        text = uiState.gpsText,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1
+                    )
+
+                    // Show disconnect button when connected
+                    if (isConnected) {
+                        IconButton(onClick = { viewModel.disconnect() }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Disconnect",
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             }
@@ -222,9 +278,8 @@ fun ChatScreen(
             Box(modifier = Modifier.weight(1f)) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp)
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     items(
                         items = uiState.messages,
@@ -265,52 +320,86 @@ fun ChatScreen(
                 }
             }
 
-            // Character count
-            Text(
-                text = uiState.charCountText,
-                modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = when {
-                    uiState.charCount >= 50 -> MaterialTheme.colorScheme.error
-                    uiState.charCount >= 45 -> MaterialTheme.colorScheme.tertiary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                }
-            )
+            // Composer. The keyboard and the gesture bar occupy the same screen
+            // edge, so the inset has to be the UNION of the two, not the sum:
+            // stacking imePadding() and navigationBarsPadding() double-counted the
+            // gesture bar and made the field jump while the keyboard animated.
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
 
-            // Input row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TextField(
-                    value = uiState.messageInput,
-                    onValueChange = { viewModel.updateMessageInput(it) },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Type message...") },
-                    maxLines = 3
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(
-                    onClick = {
-                        if (uiState.messageInput.isNotBlank()) {
-                            viewModel.sendMessage(uiState.messageInput)
-                            viewModel.updateMessageInput("")
-                        }
-                    },
-                    enabled = uiState.canSendMessage && uiState.messageInput.isNotBlank()
+            Surface(color = MaterialTheme.colorScheme.surface) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(
+                            WindowInsets.ime.union(WindowInsets.navigationBars)
+                                .only(WindowInsetsSides.Bottom)
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send"
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = uiState.messageInput,
+                            onValueChange = { viewModel.updateMessageInput(it) },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("Type message\u2026") },
+                            maxLines = 4,
+                            shape = RoundedCornerShape(24.dp),
+                            isError = uiState.charCount > Message.MAX_TEXT_LENGTH,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                    .copy(alpha = 0.5f)
+                            )
+                        )
+
+                        val canSend = uiState.canSendMessage && uiState.messageInput.isNotBlank()
+                        FilledIconButton(
+                            onClick = {
+                                if (uiState.messageInput.isNotBlank()) {
+                                    viewModel.sendMessage(uiState.messageInput)
+                                    viewModel.updateMessageInput("")
+                                }
+                            },
+                            enabled = canSend,
+                            modifier = Modifier.size(52.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send"
+                            )
+                        }
+                    }
+
+                    // Character count, right-aligned under the field it describes.
+                    Text(
+                        text = uiState.charCountText,
+                        modifier = Modifier
+                            .align(Alignment.End)
+                            .padding(end = 64.dp, top = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when {
+                            uiState.charCount >= Message.MAX_TEXT_LENGTH ->
+                                MaterialTheme.colorScheme.error
+                            uiState.charCount >= WARN_CHAR_COUNT ->
+                                MaterialTheme.colorScheme.tertiary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
                 }
             }
         }
     }
 }
+
+/** Character count at which the counter turns amber as a soft warning. */
+private const val WARN_CHAR_COUNT = 45
 
 @Composable
 private fun DeviceInfoDialog(

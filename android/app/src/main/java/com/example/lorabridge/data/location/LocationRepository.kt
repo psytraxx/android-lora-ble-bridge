@@ -2,6 +2,7 @@ package com.example.lorabridge.data.location
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Build
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -97,27 +98,46 @@ class LocationRepository @Inject constructor(
     private fun requestFromTraditionalProviders() {
         // GPS provider
         if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-            gpsListener = LocationListener { location ->
-                updateLocation(location, "GPS")
-                removeListeners()
-            }
-            locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER, gpsListener!!, null)
-            Log.d(TAG, "Requested single update from GPS")
+            requestSingleUpdateCompat(LocationManager.GPS_PROVIDER, "GPS") { gpsListener = it }
         }
 
         // Network provider (fallback)
         if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-            networkListener = LocationListener { location ->
-                updateLocation(location, "Network")
+            requestSingleUpdateCompat(LocationManager.NETWORK_PROVIDER, "Network") {
+                networkListener = it
+            }
+        }
+    }
+
+    /**
+     * One-shot location request. requestSingleUpdate() is deprecated, so API 30+
+     * uses getCurrentLocation(); older devices keep the listener-based path, which
+     * is why the caller still hands us a slot to store the listener in.
+     */
+    @SuppressLint("MissingPermission")
+    private fun requestSingleUpdateCompat(
+        provider: String,
+        label: String,
+        storeListener: (LocationListener) -> Unit
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            locationManager.getCurrentLocation(
+                provider,
+                null,
+                context.mainExecutor
+            ) { location ->
+                location?.let { updateLocation(it, label) }
+            }
+        } else {
+            val listener = LocationListener { location ->
+                updateLocation(location, label)
                 removeListeners()
             }
-            locationManager.requestSingleUpdate(
-                LocationManager.NETWORK_PROVIDER,
-                networkListener!!,
-                null
-            )
-            Log.d(TAG, "Requested single update from Network")
+            storeListener(listener)
+            @Suppress("DEPRECATION")
+            locationManager.requestSingleUpdate(provider, listener, null)
         }
+        Log.d(TAG, "Requested single update from $label")
     }
 
     /**

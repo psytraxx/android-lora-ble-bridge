@@ -109,7 +109,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             locationRepository.currentLocation.collect { location ->
                 _uiState.value = _uiState.value.copy(
-                    gpsText = location?.toDisplayString() ?: "No GPS fix"
+                    gpsText = location?.toDisplayString() ?: "No GPS fix",
+                    hasGpsFix = location != null
                 )
             }
         }
@@ -168,7 +169,8 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             val location = locationRepository.getLastKnownLocation()
             _uiState.value = _uiState.value.copy(
-                gpsText = location?.toDisplayString() ?: "No GPS fix"
+                gpsText = location?.toDisplayString() ?: "No GPS fix",
+                hasGpsFix = location != null
             )
         }
     }
@@ -392,6 +394,7 @@ data class ChatUiState(
     val connectionStatusText: String = "Disconnected",
     val messages: List<ChatMessage> = emptyList(),
     val gpsText: String = "No GPS fix",
+    val hasGpsFix: Boolean = false,
     val messageInput: String = "",
     val charCount: Int = 0,
     val charCountText: String = "0/50 chars (12 bytes)",
