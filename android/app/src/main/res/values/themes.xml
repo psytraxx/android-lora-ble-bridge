@@ -1,5 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.Lorabridge" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+      This app draws its entire UI with Compose, so the XML theme only styles the
+      window up until the first frame. DayNight keeps the launch background in step
+      with the system setting; the old Material.Light parent was pinned to light and
+      flashed white when the system was in dark mode.
+
+      Bar colors are deliberately not set: from targetSdk 35 on, edge-to-edge is
+      enforced and android:statusBarColor / android:navigationBarColor are ignored.
+      Bar icon tint is chosen per color scheme in LorabridgeTheme instead.
+
+      Theme.DeviceDefault.DayNight has no .NoActionBar variant in the framework, so
+      the action bar is switched off with the two window attributes below.
+    -->
+    <style name="Theme.Lorabridge" parent="android:Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
 </resources>

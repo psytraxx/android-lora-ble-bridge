@@ -4,8 +4,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import com.example.lorabridge.presentation.chat.ChatScreen
 import com.example.lorabridge.ui.theme.LorabridgeTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -19,15 +17,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Configure window insets for edge-to-edge
+        // Draw behind the system bars; LorabridgeTheme picks the bar icon tint to
+        // match the active color scheme, and ChatScreen consumes the insets.
         enableEdgeToEdge()
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        // Set light status bar icons
-        WindowCompat.getInsetsController(window, window.decorView).apply {
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            isAppearanceLightStatusBars = true
-        }
 
         setContent {
             LorabridgeTheme {

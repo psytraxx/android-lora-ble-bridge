@@ -330,7 +330,17 @@ class BleRepository @Inject constructor(
         _connectionState.value = BleConnectionState.Connecting
         Log.d(TAG, "Connecting to ${device.name ?: "Unknown"} (${device.address})")
 
-        bluetoothGatt = device.connectGatt(context, false, gattCallback)
+        // Note: every Context-based connectGatt overload is deprecated as of API 37
+        // in favour of connectGatt(BluetoothGattConnectionSettings, Executor,
+        // callback), which is API 37+ only while this app supports API 29. Keeping
+        // the stable overload; TRANSPORT_LE is explicit since this device is BLE-only.
+        @Suppress("DEPRECATION")
+        bluetoothGatt = device.connectGatt(
+            context,
+            false,
+            gattCallback,
+            BluetoothDevice.TRANSPORT_LE
+        )
 
         // Connection timeout with phase tracking
         scope.launch {
