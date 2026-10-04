@@ -18,6 +18,7 @@
 #include "common/FirmwareConfig.h"
 #include "common/LEDManager.h"
 #include "common/LoopWake.h"
+#include "common/ButtonManager.h"
 
 // Platform-specific FreeRTOS includes
 #if defined(ARDUINO_ARCH_ESP32)
@@ -76,6 +77,10 @@ static std::unique_ptr<LoRaManager> loraManager;
 #endif
 static std::unique_ptr<LEDManager> ledManager(new LEDManager(LED_PIN, LED_RED_PIN, LED_BLUE_PIN, LED_ACTIVE_LOW,
                                                              LEDConstants::HEARTBEAT_INTERVAL_MS, LEDConstants::HEARTBEAT_DURATION_MS));
+#endif
+
+#ifdef WAKE_BUTTON
+static ButtonManager buttonManager(WAKE_BUTTON);
 #endif
 
 // Deep sleep inactivity timer
@@ -219,6 +224,11 @@ void setup()
     ledManager->setup();
 #endif
 
+#ifdef WAKE_BUTTON
+    buttonManager.setup();
+    LOG_I(TAG, "User button on pin %d (active LOW)", (int)WAKE_BUTTON);
+#endif
+
     // Initialize storage manager (static allocation)
     storageManager = &storageManagerInstance;
     if (!storageManager->begin())
@@ -353,6 +363,14 @@ void loop()
 // Update LED state machine (non-blocking, includes heartbeat)
 #ifdef LED_PIN
     ledManager->update();
+#endif
+
+#ifdef WAKE_BUTTON
+    if (buttonManager.wasPressed())
+    {
+        LOG_I(TAG, "User button pressed");
+        resetInactivityTimer();
+    }
 #endif
 
     // Process LoRa events

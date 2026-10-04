@@ -1117,6 +1117,8 @@ CONFIG_SR_NSN_WEBRTC=y
 # default:
 # CONFIG_SR_NSN_NSNET2 is not set
 # default:
+# CONFIG_SR_NSN_NSNET3 is not set
+# default:
 CONFIG_SR_VADN_WEBRTC=y
 # default:
 # CONFIG_SR_VADN_VADNET1_MEDIUM is not set
@@ -1157,6 +1159,18 @@ CONFIG_SR_VADN_WEBRTC=y
 # CONFIG_SR_WN_WN10_HEYHERMES is not set
 # default:
 # CONFIG_SR_WN_WN10_HEYNOVA is not set
+# default:
+# CONFIG_SR_WN_WN10_HIESP is not set
+# default:
+# CONFIG_SR_WN_WN10_ALEXA is not set
+# default:
+# CONFIG_SR_WN_WN10_TU2TU2NI3HAO3 is not set
+# default:
+# CONFIG_SR_WN_WN10_JA_AIRISU is not set
+# default:
+# CONFIG_SR_WN_WN10_EN_HEYBUDDY is not set
+# default:
+# CONFIG_SR_WN_WN10_ES_HOLAESP is not set
 # default:
 # CONFIG_SR_WN_WN9L_JA_KONNICHIHAESP_TTS3 is not set
 # default:
