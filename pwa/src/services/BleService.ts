@@ -71,14 +71,27 @@ const LEGACY_OPTED_OUT = 'none';
 const CONNECT_TIMEOUT_MS = 15_000;
 
 /**
- * Backoff for the no-watchAdvertisements reconnect loop (and for resuming
- * an advertisement watch that failed to arm): starts responsive, backs off
- * to avoid hammering the radio while the device is off for a while, and
- * gives up after RECONNECT_MAX_ATTEMPTS so it does not poll all night.
+ * Shorter budget for the speculative connect that opens the auto-reconnect
+ * path. That attempt only pays off when the device happens to be awake
+ * already; when it is asleep, every second spent waiting here is a second the
+ * advertisement watch is not armed, so a wake during the window is missed.
+ */
+const AUTO_CONNECT_TIMEOUT_MS = 5_000;
+
+/**
+ * Backoff for the reconnect poll: starts responsive, then settles at
+ * RECONNECT_MAX_DELAY_MS so a device that is off for hours is retried steadily
+ * rather than hammered.
+ *
+ * There is deliberately no attempt cap. A cap means "stop reconnecting and make
+ * the user press Connect", which is precisely the behaviour this whole path
+ * exists to avoid - and the device being away for ten minutes is not evidence
+ * that it will not come back. Battery is bounded instead by pausing while the
+ * document is hidden (see shouldPollNow), which is when nobody is waiting on
+ * the connection anyway.
  */
 const RECONNECT_BASE_DELAY_MS = 3_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
-const RECONNECT_MAX_ATTEMPTS = 20;
 
 export enum ConnectionState {
   DISCONNECTED = 'DISCONNECTED',
@@ -315,6 +328,21 @@ export class BleService {
 
     console.log('Device selected:', selectedDevice.name);
     await this.connectToDevice(selectedDevice);
+
+    // Connecting by hand expresses the intent to stay connected, so it also
+    // undoes a previous opt-out. Without this, a single tap of Disconnect
+    // (which switches the preference off) would silently disable every
+    // automatic reconnect from then on - including the watch armed when the
+    // firmware drops the link to sleep - and the only way back would be the
+    // Connect button, every single time.
+    if (!this.isAutoReconnectEnabled()) {
+      try {
+        localStorage.setItem(AUTO_RECONNECT_KEY, 'on');
+      } catch (error) {
+        console.warn('Failed to persist auto-reconnect preference:', error);
+      }
+      this.emitSettingsChange();
+    }
   }
 
   /**
@@ -341,6 +369,17 @@ export class BleService {
       return;
     }
 
+    if (!this.supportsAdvertisementWatch()) {
+      // Separate flag from the permissions backend: watchAdvertisements rides
+      // on Experimental Web Platform features. Without it the reconnect still
+      // works via the connect poll, just on the backoff rather than instantly.
+      console.warn(
+        'watchAdvertisements() unavailable; falling back to connect polling. ' +
+          'Enable chrome://flags/#enable-experimental-web-platform-features ' +
+          'for instant wake-up detection.'
+      );
+    }
+
     if (this.state !== ConnectionState.DISCONNECTED && this.state !== ConnectionState.ERROR) {
       return;
     }
@@ -355,7 +394,9 @@ export class BleService {
     this.reconnectAttempt = 0;
 
     try {
-      await this.connectToDevice(device);
+      // Quiet + short: if the device is awake this lands immediately, and if it
+      // is asleep we want to be watching for its advertisement, not blocking.
+      await this.connectToDevice(device, { quiet: true });
       return;
     } catch {
       // Device is most likely asleep - wait for it to advertise again.
@@ -512,8 +553,18 @@ export class BleService {
    * Private: Connect to an already-selected device and set up characteristics.
    * Shared by the chooser path (connect) and the auto-reconnect path.
    */
-  private async connectToDevice(device: BluetoothDevice): Promise<void> {
+  private async connectToDevice(
+    device: BluetoothDevice,
+    options: { quiet?: boolean } = {}
+  ): Promise<void> {
     this.device = device;
+
+    // A fresh link must not inherit stale teardown intent. disconnect() and
+    // forgetDevice() set this flag and then remove the listener in cleanup()
+    // before the event can fire, so nothing consumes it - leaving it set would
+    // make the *next* connection's sleep-disconnect look user-initiated and
+    // silently skip the advertisement watch.
+    this.userInitiatedDisconnect = false;
 
     try {
       // Listen for disconnection
@@ -521,12 +572,27 @@ export class BleService {
 
       this.setState(ConnectionState.CONNECTING);
 
-      await this.withTimeout(this.establishConnection(device), CONNECT_TIMEOUT_MS);
+      await this.withTimeout(
+        this.establishConnection(device),
+        options.quiet ? AUTO_CONNECT_TIMEOUT_MS : CONNECT_TIMEOUT_MS
+      );
 
       this.reconnectAttempt = 0;
+      this.waitingDevice = null;
       this.rememberDevice(device);
       this.setState(ConnectionState.CONNECTED);
     } catch (error) {
+      // A quiet attempt is a guess ("is the device awake right now?"), and its
+      // failure is the normal case for a sleeping device. Surfacing it as ERROR
+      // would pop a toast on every page load and overwrite the
+      // WAITING_FOR_DEVICE state the caller is about to enter.
+      if (options.quiet) {
+        console.log('Device not reachable right now:', error);
+        this.cleanup();
+        this.setState(ConnectionState.DISCONNECTED);
+        throw error;
+      }
+
       console.error('Connection failed:', error);
       this.setState(ConnectionState.ERROR);
       this.emitError(error as Error);
@@ -662,27 +728,33 @@ export class BleService {
   }
 
   /**
-   * Private: Wait for the device to start advertising, then reconnect.
-   * Used on startup and after an unexpected disconnect, so waking the device
-   * with its button is enough to restore the session.
+   * Private: Wait for the device to come back, then reconnect. Used on startup
+   * and after an unexpected disconnect, so waking the device with its button is
+   * enough to restore the session.
+   *
+   * Two mechanisms run together, deliberately:
+   *
+   * - A connect poll, which is the only one that works everywhere. It needs no
+   *   flag and no advertisement delivery, just the device handle.
+   * - watchAdvertisements(), when available, layered on top for an instant
+   *   reconnect rather than a backoff-delayed one.
+   *
+   * The watch is an optimisation, never the sole mechanism: arming it can
+   * succeed while it then delivers no 'advertisementreceived' at all (Chrome on
+   * Linux/BlueZ logs "Web Bluetooth is experimental on this platform" and does
+   * exactly this, and a backgrounded tab can miss events too). When the watch
+   * was load-bearing, that stranded the app in WAITING_FOR_DEVICE forever and
+   * the user had to press Connect by hand - the symptom this pairing fixes.
    */
   private startAdvertisementWatch(device: BluetoothDevice): void {
     if (!this.isAutoReconnectEnabled()) return;
 
     this.waitingDevice = device;
 
-    if (!this.supportsAdvertisementWatch()) {
-      // watchAdvertisements is flag-gated in Chrome. Until it ships, poll the
-      // handle instead: gatt.connect() needs no flag and succeeds as soon as
-      // the device is awake, which is the same outcome a little less promptly.
-      this.startReconnectPolling(device);
-      return;
-    }
+    // Safety net first, so it is running no matter what the watch does below.
+    this.startReconnectPolling(device);
 
-    if (this.reconnectAttempt >= RECONNECT_MAX_ATTEMPTS) {
-      this.giveUpWaiting();
-      return;
-    }
+    if (!this.supportsAdvertisementWatch()) return;
 
     this.stopAdvertisementWatch();
 
@@ -692,7 +764,8 @@ export class BleService {
     const onAdvertisement = () => {
       console.log('Device is advertising again, reconnecting');
       this.stopAdvertisementWatch();
-      this.connectToDevice(device).catch((error: unknown) => {
+      this.stopReconnectPolling(); // the poll would only duplicate this attempt
+      this.connectToDevice(device, { quiet: true }).catch((error: unknown) => {
         console.warn('Auto-reconnect failed, resuming watch:', error);
         this.reconnectAttempt += 1;
         this.startAdvertisementWatch(device);
@@ -706,14 +779,14 @@ export class BleService {
 
     device.watchAdvertisements({ signal: controller.signal }).then(
       () => {
+        console.log('Watching for advertisements; connect poll running as backup');
         this.setState(ConnectionState.WAITING_FOR_DEVICE);
       },
       (error: unknown) => {
-        // The watch itself failed to arm (not just "no advertisement yet") -
-        // fall back to polling instead of stranding the user disconnected.
-        console.warn('Failed to watch advertisements, falling back to polling:', error);
+        // Failed to arm (not just "no advertisement yet"). The poll is already
+        // running, so this costs us promptness, not the reconnect itself.
+        console.warn('Failed to watch advertisements, relying on connect poll:', error);
         this.stopAdvertisementWatch();
-        this.startReconnectPolling(device);
       }
     );
   }
@@ -722,10 +795,11 @@ export class BleService {
    * Private: Retry gatt.connect() until the device wakes up, backing off
    * between attempts.
    *
-   * Fallback for browsers without watchAdvertisements. Only works while the
-   * page holds the device handle - a reload loses it and needs getDevices(),
-   * which is flag-gated too. Gives up after RECONNECT_MAX_ATTEMPTS so a device
-   * that is off for the night does not poll the radio forever.
+   * The baseline reconnect mechanism - gatt.connect() needs no flag and
+   * succeeds as soon as the device is awake, whether or not any advertisement
+   * was ever delivered to us. Only works while the page holds the device handle
+   * (a reload loses it and needs getDevices()). Runs for as long as the pairing
+   * is wanted; see the backoff constants for why there is no attempt cap.
    */
   private startReconnectPolling(device: BluetoothDevice, attempt = this.reconnectAttempt): void {
     if (!this.isAutoReconnectEnabled()) return;
@@ -733,19 +807,25 @@ export class BleService {
     this.waitingDevice = device;
     this.stopReconnectPolling();
 
-    if (attempt >= RECONNECT_MAX_ATTEMPTS) {
-      this.giveUpWaiting();
-      return;
-    }
-
     this.setState(ConnectionState.WAITING_FOR_DEVICE);
 
     const delay = this.nextReconnectDelay(attempt);
     this.reconnectTimer = window.setTimeout(() => {
-      // A manual connect may have landed while this was pending.
-      if (this.isConnected()) return;
+      // A manual connect, or the advertisement watch, may have landed while
+      // this was pending.
+      if (this.isConnected() || this.state === ConnectionState.CONNECTING) return;
 
-      this.connectToDevice(device)
+      // Nobody is looking at a hidden tab, so skip the radio work and keep the
+      // loop alive at the settled interval. Becoming visible also triggers
+      // retryNow(), which resets the backoff and attempts straight away.
+      if (!this.shouldPollNow()) {
+        this.startReconnectPolling(device, attempt);
+        return;
+      }
+
+      // Quiet: a poll against a sleeping device fails by design, and surfacing
+      // each failure would raise an error toast every few seconds.
+      this.connectToDevice(device, { quiet: true })
         .then(() => {
           console.log('Reconnected after device woke up');
         })
@@ -757,6 +837,15 @@ export class BleService {
   }
 
   /**
+   * Private: Whether a poll attempt is worth making right now. False for a
+   * hidden document: the reconnect would go unseen, and Chrome throttles the
+   * timer anyway.
+   */
+  private shouldPollNow(): boolean {
+    return typeof document === 'undefined' || document.visibilityState !== 'hidden';
+  }
+
+  /**
    * Private: Exponential backoff with a small jitter, capped so waits stay
    * bounded even after many failed attempts.
    */
@@ -764,15 +853,6 @@ export class BleService {
     const base = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** attempt, RECONNECT_MAX_DELAY_MS);
     const jitter = Math.random() * Math.min(500, base * 0.1);
     return base + jitter;
-  }
-
-  /**
-   * Private: Stop waiting after the attempt cap and tell the user how to retry.
-   */
-  private giveUpWaiting(): void {
-    console.log('Gave up waiting for device to wake up');
-    this.setState(ConnectionState.DISCONNECTED);
-    this.emitError(new Error('Device did not reconnect. Press Connect to try again.'));
   }
 
   /**

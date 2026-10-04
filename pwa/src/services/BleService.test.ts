@@ -235,6 +235,45 @@ describe('BleService auto-reconnect', () => {
     expect(fresh.getState()).not.toBe(ConnectionState.CONNECTED);
   });
 
+  it('a manual connect re-enables auto-reconnect after an earlier disconnect', async () => {
+    // Regression: Disconnect switches the preference off, so without this the
+    // user had to press Connect after every sleep cycle, forever.
+    const device = new FakeDevice('device-abc');
+    stubBluetooth({ requestDevice: device, devices: [device] });
+
+    const service = new BleService();
+    await service.connect();
+    await service.disconnect();
+    expect(service.isAutoReconnectEnabled()).toBe(false);
+
+    await service.connect();
+
+    expect(service.isAutoReconnectEnabled()).toBe(true);
+
+    // And the watch is armed again when the firmware drops the link to sleep.
+    device.dispatchEvent(new Event('gattserverdisconnected'));
+    await flush();
+    expect(device.watchAdvertisements).toHaveBeenCalled();
+    expect(service.getState()).toBe(ConnectionState.WAITING_FOR_DEVICE);
+  });
+
+  it('does not report an error when the remembered device is simply asleep', async () => {
+    // The speculative connect in tryAutoReconnect() is a guess; its failure is
+    // the normal case and must not raise a toast on every page load.
+    const device = new FakeDevice('device-abc', 'ESP32S3-LoRa', false);
+    stubBluetooth({ devices: [device] });
+
+    const service = new BleService();
+    const onError = vi.fn();
+    service.onError(onError);
+
+    await service.tryAutoReconnect();
+    await flush();
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(service.getState()).toBe(ConnectionState.WAITING_FOR_DEVICE);
+  });
+
   it('switching auto-reconnect back on resumes without the chooser', async () => {
     const device = new FakeDevice('device-abc');
     const bluetooth = stubBluetooth({ requestDevice: device, devices: [device] });
@@ -377,7 +416,10 @@ describe('BleService auto-reconnect', () => {
     }
   });
 
-  it('gives up after the attempt cap and reports an error', async () => {
+  it('keeps waiting through a long absence instead of giving up', async () => {
+    // A device away for ten minutes is not evidence it will not return, and
+    // giving up puts the user back on the Connect button - the exact behaviour
+    // the auto-reconnect path exists to remove.
     vi.useFakeTimers();
     try {
       const device = new FakeDevice('device-abc');
@@ -389,19 +431,48 @@ describe('BleService auto-reconnect', () => {
       service.onError(onError);
 
       await service.connect();
-      expect(service.getState()).toBe(ConnectionState.CONNECTED);
-
-      // Device sleeps and never comes back within the attempt cap.
       device.gatt.connect = vi.fn().mockRejectedValue(new Error('unreachable'));
       device.dispatchEvent(new Event('gattserverdisconnected'));
       await vi.advanceTimersByTimeAsync(0);
       expect(service.getState()).toBe(ConnectionState.WAITING_FOR_DEVICE);
 
-      // Exhaust every attempt; backoff is capped at 30s per attempt.
-      await vi.advanceTimersByTimeAsync(20 * 30_000);
+      // Well past the old 20-attempt cap, and no error toast in the meantime.
+      await vi.advanceTimersByTimeAsync(40 * 30_000);
+      expect(service.getState()).toBe(ConnectionState.WAITING_FOR_DEVICE);
+      expect(onError).not.toHaveBeenCalled();
 
-      expect(service.getState()).toBe(ConnectionState.DISCONNECTED);
-      expect(onError).toHaveBeenCalled();
+      // Still picks the device up whenever it finally returns.
+      device.gatt.connect = vi.fn().mockResolvedValue(makeServer());
+      await vi.advanceTimersByTimeAsync(35_000);
+      expect(service.getState()).toBe(ConnectionState.CONNECTED);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('polls as a backup even while an advertisement watch is armed', async () => {
+    // Chrome on Linux arms the watch happily and then delivers no
+    // 'advertisementreceived' at all. The watch must never be the only path.
+    vi.useFakeTimers();
+    try {
+      const device = new FakeDevice('device-abc');
+      stubBluetooth({ requestDevice: device });
+
+      const service = new BleService();
+      await service.connect();
+
+      device.gatt.connect = vi.fn().mockRejectedValue(new Error('unreachable'));
+      device.dispatchEvent(new Event('gattserverdisconnected'));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(device.watchAdvertisements).toHaveBeenCalled();
+      expect(service.getState()).toBe(ConnectionState.WAITING_FOR_DEVICE);
+
+      // Device returns, but no advertisement event is ever dispatched.
+      device.gatt.connect = vi.fn().mockResolvedValue(makeServer());
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(service.getState()).toBe(ConnectionState.CONNECTED);
     } finally {
       vi.useRealTimers();
     }
