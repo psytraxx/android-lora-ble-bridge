@@ -30,7 +30,7 @@ jobs:
           path: |
             ~/.cache/pip
             ~/.platformio/.cache
-          key: ${{ runner.os }}-pio-6.1.19
+          key: ${{ runner.os }}-pio-6.2.0
 
       - uses: actions/setup-python@v7
         with:
