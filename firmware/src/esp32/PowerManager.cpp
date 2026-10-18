@@ -417,35 +417,35 @@ void PowerManager::enterDeepSleep()
 
 void PowerManager::printWakeupReason()
 {
-    const uint32_t causes = esp_sleep_get_wakeup_causes();
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
 
-    if (causes & BIT(ESP_SLEEP_WAKEUP_EXT0))
+    switch (wakeup_reason)
     {
+    case ESP_SLEEP_WAKEUP_EXT0:
         LOG_I(TAG, "Wakeup reason: EXT0 (LoRa DIO0)");
-    }
-    else if (causes & BIT(ESP_SLEEP_WAKEUP_EXT1))
-    {
+        break;
+    case ESP_SLEEP_WAKEUP_EXT1:
         LOG_I(TAG, "Wakeup reason: EXT1 (Wake button)");
-    }
-    else if (causes & BIT(ESP_SLEEP_WAKEUP_TIMER))
-    {
+        break;
+    case ESP_SLEEP_WAKEUP_TIMER:
         LOG_I(TAG, "Wakeup reason: Timer");
-    }
-    else if (causes & BIT(ESP_SLEEP_WAKEUP_TOUCHPAD))
-    {
+        break;
+    case ESP_SLEEP_WAKEUP_TOUCHPAD:
         LOG_I(TAG, "Wakeup reason: Touchpad");
-    }
-    else if (causes & BIT(ESP_SLEEP_WAKEUP_ULP))
-    {
+        break;
+    case ESP_SLEEP_WAKEUP_ULP:
         LOG_I(TAG, "Wakeup reason: ULP coprocessor");
-    }
-    else
-    {
+        break;
+    case ESP_SLEEP_WAKEUP_UNDEFINED:
+    default:
         LOG_I(TAG, "Wakeup reason: Power-on reset or other");
+        break;
     }
 }
 
 bool PowerManager::isLoraWakeUp()
 {
-    return (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_EXT0)) != 0;
+    esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+
+    return wakeup_reason == ESP_SLEEP_WAKEUP_EXT0;
 }
