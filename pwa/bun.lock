@@ -13,7 +13,7 @@
         "@tailwindcss/postcss": "^4.2.4",
         "@tailwindcss/vite": "^4.2.4",
         "@types/node": "^26.2.0",
-        "@types/web-bluetooth": "^0.0.21",
+        "@types/web-bluetooth": "^0.0.22",
         "autoprefixer": "^10.5.0",
         "daisyui": "^5.5.19",
         "jsdom": "^30.0.1",
@@ -488,7 +488,7 @@
 
     "@types/trusted-types": ["@types/trusted-types@2.0.7", "", {}, "sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw=="],
 
-    "@types/web-bluetooth": ["@types/web-bluetooth@0.0.21", "", {}, "sha512-oIQLCGWtcFZy2JW77j9k8nHzAOpqMHLQejDA48XXMWH6tjCQHz5RCFz1bzsmROyL6PUm+LLnUiI4BCn221inxA=="],
+    "@types/web-bluetooth": ["@types/web-bluetooth@0.0.22", "", {}, "sha512-4O7kU0Ut0irZvFyk3EvgDrzFYBQI80Puhkb65I7eV6WTZX4iOo5zoDrEfjDBRB7x5Stz31csoHO4hAjSiRTALw=="],
 
     "@types/ws": ["@types/ws@7.4.7", "", { "dependencies": { "@types/node": "*" } }, "sha512-JQbbmxZTZehdc2iszGKs5oC3NFnjeay7mtAWrdt7qNtAVK0g19muApzAy4bm9byz79xa2ZnO/BOBC2R8RC5Lww=="],
 

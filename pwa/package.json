@@ -20,7 +20,7 @@
 		"@tailwindcss/postcss": "^4.2.4",
 		"@tailwindcss/vite": "^4.2.4",
 		"@types/node": "^26.2.0",
-		"@types/web-bluetooth": "^0.0.21",
+		"@types/web-bluetooth": "^0.0.22",
 		"autoprefixer": "^10.5.0",
 		"daisyui": "^5.5.19",
 		"jsdom": "^30.0.1",
