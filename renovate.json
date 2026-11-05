@@ -17,5 +17,14 @@
       "security"
     ],
     "automerge": true
-  }
+  },
+  "packageRules": [
+    {
+      "description": "PlatformIO (pioarduino) supports Python 3.10-3.14 only",
+      "matchDepNames": [
+        "python"
+      ],
+      "allowedVersions": "<3.15"
+    }
+  ]
 }
